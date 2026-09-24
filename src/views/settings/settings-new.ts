@@ -19,6 +19,8 @@ const NEW_SETTINGS = new Set([
   "bigPicture:display",
   "player:separate-display",
   "player:cover-taskbar",
+  "anilist:count-rewatches",
+  "mal:count-rewatches",
 ]);
 
 const LS = "harbor.settingsNew.v1";

@@ -160,6 +160,7 @@ export async function syncMalProgress(
   episode: number | undefined,
   title: string,
   season?: number,
+  countRewatches = true,
 ): Promise<void> {
   if (!isAuthenticated()) return;
   const profile = activeProfileId();
@@ -205,6 +206,9 @@ export async function syncMalProgress(
     // push would drop it back to "watching" and overwrite the progress, so keep
     // the rewatch flag set and only move the rewatch counter forward.
     if (listStatus && (listStatus.status === "completed" || listStatus.is_rewatching)) {
+      // Rewatch recording is off: leave the finished entry exactly as the user
+      // set it, the way the sync behaved before rewatches were supported.
+      if (!countRewatches) return;
       // Remember the title as finished: the sent fast-path above is keyed by
       // episode and cannot tell a first watch from a rewatch, so it steps aside.
       if (rewatch[harborId] !== true) {

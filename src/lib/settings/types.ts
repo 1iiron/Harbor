@@ -249,6 +249,8 @@ export type Settings = {
   harborColor: string;
   anilistAutoSync: boolean;
   malAutoSync: boolean;
+  anilistCountRewatches: boolean;
+  malCountRewatches: boolean;
   anilistBlurComments: boolean;
   showAnilistComments: boolean;
   useAnilistAvatar: boolean;
