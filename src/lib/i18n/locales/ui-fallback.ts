@@ -2,6 +2,8 @@
 const uiFallback: Record<string, string> = {
   "Rewatching on AniList": "Rewatching on AniList",
   "Rewatched on AniList": "Rewatched on AniList",
+  "Rewatching on MyAnimeList": "Rewatching on MyAnimeList",
+  "Rewatched on MyAnimeList": "Rewatched on MyAnimeList",
   "Big Picture display": "Big Picture display",
   "Which monitor Big Picture opens on at startup.":
     "Which monitor Big Picture opens on at startup.",
