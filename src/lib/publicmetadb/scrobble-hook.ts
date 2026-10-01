@@ -17,7 +17,9 @@ type Snap = {
 
 const STUB_MAX_SEC = 120;
 const COMPLETION_RATIO = 0.9;
-const MIN_SAVE_INTERVAL_MS = 20_000;
+// Position snapshots are crash insurance only; PMDB asks for event-based
+// saves (pause/stop/close), and each save counts against a 300/hour budget.
+const MIN_SAVE_INTERVAL_MS = 60_000;
 const SEEK_SAVE_DEBOUNCE_MS = 800;
 
 export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: Snap }): void {

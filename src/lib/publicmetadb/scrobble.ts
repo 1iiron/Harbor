@@ -4,7 +4,9 @@ import { isAuthenticated } from "./session";
 import type { PmdbResumeResponse, PmdbSaveResumeResponse, PmdbTarget } from "./types";
 
 const RESUME_LOOKUP_PER_PAGE = 100;
-const RESUME_LOOKUP_MAX_PAGES = 10;
+// The conflicting point was written moments ago, so it sits on the first
+// pages. Bound the scan: every page is a request against the hourly budget.
+const RESUME_LOOKUP_MAX_PAGES = 3;
 
 function resumeSeasonEpisode(target: PmdbTarget): { season: number; episode: number } {
   if (target.media_type === "movie") return { season: 0, episode: 0 };
