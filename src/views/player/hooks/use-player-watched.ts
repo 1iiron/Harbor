@@ -10,6 +10,7 @@ import { decodeWatchedEpisodes } from "@/lib/stremio-watched";
 import { fetchWatchedKeySet } from "@/lib/trakt/history";
 import { useTrakt } from "@/lib/trakt/provider";
 import { fetchPmdbWatchedKeySet } from "@/lib/publicmetadb/history";
+import { stremioIdToPmdbTarget } from "@/lib/publicmetadb/ids";
 import { usePublicMetaDb } from "@/lib/publicmetadb/provider";
 import type { PlayEpisode } from "@/lib/view";
 
@@ -56,9 +57,13 @@ export function usePlayerWatched(params: {
   }, [enabled, simklConnected, imdbId, meta.id]);
 
   useEffect(() => {
-    if (!enabled || !pmdbConnected) return;
+    if (!enabled || !pmdbConnected) {
+      setPmdbWatched(new Set());
+      return;
+    }
     let cancelled = false;
-    fetchPmdbWatchedKeySet()
+    const target = stremioIdToPmdbTarget(meta.id, undefined, "series");
+    fetchPmdbWatchedKeySet(target ?? undefined)
       .then((s) => {
         if (!cancelled) setPmdbWatched(s);
       })

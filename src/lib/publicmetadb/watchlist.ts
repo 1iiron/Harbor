@@ -10,13 +10,17 @@ import type {
 
 let cachedWatchlistId: string | null = null;
 
+export function clearPmdbWatchlistCache(): void {
+  cachedWatchlistId = null;
+}
+
 async function getWatchlistId(): Promise<string | null> {
   if (cachedWatchlistId) return cachedWatchlistId;
   try {
     const res = await pmdbRequest<PmdbListsResponse>("/api/external/lists", {
       method: "GET",
     });
-    const watchlist = res?.items?.find((l: PmdbList) => l.type === "watchlist") ?? res?.items?.[0];
+    const watchlist = res?.items?.find((l: PmdbList) => l.type === "watchlist");
     if (watchlist?.id) {
       cachedWatchlistId = watchlist.id;
       return watchlist.id;

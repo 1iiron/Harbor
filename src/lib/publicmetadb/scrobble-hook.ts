@@ -2,9 +2,9 @@ import { useEffect, useRef } from "react";
 import { getPlaybackPosition } from "@/lib/player/playback-clock";
 import { useSettings } from "@/lib/settings";
 import type { PlayerSrc } from "@/lib/view";
-import { resolvePmdbEpisodeTarget, stremioIdToPmdbTarget } from "./ids";
+import { resolvePmdbEpisodeTarget, resolvePmdbTarget } from "./ids";
 import { usePublicMetaDb } from "./provider";
-import { pmdbBeaconResume, pmdbSaveResume } from "./scrobble";
+import { pmdbBeaconResume, pmdbDeleteResumeForTarget, pmdbSaveResume } from "./scrobble";
 import { markPmdbWatched } from "./history";
 import type { PmdbTarget } from "./types";
 
@@ -15,8 +15,9 @@ type Snap = {
 };
 
 const STUB_MAX_SEC = 120;
-const COMPLETION_RATIO = 0.8;
-const MIN_SAVE_INTERVAL_MS = 30_000;
+const COMPLETION_RATIO = 0.9;
+const MIN_SAVE_INTERVAL_MS = 20_000;
+const SEEK_SAVE_DEBOUNCE_MS = 800;
 
 export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: Snap }): void {
   const { isConnected } = usePublicMetaDb();
@@ -24,9 +25,18 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
   const enabled = isConnected && settings.publicmetadbScrobbleEnabled;
 
   const targetRef = useRef<PmdbTarget | null>(null);
+  const durationRef = useRef(0);
+  const maxPosRef = useRef(0);
   const lastSaveTimeRef = useRef(0);
   const lastSavedPosRef = useRef(-1);
   const endedHandledRef = useRef(false);
+  const seekTrackRef = useRef({ pos: 0, at: 0 });
+  const pendingSeekTimerRef = useRef<number | null>(null);
+
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+  const statusRef = useRef(snap.status);
+  statusRef.current = snap.status;
 
   const metaId = src.meta.id;
   const season = src.episode?.season;
@@ -34,10 +44,69 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
   const key = `${metaId}|${season ?? ""}|${episode ?? ""}`;
   const lastKeyRef = useRef<string | null>(null);
 
-  // Resolve target whenever media identity changes
+  const clearPendingSeek = () => {
+    if (pendingSeekTimerRef.current != null) {
+      window.clearTimeout(pendingSeekTimerRef.current);
+      pendingSeekTimerRef.current = null;
+    }
+  };
+
+  const saveOrWatched = (
+    target: PmdbTarget | null,
+    posSec: number,
+    durSec: number,
+    isBeacon = false,
+  ) => {
+    if (!target || durSec < STUB_MAX_SEC) return;
+    const clampedPos = Math.max(0, Math.min(durSec, Number.isFinite(posSec) ? posSec : 0));
+    const ratio = durSec > 0 ? clampedPos / durSec : 0;
+    if (ratio < 0.02) return;
+
+    if (ratio >= COMPLETION_RATIO) {
+      void markPmdbWatched(target).then(() => {
+        void pmdbDeleteResumeForTarget(target);
+      });
+      return;
+    }
+
+    lastSaveTimeRef.current = Date.now();
+    lastSavedPosRef.current = clampedPos;
+
+    const posMs = clampedPos * 1000;
+    const durMs = durSec * 1000;
+    if (isBeacon) {
+      pmdbBeaconResume(target, posMs, durMs);
+    } else {
+      void pmdbSaveResume(target, posMs, durMs);
+    }
+  };
+
+  // Track latest usable duration for the current key. Updated from the live
+  // snapshot so interval/pause/pagehide handlers never read a stale closure.
   useEffect(() => {
+    if (lastKeyRef.current !== key) return;
+    if (snap.durationSec >= STUB_MAX_SEC) durationRef.current = snap.durationSec;
+  }, [key, snap.durationSec]);
+
+  // Resolve target whenever media identity changes. Cleanup flushes the
+  // previous item from refs (still holding prev values at cleanup time).
+  useEffect(() => {
+    const prevKey = lastKeyRef.current;
+    if (prevKey && prevKey !== key) {
+      clearPendingSeek();
+      if (enabledRef.current) {
+        const t = targetRef.current;
+        const d = durationRef.current;
+        const p = maxPosRef.current;
+        if (t && d >= STUB_MAX_SEC && p > 0) saveOrWatched(t, p, d);
+      }
+    }
+    lastKeyRef.current = key;
+
     let cancelled = false;
     targetRef.current = null;
+    durationRef.current = snap.durationSec >= STUB_MAX_SEC ? snap.durationSec : 0;
+    maxPosRef.current = 0;
     endedHandledRef.current = false;
     lastSaveTimeRef.current = 0;
     lastSavedPosRef.current = -1;
@@ -55,10 +124,10 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
             absoluteNumber: src.episode.absoluteNumber,
           },
           src.imdbId,
-        );
+        ).catch(() => null);
       } else {
         const type = src.meta.type === "series" ? "series" : "movie";
-        resolved = stremioIdToPmdbTarget(metaId, undefined, type);
+        resolved = await resolvePmdbTarget(metaId, type).catch(() => null);
         if (!resolved && src.imdbId) {
           resolved = {
             id_type: "imdb",
@@ -69,111 +138,137 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
       }
       if (!cancelled) {
         targetRef.current = resolved;
+        const live = getPlaybackPosition();
+        if (live > maxPosRef.current) maxPosRef.current = live;
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [metaId, season, episode, src.episode?.imdbSeason, src.episode?.imdbEpisode, src.episode?.absoluteNumber, src.imdbId, src.meta.type]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    key,
+    metaId,
+    season,
+    episode,
+    src.episode?.imdbSeason,
+    src.episode?.imdbEpisode,
+    src.episode?.absoluteNumber,
+    src.imdbId,
+    src.meta.type,
+  ]);
 
-  const saveResumeNow = (posSec: number, durSec: number, isBeacon = false) => {
-    const target = targetRef.current;
-    if (!target || durSec < STUB_MAX_SEC) return;
+  // Active playback interval: periodically saves progress & detects seeks.
+  useEffect(() => {
+    if (!enabled) return;
+    if (snap.status !== "playing" && snap.status !== "paused") return;
 
-    const ratio = durSec > 0 ? posSec / durSec : 0;
-    if (ratio < 0.02) return;
+    seekTrackRef.current = { pos: getPlaybackPosition(), at: Date.now() };
 
-    const posMs = posSec * 1000;
-    const durMs = durSec * 1000;
+    const intervalId = window.setInterval(() => {
+      if (!enabledRef.current) return;
+      const dur = durationRef.current || snap.durationSec;
+      if (dur < STUB_MAX_SEC) return;
+      const now = Date.now();
+      const pos = getPlaybackPosition();
+      if (pos > maxPosRef.current) maxPosRef.current = pos;
 
-    if (ratio >= COMPLETION_RATIO) {
-      void markPmdbWatched(target);
+      const prev = seekTrackRef.current;
+      const dPos = pos - prev.pos;
+      const dT = Math.max(0.001, (now - prev.at) / 1000);
+      seekTrackRef.current = { pos, at: now };
+
+      const isSeek = Math.abs(dPos) > 4 && (dT < 1.5 || Math.abs(dPos / dT) > 2.5);
+      if (isSeek) {
+        clearPendingSeek();
+        pendingSeekTimerRef.current = window.setTimeout(() => {
+          pendingSeekTimerRef.current = null;
+          if (!enabledRef.current) return;
+          const live = getPlaybackPosition();
+          if (live > maxPosRef.current) maxPosRef.current = live;
+          const t = targetRef.current;
+          const d = durationRef.current;
+          if (t && d >= STUB_MAX_SEC) saveOrWatched(t, live, d);
+        }, SEEK_SAVE_DEBOUNCE_MS);
+        return;
+      }
+
+      if (statusRef.current === "playing") {
+        const timeSinceSave = now - lastSaveTimeRef.current;
+        const posChange = Math.abs(pos - lastSavedPosRef.current);
+        if (timeSinceSave >= MIN_SAVE_INTERVAL_MS && posChange >= 10) {
+          const t = targetRef.current;
+          if (t) saveOrWatched(t, pos, dur);
+        }
+      }
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      clearPendingSeek();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, snap.status]);
+
+  // Playback state transitions: paused saves, ended marks watched (or saves).
+  // Uses maxPosRef so a natural end that resets position still completes.
+  useEffect(() => {
+    if (!enabled) return;
+    const t = targetRef.current;
+    if (!t) return;
+    const dur = durationRef.current || snap.durationSec;
+    if (dur < STUB_MAX_SEC) return;
+
+    if (snap.status === "ended") {
+      if (endedHandledRef.current) return;
+      endedHandledRef.current = true;
+      clearPendingSeek();
+      const live = getPlaybackPosition();
+      const best = Math.max(live, maxPosRef.current);
+      saveOrWatched(t, best, dur);
       return;
     }
 
-    if (isBeacon) {
-      pmdbBeaconResume(target, posMs, durMs);
-    } else {
-      lastSaveTimeRef.current = Date.now();
-      lastSavedPosRef.current = posSec;
-      void pmdbSaveResume(target, posMs, durMs);
-    }
-  };
-
-  // Handle page hide / app close
-  useEffect(() => {
-    if (!enabled) return;
-
-    const onPageHide = () => {
-      const dur = snap.durationSec;
-      if (dur < STUB_MAX_SEC) return;
+    if (snap.status === "paused") {
+      clearPendingSeek();
       const live = getPlaybackPosition();
-      saveResumeNow(live, dur, true);
+      if (live > maxPosRef.current) maxPosRef.current = live;
+      saveOrWatched(t, live, dur);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, snap.status]);
+
+  // Page hide / app close. Registered once; reads refs so no stale closures.
+  useEffect(() => {
+    const onPageHide = () => {
+      if (!enabledRef.current) return;
+      clearPendingSeek();
+      const t = targetRef.current;
+      const dur = durationRef.current;
+      if (!t || dur < STUB_MAX_SEC) return;
+      const live = getPlaybackPosition();
+      const best = Math.max(live, maxPosRef.current);
+      saveOrWatched(t, best, dur, true);
     };
 
     window.addEventListener("pagehide", onPageHide);
     return () => {
       window.removeEventListener("pagehide", onPageHide);
     };
-  }, [enabled, snap.durationSec]);
+  }, []);
 
-  // Handle item change: save previous if needed
-  useEffect(() => {
-    if (lastKeyRef.current && lastKeyRef.current !== key) {
-      const prevDur = snap.durationSec;
-      if (enabled && prevDur >= STUB_MAX_SEC && targetRef.current) {
-        const live = getPlaybackPosition();
-        saveResumeNow(live, prevDur);
-      }
-    }
-    lastKeyRef.current = key;
-  }, [enabled, key]);
-
-  // Playback state transitions
-  useEffect(() => {
-    if (!enabled || !targetRef.current) return;
-    if (snap.durationSec < STUB_MAX_SEC) return;
-
-    const liveSec = getPlaybackPosition();
-    const ratio = snap.durationSec > 0 ? liveSec / snap.durationSec : 0;
-
-    if (snap.status === "ended") {
-      if (!endedHandledRef.current) {
-        endedHandledRef.current = true;
-        if (ratio >= COMPLETION_RATIO) {
-          void markPmdbWatched(targetRef.current);
-        }
-      }
-      return;
-    }
-
-    if (snap.status === "paused") {
-      saveResumeNow(liveSec, snap.durationSec);
-      return;
-    }
-
-    // While playing, periodically save if elapsed interval >= 30s and position changed significantly
-    if (snap.status === "playing") {
-      const now = Date.now();
-      if (
-        now - lastSaveTimeRef.current >= MIN_SAVE_INTERVAL_MS &&
-        Math.abs(liveSec - lastSavedPosRef.current) >= 15
-      ) {
-        saveResumeNow(liveSec, snap.durationSec);
-      }
-    }
-  }, [enabled, snap.status, snap.positionSec, snap.durationSec]);
-
-  // Flush on unmount
+  // Flush on unmount only. Empty deps: cleanup must not run on duration edits.
   useEffect(() => {
     return () => {
-      if (!enabled || !targetRef.current) return;
-      const dur = snap.durationSec;
-      if (dur >= STUB_MAX_SEC) {
-        const live = getPlaybackPosition();
-        saveResumeNow(live, dur, true);
-      }
+      if (!enabledRef.current) return;
+      clearPendingSeek();
+      const t = targetRef.current;
+      const dur = durationRef.current;
+      if (!t || dur < STUB_MAX_SEC) return;
+      const live = getPlaybackPosition();
+      const best = Math.max(live, maxPosRef.current);
+      saveOrWatched(t, best, dur, true);
     };
-  }, [enabled]);
+  }, []);
 }

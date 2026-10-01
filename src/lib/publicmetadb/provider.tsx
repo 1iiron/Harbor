@@ -8,9 +8,10 @@ import {
   type ReactNode,
 } from "react";
 import { verifyApiKey } from "./client";
-import { markPmdbWatched, unmarkPmdbWatched } from "./history";
-import { stremioIdToPmdbTarget } from "./ids";
+import { invalidatePmdbWatchedCache, markPmdbWatched, unmarkPmdbWatched } from "./history";
+import { resolvePmdbEpisodeTarget, resolvePmdbTarget, stremioIdToPmdbTarget } from "./ids";
 import { getSession, setSession, subscribeSession, updateSessionUsername } from "./session";
+import { clearPmdbWatchlistCache } from "./watchlist";
 import type { PmdbSession, PmdbTarget } from "./types";
 
 type Value = {
@@ -35,6 +36,11 @@ type Value = {
     episode?: { season: number; episode: number },
     type?: "movie" | "series",
   ) => PmdbTarget | null;
+  resolveTargetAsync: (
+    metaId: string,
+    episode?: { season: number; episode: number; absoluteNumber?: number },
+    type?: "movie" | "series",
+  ) => Promise<PmdbTarget | null>;
 };
 
 const Ctx = createContext<Value | null>(null);
@@ -70,6 +76,8 @@ export function PublicMetaDbProvider({ children }: { children: ReactNode }) {
 
   const disconnect = useCallback(() => {
     setSession(null);
+    invalidatePmdbWatchedCache();
+    clearPmdbWatchlistCache();
   }, []);
 
   const resolveTarget = useCallback(
@@ -89,7 +97,13 @@ export function PublicMetaDbProvider({ children }: { children: ReactNode }) {
       episode?: { season: number; episode: number },
       type?: "movie" | "series",
     ): Promise<boolean> => {
-      const target = resolveTarget(metaId, episode, type);
+      const target = episode
+        ? await resolvePmdbEpisodeTarget(
+            metaId,
+            { season: episode.season, episode: episode.episode },
+        ).catch(() => null)
+        : ((await resolvePmdbTarget(metaId, type).catch(() => null)) ??
+          resolveTarget(metaId, episode, type));
       if (!target) return false;
       return markPmdbWatched(target);
     },
@@ -102,9 +116,37 @@ export function PublicMetaDbProvider({ children }: { children: ReactNode }) {
       episode?: { season: number; episode: number },
       type?: "movie" | "series",
     ): Promise<boolean> => {
-      const target = resolveTarget(metaId, episode, type);
+      const target = episode
+        ? await resolvePmdbEpisodeTarget(
+            metaId,
+            { season: episode.season, episode: episode.episode },
+        ).catch(() => null)
+        : ((await resolvePmdbTarget(metaId, type).catch(() => null)) ??
+          resolveTarget(metaId, episode, type));
       if (!target) return false;
       return unmarkPmdbWatched(target);
+    },
+    [resolveTarget],
+  );
+
+  const resolveTargetAsync = useCallback(
+    async (
+      metaId: string,
+      episode?: { season: number; episode: number; absoluteNumber?: number },
+      type?: "movie" | "series",
+    ): Promise<PmdbTarget | null> => {
+      try {
+        if (episode) {
+          return await resolvePmdbEpisodeTarget(metaId, {
+            season: episode.season,
+            episode: episode.episode,
+            absoluteNumber: episode.absoluteNumber,
+          });
+        }
+        return (await resolvePmdbTarget(metaId, type)) ?? resolveTarget(metaId, episode, type);
+      } catch {
+        return resolveTarget(metaId, episode, type);
+      }
     },
     [resolveTarget],
   );
@@ -120,8 +162,9 @@ export function PublicMetaDbProvider({ children }: { children: ReactNode }) {
       markWatched,
       unmarkWatched,
       resolveTarget,
+      resolveTargetAsync,
     }),
-    [session, connect, updateUsername, disconnect, markWatched, unmarkWatched, resolveTarget],
+    [session, connect, updateUsername, disconnect, markWatched, unmarkWatched, resolveTarget, resolveTargetAsync],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

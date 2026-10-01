@@ -6,6 +6,8 @@ import type { LibraryItem } from "@/lib/stremio";
 import type { PmdbResumePoint, PmdbResumeResponse } from "./types";
 
 const DURATION_MS = { movie: 6_300_000, series: 2_640_000 };
+const RESUME_PER_PAGE = 100;
+const RESUME_MAX_PAGES = 10;
 
 function toLibraryItem(raw: PmdbResumePoint): LibraryItem | null {
   const durMs = raw.runtime_ms > 0
@@ -44,24 +46,44 @@ function toLibraryItem(raw: PmdbResumePoint): LibraryItem | null {
   };
 }
 
+async function fetchAllResumePoints(): Promise<PmdbResumePoint[]> {
+  const out: PmdbResumePoint[] = [];
+  try {
+    const first = await pmdbRequest<PmdbResumeResponse>(
+      `/api/external/resume?page=1&perPage=${RESUME_PER_PAGE}`,
+      { method: "GET" },
+    );
+    if (Array.isArray(first?.items)) out.push(...first.items);
+    const totalPages = Math.max(1, Number(first?.totalPages ?? 1) || 1);
+    const pages = Math.min(totalPages, RESUME_MAX_PAGES);
+    for (let page = 2; page <= pages; page++) {
+      try {
+        const data = await pmdbRequest<PmdbResumeResponse>(
+          `/api/external/resume?page=${page}&perPage=${RESUME_PER_PAGE}`,
+          { method: "GET" },
+        );
+        if (!Array.isArray(data?.items) || data.items.length === 0) break;
+        out.push(...data.items);
+      } catch {
+        break;
+      }
+    }
+  } catch {
+    return out;
+  }
+  return out;
+}
+
 export async function fetchPublicMetaDbPlaybackItems(): Promise<LibraryItem[]> {
   if (!isAuthenticated()) return [];
 
-  let data: PmdbResumeResponse;
-  try {
-    data = await pmdbRequest<PmdbResumeResponse>("/api/external/resume?perPage=50", {
-      method: "GET",
-    });
-  } catch {
-    return [];
-  }
-
-  if (!Array.isArray(data?.items)) return [];
+  const all = await fetchAllResumePoints();
+  if (all.length === 0) return [];
 
   const items: LibraryItem[] = [];
   const seen = new Set<string>();
 
-  for (const r of data.items) {
+  for (const r of all) {
     const item = toLibraryItem(r);
     if (!item?.state) continue;
 

@@ -45,6 +45,15 @@ export const KNOWN_TMDB_SINGLE_SEASON_ANIME = new Set<number>([
 ]);
 
 const singleSeasonCache = new Map<number, boolean>();
+const SINGLE_SEASON_CACHE_MAX = 200;
+
+function cacheSingleSeason(tmdbId: number, value: boolean): void {
+  if (singleSeasonCache.size >= SINGLE_SEASON_CACHE_MAX) {
+    const oldest = singleSeasonCache.keys().next();
+    if (!oldest.done) singleSeasonCache.delete(oldest.value);
+  }
+  singleSeasonCache.set(tmdbId, value);
+}
 
 function getStoredTmdbKey(): string | undefined {
   if (typeof localStorage === "undefined") return undefined;
@@ -77,7 +86,7 @@ export async function isTmdbSingleSeasonShow(tmdbId: number, tmdbKey?: string): 
           s.episode_count > 0,
       );
       const isSingle = regularSeasons.length === 1 && regularSeasons[0].season_number === 1;
-      singleSeasonCache.set(tmdbId, isSingle);
+      cacheSingleSeason(tmdbId, isSingle);
       return isSingle;
     }
   } catch {

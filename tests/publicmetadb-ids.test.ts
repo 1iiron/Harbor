@@ -108,74 +108,102 @@ test("stremioIdToPmdbTarget returns null for invalid or unhandled IDs", () => {
   assert.equal(stremioIdToPmdbTarget("tt_invalid"), null);
 });
 
+function stubOfflineAniZip() {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes("api.ani.zip/mappings")) {
+      return new Response("not found", { status: 404 });
+    }
+    return originalFetch(input, init);
+  };
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
+
 test("resolvePmdbEpisodeTarget resolves direct TMDB, IMDb, and MAL episodes", async () => {
-  assert.deepEqual(
-    await resolvePmdbEpisodeTarget("tmdb:tv:1399", { season: 1, episode: 1 }),
-    {
-      tmdb_id: 1399,
-      media_type: "tv",
-      season: 1,
-      episode: 1,
-    },
-  );
+  const restore = stubOfflineAniZip();
+  try {
+    assert.deepEqual(
+      await resolvePmdbEpisodeTarget("tmdb:tv:1399", { season: 1, episode: 1 }),
+      {
+        tmdb_id: 1399,
+        media_type: "tv",
+        season: 1,
+        episode: 1,
+      },
+    );
 
-  assert.deepEqual(
-    await resolvePmdbEpisodeTarget("tt0903747", { season: 3, episode: 2 }),
-    {
-      id_type: "imdb",
-      id_value: "tt0903747",
-      media_type: "tv",
-      season: 3,
-      episode: 2,
-    },
-  );
+    assert.deepEqual(
+      await resolvePmdbEpisodeTarget("tt0903747", { season: 3, episode: 2 }),
+      {
+        id_type: "imdb",
+        id_value: "tt0903747",
+        media_type: "tv",
+        season: 3,
+        episode: 2,
+      },
+    );
 
-  assert.deepEqual(
-    await resolvePmdbEpisodeTarget("mal:21", { season: 1, episode: 7 }),
-    {
-      id_type: "mal",
-      id_value: "21",
-      media_type: "tv",
-      season: 1,
-      episode: 7,
-    },
-  );
+    assert.deepEqual(
+      await resolvePmdbEpisodeTarget("mal:21", { season: 1, episode: 7 }),
+      {
+        id_type: "mal",
+        id_value: "21",
+        media_type: "tv",
+        season: 1,
+        episode: 7,
+      },
+    );
+  } finally {
+    restore();
+  }
 });
 
 test("resolvePmdbEpisodeTarget prefers verified IMDb identity when provided", async () => {
-  assert.deepEqual(
-    await resolvePmdbEpisodeTarget(
-      "kitsu:1",
-      { season: 1, episode: 14, imdbSeason: 2, imdbEpisode: 3 },
-      "tt1234567",
-    ),
-    {
-      id_type: "imdb",
-      id_value: "tt1234567",
-      media_type: "tv",
-      season: 2,
-      episode: 3,
-    },
-  );
+  const restore = stubOfflineAniZip();
+  try {
+    assert.deepEqual(
+      await resolvePmdbEpisodeTarget(
+        "kitsu:1",
+        { season: 1, episode: 14, imdbSeason: 2, imdbEpisode: 3 },
+        "tt1234567",
+      ),
+      {
+        id_type: "imdb",
+        id_value: "tt1234567",
+        media_type: "tv",
+        season: 2,
+        episode: 3,
+      },
+    );
+  } finally {
+    restore();
+  }
 });
 
 test("resolvePmdbTarget resolves movies and series", async () => {
-  assert.deepEqual(await resolvePmdbTarget("tmdb:movie:603", "movie"), {
-    tmdb_id: 603,
-    media_type: "movie",
-  });
+  const restore = stubOfflineAniZip();
+  try {
+    assert.deepEqual(await resolvePmdbTarget("tmdb:movie:603", "movie"), {
+      tmdb_id: 603,
+      media_type: "movie",
+    });
 
-  assert.deepEqual(await resolvePmdbTarget("tt0133093", "movie"), {
-    id_type: "imdb",
-    id_value: "tt0133093",
-    media_type: "movie",
-  });
+    assert.deepEqual(await resolvePmdbTarget("tt0133093", "movie"), {
+      id_type: "imdb",
+      id_value: "tt0133093",
+      media_type: "movie",
+    });
 
-  assert.deepEqual(await resolvePmdbTarget("mal:21", "series"), {
-    id_type: "mal",
-    id_value: "21",
-    media_type: "tv",
-  });
+    assert.deepEqual(await resolvePmdbTarget("mal:21", "series"), {
+      id_type: "mal",
+      id_value: "21",
+      media_type: "tv",
+    });
+  } finally {
+    restore();
+  }
 });
 
 test("PmdbSession preserves and updates username", () => {
@@ -269,18 +297,23 @@ test("resolvePmdbEpisodeTarget maps anime cour episodes to canonical TMDB series
 });
 
 test("resolvePmdbEpisodeTarget falls back to imdbSeason and imdbEpisode for unmapped anime", async () => {
-  const target = await resolvePmdbEpisodeTarget(
-    "kitsu:99999",
-    { season: 1, episode: 1, imdbSeason: 1, imdbEpisode: 13 },
-    "tt13706018",
-  );
-  assert.deepEqual(target, {
-    id_type: "imdb",
-    id_value: "tt13706018",
-    media_type: "tv",
-    season: 1,
-    episode: 13,
-  });
+  const restore = stubOfflineAniZip();
+  try {
+    const target = await resolvePmdbEpisodeTarget(
+      "kitsu:99999",
+      { season: 1, episode: 1, imdbSeason: 1, imdbEpisode: 13 },
+      "tt13706018",
+    );
+    assert.deepEqual(target, {
+      id_type: "imdb",
+      id_value: "tt13706018",
+      media_type: "tv",
+      season: 1,
+      episode: 13,
+    });
+  } finally {
+    restore();
+  }
 });
 
 test("resolvePmdbEpisodeTarget maps Re:Zero S2E14 to S1 absolute episode 39 for single-season TMDb show", async () => {

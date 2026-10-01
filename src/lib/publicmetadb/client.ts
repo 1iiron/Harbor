@@ -145,7 +145,7 @@ export async function verifyApiKey(apiKey: string): Promise<boolean> {
   const trimmed = apiKey.trim();
   if (!trimmed) return false;
   try {
-    const res = await doFetch("/api/external/resume?perPage=1", {
+    const res = await doFetch("/api/external/ratings?tmdb_id=550&media_type=movie", {
       method: "GET",
       token: trimmed,
     });

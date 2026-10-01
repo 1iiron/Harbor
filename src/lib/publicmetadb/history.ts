@@ -5,10 +5,31 @@ import type { PmdbTarget, PmdbWatchedItem, PmdbWatchedResponse } from "./types";
 let cachedWatchedSet: Set<string> | null = null;
 let lastFetchAt = 0;
 const CACHE_TTL_MS = 30_000;
+const WATCHED_PER_PAGE = 100;
+const WATCHED_MAX_PAGES = 25;
 
 export function invalidatePmdbWatchedCache(): void {
   cachedWatchedSet = null;
   lastFetchAt = 0;
+}
+
+function watchedQuery(target?: PmdbTarget, page = 1): string {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  params.set("perPage", String(WATCHED_PER_PAGE));
+  if (target) {
+    if (target.tmdb_id) params.set("tmdb_id", String(target.tmdb_id));
+    if (target.media_type) params.set("media_type", target.media_type);
+    if (target.id_type && target.id_value) {
+      params.set("id_type", target.id_type);
+      params.set("id_value", target.id_value);
+    }
+  }
+  return `/api/external/watched?${params.toString()}`;
+}
+
+async function fetchWatchedPage(target: PmdbTarget | undefined, page: number) {
+  return pmdbRequest<PmdbWatchedResponse>(watchedQuery(target, page), { method: "GET" });
 }
 
 export async function fetchPmdbWatchedKeySet(target?: PmdbTarget): Promise<Set<string>> {
@@ -20,29 +41,24 @@ export async function fetchPmdbWatchedKeySet(target?: PmdbTarget): Promise<Set<s
   }
 
   const set = new Set<string>();
-  const params = new URLSearchParams();
-  params.set("perPage", "100");
-
-  if (target) {
-    if (target.tmdb_id) params.set("tmdb_id", String(target.tmdb_id));
-    if (target.media_type) params.set("media_type", target.media_type);
-    if (target.season != null) params.set("season", String(target.season));
-    if (target.episode != null) params.set("episode", String(target.episode));
-    if (target.id_type && target.id_value) {
-      params.set("id_type", target.id_type);
-      params.set("id_value", target.id_value);
-    }
-  }
+  // A targeted fetch belongs to one show, so bare `S:E` keys are safe there.
+  // A global fetch spans shows, so only scoped keys may be added.
+  const scopedOnly = !target;
 
   try {
-    const data = await pmdbRequest<PmdbWatchedResponse>(
-      `/api/external/watched?${params.toString()}`,
-      { method: "GET" },
-    );
-
-    if (Array.isArray(data?.items)) {
-      for (const item of data.items) {
-        addWatchedKeys(set, item, target);
+    const first = await fetchWatchedPage(target, 1);
+    const items = Array.isArray(first?.items) ? first.items : [];
+    for (const item of items) addWatchedKeys(set, item, target, scopedOnly);
+    const totalPages = Math.max(1, Number(first?.totalPages ?? 1) || 1);
+    const pages = Math.min(totalPages, WATCHED_MAX_PAGES);
+    for (let page = 2; page <= pages; page++) {
+      try {
+        const data = await fetchWatchedPage(target, page);
+        if (!Array.isArray(data?.items)) break;
+        for (const item of data.items) addWatchedKeys(set, item, target, scopedOnly);
+        if (data.items.length === 0) break;
+      } catch {
+        break;
       }
     }
 
@@ -58,7 +74,12 @@ export async function fetchPmdbWatchedKeySet(target?: PmdbTarget): Promise<Set<s
   return set;
 }
 
-function addWatchedKeys(set: Set<string>, item: PmdbWatchedItem, target?: PmdbTarget): void {
+function addWatchedKeys(
+  set: Set<string>,
+  item: PmdbWatchedItem,
+  target?: PmdbTarget,
+  scopedOnly = false,
+): void {
   if (item.media_type === "movie") {
     if (item.tmdb_id) {
       set.add(`tmdb:movie:${item.tmdb_id}`);
@@ -68,7 +89,9 @@ function addWatchedKeys(set: Set<string>, item: PmdbWatchedItem, target?: PmdbTa
     }
   } else if (item.media_type === "tv") {
     if (item.season != null && item.episode != null) {
-      set.add(`${item.season}:${item.episode}`);
+      if (!scopedOnly) {
+        set.add(`${item.season}:${item.episode}`);
+      }
       if (item.tmdb_id) {
         set.add(`tmdb:tv:${item.tmdb_id}:${item.season}:${item.episode}`);
       }
@@ -77,6 +100,24 @@ function addWatchedKeys(set: Set<string>, item: PmdbWatchedItem, target?: PmdbTa
       }
     }
   }
+}
+
+function watchedBody(target: PmdbTarget, watchedAt?: string) {
+  const isMovie = target.media_type === "movie";
+  return {
+    tmdb_id: target.tmdb_id,
+    media_type: target.media_type,
+    // Movies are title-level; never send season/episode for them.
+    ...(isMovie
+      ? {}
+      : {
+          season: target.season,
+          episode: target.episode,
+        }),
+    watched_at: watchedAt ?? new Date().toISOString(),
+    id_type: target.id_type,
+    id_value: target.id_value,
+  };
 }
 
 export async function markPmdbWatched(
@@ -89,15 +130,7 @@ export async function markPmdbWatched(
   try {
     await pmdbRequest("/api/external/watched", {
       method: "POST",
-      body: {
-        tmdb_id: target.tmdb_id,
-        media_type: target.media_type,
-        season: target.season,
-        episode: target.episode,
-        watched_at: watchedAt ?? new Date().toISOString(),
-        id_type: target.id_type,
-        id_value: target.id_value,
-      },
+      body: watchedBody(target, watchedAt),
     });
     return true;
   } catch (err) {
@@ -106,21 +139,28 @@ export async function markPmdbWatched(
   }
 }
 
+function unmarkQuery(target: PmdbTarget): string {
+  const params = new URLSearchParams();
+  if (target.tmdb_id) params.set("tmdb_id", String(target.tmdb_id));
+  params.set("media_type", target.media_type);
+  if (target.media_type !== "movie") {
+    if (target.season != null) params.set("season", String(target.season));
+    if (target.episode != null) params.set("episode", String(target.episode));
+  }
+  if (target.id_type && target.id_value) {
+    params.set("id_type", target.id_type);
+    params.set("id_value", target.id_value);
+  }
+  return `/api/external/watched?${params.toString()}`;
+}
+
 export async function unmarkPmdbWatched(target: PmdbTarget): Promise<boolean> {
   if (!isAuthenticated()) return false;
   invalidatePmdbWatchedCache();
 
   try {
-    await pmdbRequest("/api/external/watched", {
+    await pmdbRequest(unmarkQuery(target), {
       method: "DELETE",
-      body: {
-        tmdb_id: target.tmdb_id,
-        media_type: target.media_type,
-        season: target.season,
-        episode: target.episode,
-        id_type: target.id_type,
-        id_value: target.id_value,
-      },
     });
     return true;
   } catch (err) {
