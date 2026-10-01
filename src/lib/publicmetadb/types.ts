@@ -92,5 +92,6 @@ export type PmdbListItemsResponse = {
 
 export type PmdbSession = {
   apiKey: string;
+  username?: string;
   validatedAt: number;
 };

@@ -15,13 +15,14 @@ import {
 } from "./kit";
 import { SButton } from "./ui";
 import { TrackerIdentity } from "./tracker-identity";
-import { ExternalLink, Eye, EyeOff, Key, LogOut } from "./icons";
+import { ExternalLink, Eye, EyeOff, Key, LogOut, User } from "./icons";
 
 export function PublicMetaDbPanel() {
   const t = useT();
-  const { session, isConnected, connect, disconnect } = usePublicMetaDb();
+  const { session, isConnected, connect, updateUsername, disconnect } = usePublicMetaDb();
   const { settings, update } = useSettings();
 
+  const [inputUsername, setInputUsername] = useState("");
   const [inputKey, setInputKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -29,6 +30,8 @@ export function PublicMetaDbPanel() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshStatus, setRefreshStatus] = useState<string | null>(null);
+  const [editingUsername, setEditingUsername] = useState(false);
+  const [usernameVal, setUsernameVal] = useState("");
 
   const handleConnect = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -42,9 +45,10 @@ export function PublicMetaDbPanel() {
     setErrorMessage(null);
 
     try {
-      const ok = await connect(key);
+      const ok = await connect(key, inputUsername.trim() || undefined);
       if (ok) {
         setInputKey("");
+        setInputUsername("");
       } else {
         setErrorMessage(t("Invalid API key or unable to reach PublicMetaDB"));
       }
@@ -60,7 +64,7 @@ export function PublicMetaDbPanel() {
     setRefreshing(true);
     setRefreshStatus(null);
     try {
-      const ok = await connect(session.apiKey);
+      const ok = await connect(session.apiKey, session.username);
       setRefreshStatus(ok ? t("Connection verified") : t("Connection failed"));
     } catch {
       setRefreshStatus(t("Connection failed"));
@@ -70,9 +74,10 @@ export function PublicMetaDbPanel() {
     }
   };
 
-  const maskedKey = session?.apiKey
-    ? `${session.apiKey.slice(0, 5)}••••••••${session.apiKey.slice(-4)}`
-    : "";
+  const handleSaveUsername = () => {
+    updateUsername(usernameVal.trim());
+    setEditingUsername(false);
+  };
 
   return (
     <>
@@ -93,31 +98,57 @@ export function PublicMetaDbPanel() {
               </p>
 
               <form onSubmit={handleConnect} className="mt-3 flex w-full max-w-md flex-col gap-3">
-                <div className="relative flex items-center">
-                  <span className="pointer-events-none absolute left-3.5 text-ink-subtle">
-                    <Key size={16} />
-                  </span>
-                  <input
-                    type={showKey ? "text" : "password"}
-                    value={inputKey}
-                    onChange={(e) => {
-                      setInputKey(e.target.value);
-                      if (errorMessage) setErrorMessage(null);
-                    }}
-                    placeholder="pm-..."
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck="false"
-                    className="h-11 w-full rounded-[10px] border border-edge bg-elevated pl-10 pr-11 font-mono text-[14px] text-ink placeholder:text-ink-subtle focus:border-ink/40 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowKey(!showKey)}
-                    className="absolute right-3 text-ink-subtle hover:text-ink"
-                    title={showKey ? t("Hide key") : t("Show key")}
-                  >
-                    {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[13px] font-medium text-ink-muted">
+                    {t("Username (optional)")}
+                  </label>
+                  <div className="relative flex items-center">
+                    <span className="pointer-events-none absolute left-3.5 text-ink-subtle">
+                      <User size={16} />
+                    </span>
+                    <input
+                      type="text"
+                      value={inputUsername}
+                      onChange={(e) => setInputUsername(e.target.value)}
+                      placeholder={t("e.g. username")}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck="false"
+                      className="h-11 w-full rounded-[10px] border border-edge bg-elevated pl-10 pr-4 text-[14px] text-ink placeholder:text-ink-subtle focus:border-ink/40 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[13px] font-medium text-ink-muted">
+                    {t("API Key")}
+                  </label>
+                  <div className="relative flex items-center">
+                    <span className="pointer-events-none absolute left-3.5 text-ink-subtle">
+                      <Key size={16} />
+                    </span>
+                    <input
+                      type={showKey ? "text" : "password"}
+                      value={inputKey}
+                      onChange={(e) => {
+                        setInputKey(e.target.value);
+                        if (errorMessage) setErrorMessage(null);
+                      }}
+                      placeholder="pm-..."
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck="false"
+                      className="h-11 w-full rounded-[10px] border border-edge bg-elevated pl-10 pr-11 font-mono text-[14px] text-ink placeholder:text-ink-subtle focus:border-ink/40 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey(!showKey)}
+                      className="absolute right-3 text-ink-subtle hover:text-ink"
+                      title={showKey ? t("Hide key") : t("Show key")}
+                    >
+                      {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
 
                 {errorMessage && (
@@ -154,8 +185,12 @@ export function PublicMetaDbPanel() {
             <TrackerIdentity
               service="PublicMetaDB"
               logo={publicmetadbLogo}
-              handle={maskedKey}
-              profileUrl="https://publicmetadb.com"
+              handle={session?.username || undefined}
+              profileUrl={
+                session?.username
+                  ? `https://publicmetadb.com/u/${encodeURIComponent(session.username)}`
+                  : undefined
+              }
               onDisconnect={() => setConfirmDisconnect(true)}
             />
 
@@ -177,6 +212,59 @@ export function PublicMetaDbPanel() {
             </SettingGroup>
 
             <SettingGroup label={t("Account & Connection")}>
+              <SettingRow
+                label={t("PublicMetaDB username")}
+                desc={
+                  session?.username
+                    ? t("Profile linked to publicmetadb.com/u/{username}", {
+                        username: session.username,
+                      })
+                    : t("Set your username to link directly to your public profile.")
+                }
+              >
+                {editingUsername ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSaveUsername();
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <input
+                      type="text"
+                      value={usernameVal}
+                      onChange={(e) => setUsernameVal(e.target.value)}
+                      placeholder={t("Username")}
+                      autoFocus
+                      className="h-11 w-44 rounded-[8px] border border-edge bg-elevated px-3 text-[14px] text-ink placeholder:text-ink-subtle focus:border-ink/40 focus:outline-none"
+                    />
+                    <SButton variant="primary" onClick={handleSaveUsername}>
+                      {t("Save")}
+                    </SButton>
+                    <SButton
+                      variant="secondary"
+                      onClick={() => setEditingUsername(false)}
+                    >
+                      {t("Cancel")}
+                    </SButton>
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-[15px] text-ink-muted">
+                      {session?.username ? `@${session.username}` : t("Not set")}
+                    </span>
+                    <SButton
+                      onClick={() => {
+                        setUsernameVal(session?.username ?? "");
+                        setEditingUsername(true);
+                      }}
+                    >
+                      {session?.username ? t("Change") : t("Set username")}
+                    </SButton>
+                  </div>
+                )}
+              </SettingRow>
+
               <SettingRow
                 label={t("Verify connection")}
                 desc={

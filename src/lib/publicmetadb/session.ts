@@ -73,6 +73,18 @@ export function subscribeSession(fn: () => void): () => void {
   };
 }
 
+export function updateSessionUsername(username: string): void {
+  const current = getSession();
+  if (!current) return;
+  const trimmed = username.trim();
+  const updated: PmdbSession = {
+    ...current,
+    username: trimmed || undefined,
+  };
+  setSession(updated);
+}
+
 export function isAuthenticated(): boolean {
   return !!getSession()?.apiKey;
 }
+

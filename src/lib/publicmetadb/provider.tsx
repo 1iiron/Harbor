@@ -10,13 +10,15 @@ import {
 import { verifyApiKey } from "./client";
 import { markPmdbWatched, unmarkPmdbWatched } from "./history";
 import { stremioIdToPmdbTarget } from "./ids";
-import { getSession, setSession, subscribeSession } from "./session";
+import { getSession, setSession, subscribeSession, updateSessionUsername } from "./session";
 import type { PmdbSession, PmdbTarget } from "./types";
 
 type Value = {
   session: PmdbSession | null;
   isConnected: boolean;
-  connect: (apiKey: string) => Promise<boolean>;
+  username: string | null;
+  connect: (apiKey: string, username?: string) => Promise<boolean>;
+  updateUsername: (username: string) => void;
   disconnect: () => void;
   markWatched: (
     metaId: string,
@@ -48,7 +50,7 @@ export function PublicMetaDbProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const connect = useCallback(async (apiKey: string): Promise<boolean> => {
+  const connect = useCallback(async (apiKey: string, username?: string): Promise<boolean> => {
     const trimmed = apiKey.trim();
     if (!trimmed) return false;
     const ok = await verifyApiKey(trimmed);
@@ -56,9 +58,14 @@ export function PublicMetaDbProvider({ children }: { children: ReactNode }) {
 
     setSession({
       apiKey: trimmed,
+      username: username?.trim() || undefined,
       validatedAt: Date.now(),
     });
     return true;
+  }, []);
+
+  const updateUsername = useCallback((username: string) => {
+    updateSessionUsername(username);
   }, []);
 
   const disconnect = useCallback(() => {
@@ -106,13 +113,15 @@ export function PublicMetaDbProvider({ children }: { children: ReactNode }) {
     () => ({
       session,
       isConnected: !!session?.apiKey,
+      username: session?.username ?? null,
       connect,
+      updateUsername,
       disconnect,
       markWatched,
       unmarkWatched,
       resolveTarget,
     }),
-    [session, connect, disconnect, markWatched, unmarkWatched, resolveTarget],
+    [session, connect, updateUsername, disconnect, markWatched, unmarkWatched, resolveTarget],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

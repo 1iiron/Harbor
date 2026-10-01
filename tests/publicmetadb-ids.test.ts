@@ -8,6 +8,11 @@ import {
   resolvePmdbTarget,
   stremioIdToPmdbTarget,
 } from "../src/lib/publicmetadb/ids.ts";
+import {
+  getSession,
+  setSession,
+  updateSessionUsername,
+} from "../src/lib/publicmetadb/session.ts";
 
 test("stremioIdToPmdbTarget resolves TMDB movie IDs", () => {
   assert.deepEqual(stremioIdToPmdbTarget("tmdb:movie:550", undefined, "movie"), {
@@ -172,3 +177,24 @@ test("resolvePmdbTarget resolves movies and series", async () => {
     media_type: "tv",
   });
 });
+
+test("PmdbSession preserves and updates username", () => {
+  setSession({
+    apiKey: "pm-testkey123",
+    username: "alice",
+    validatedAt: 123456,
+  });
+
+  assert.equal(getSession()?.username, "alice");
+  assert.equal(getSession()?.apiKey, "pm-testkey123");
+
+  updateSessionUsername("bob");
+  assert.equal(getSession()?.username, "bob");
+
+  updateSessionUsername("");
+  assert.equal(getSession()?.username, undefined);
+
+  setSession(null);
+  assert.equal(getSession(), null);
+});
+
