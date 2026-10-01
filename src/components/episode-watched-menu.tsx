@@ -16,7 +16,7 @@ import { markEpisodesWatched, unmarkEpisodeWatched } from "@/lib/simkl/history";
 import { stremioIdToSimklTarget } from "@/lib/simkl/ids";
 import { useSimkl } from "@/lib/simkl/provider";
 import { markPmdbWatched, unmarkPmdbWatched } from "@/lib/publicmetadb/history";
-import { stremioIdToPmdbTarget } from "@/lib/publicmetadb/ids";
+import { resolvePmdbEpisodeTarget } from "@/lib/publicmetadb/ids";
 import { usePublicMetaDb } from "@/lib/publicmetadb/provider";
 
 export type WatchedMenuTarget = {
@@ -26,6 +26,7 @@ export type WatchedMenuTarget = {
   episode: number;
   watched: boolean;
   metaId?: string;
+  absoluteNumber?: number;
 };
 
 function airedByNow(released?: string | null): boolean {
@@ -44,7 +45,7 @@ export function EpisodeWatchedMenu({
   metaId: string;
   meta: ManualWatchedMeta;
   target: WatchedMenuTarget;
-  allEpisodes?: Array<{ season: number; episode: number; released?: string | null }>;
+  allEpisodes?: Array<{ season: number; episode: number; released?: string | null; absoluteNumber?: number }>;
   onClose: () => void;
 }) {
   const t = useT();
@@ -84,8 +85,13 @@ export function EpisodeWatchedMenu({
     clearResume(metaId, target.season, target.episode);
     if (showIds) void unmarkEpisodeWatched(showIds, target.season, target.episode);
     if (pmdbConnected) {
-      const pmTarget = stremioIdToPmdbTarget(metaId, { season: target.season, episode: target.episode }, "tv");
-      if (pmTarget) void unmarkPmdbWatched(pmTarget);
+      void resolvePmdbEpisodeTarget(metaId, {
+        season: target.season,
+        episode: target.episode,
+        absoluteNumber: target.absoluteNumber,
+      }).then((pmTarget) => {
+        if (pmTarget) void unmarkPmdbWatched(pmTarget);
+      });
     }
     onClose();
   };
@@ -116,8 +122,13 @@ export function EpisodeWatchedMenu({
               setManualWatched(metaId, target.season, target.episode, true);
               if (showIds) void markEpisodesWatched(showIds, target.season, [target.episode]);
               if (pmdbConnected) {
-                const pmTarget = stremioIdToPmdbTarget(metaId, { season: target.season, episode: target.episode }, "tv");
-                if (pmTarget) void markPmdbWatched(pmTarget);
+                void resolvePmdbEpisodeTarget(metaId, {
+                  season: target.season,
+                  episode: target.episode,
+                  absoluteNumber: target.absoluteNumber,
+                }).then((pmTarget) => {
+                  if (pmTarget) void markPmdbWatched(pmTarget);
+                });
               }
               onClose();
             }}
@@ -141,8 +152,13 @@ export function EpisodeWatchedMenu({
                 }
                 if (pmdbConnected) {
                   for (const ep of upTo) {
-                    const pmTarget = stremioIdToPmdbTarget(metaId, { season: ep.season, episode: ep.episode }, "tv");
-                    if (pmTarget) void markPmdbWatched(pmTarget);
+                    void resolvePmdbEpisodeTarget(metaId, {
+                      season: ep.season,
+                      episode: ep.episode,
+                      absoluteNumber: ep.absoluteNumber,
+                    }).then((pmTarget) => {
+                      if (pmTarget) void markPmdbWatched(pmTarget);
+                    });
                   }
                 }
               } else {
@@ -153,8 +169,12 @@ export function EpisodeWatchedMenu({
                 }
                 if (pmdbConnected) {
                   for (let i = 1; i <= target.episode; i++) {
-                    const pmTarget = stremioIdToPmdbTarget(metaId, { season: target.season, episode: i }, "tv");
-                    if (pmTarget) void markPmdbWatched(pmTarget);
+                    void resolvePmdbEpisodeTarget(metaId, {
+                      season: target.season,
+                      episode: i,
+                    }).then((pmTarget) => {
+                      if (pmTarget) void markPmdbWatched(pmTarget);
+                    });
                   }
                 }
               }

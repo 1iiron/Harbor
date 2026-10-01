@@ -42,7 +42,7 @@ export async function fetchPmdbWatchedKeySet(target?: PmdbTarget): Promise<Set<s
 
     if (Array.isArray(data?.items)) {
       for (const item of data.items) {
-        addWatchedKeys(set, item);
+        addWatchedKeys(set, item, target);
       }
     }
 
@@ -58,16 +58,22 @@ export async function fetchPmdbWatchedKeySet(target?: PmdbTarget): Promise<Set<s
   return set;
 }
 
-function addWatchedKeys(set: Set<string>, item: PmdbWatchedItem): void {
+function addWatchedKeys(set: Set<string>, item: PmdbWatchedItem, target?: PmdbTarget): void {
   if (item.media_type === "movie") {
     if (item.tmdb_id) {
       set.add(`tmdb:movie:${item.tmdb_id}`);
+    }
+    if (target?.id_type === "imdb" && target.id_value) {
+      set.add(`imdb:${target.id_value}`);
     }
   } else if (item.media_type === "tv") {
     if (item.season != null && item.episode != null) {
       set.add(`${item.season}:${item.episode}`);
       if (item.tmdb_id) {
         set.add(`tmdb:tv:${item.tmdb_id}:${item.season}:${item.episode}`);
+      }
+      if (target?.id_type === "imdb" && target.id_value) {
+        set.add(`imdb:${target.id_value}:${item.season}:${item.episode}`);
       }
     }
   }

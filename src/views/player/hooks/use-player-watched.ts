@@ -97,9 +97,10 @@ export function usePlayerWatched(params: {
       undefined,
       simklWatched,
       undefined,
-      undefined,
-      undefined,
+      ep.imdbSeason,
+      ep.imdbEpisode,
       pmdbWatched,
+      ep.absoluteNumber,
     ).watched;
 
   return { watchedFor };

@@ -47,7 +47,13 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
       if (src.episode) {
         resolved = await resolvePmdbEpisodeTarget(
           metaId,
-          { season: src.episode.season, episode: src.episode.episode },
+          {
+            season: src.episode.season,
+            episode: src.episode.episode,
+            imdbSeason: src.episode.imdbSeason,
+            imdbEpisode: src.episode.imdbEpisode,
+            absoluteNumber: src.episode.absoluteNumber,
+          },
           src.imdbId,
         );
       } else {
@@ -69,7 +75,7 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
     return () => {
       cancelled = true;
     };
-  }, [metaId, season, episode, src.imdbId, src.meta.type]);
+  }, [metaId, season, episode, src.episode?.imdbSeason, src.episode?.imdbEpisode, src.episode?.absoluteNumber, src.imdbId, src.meta.type]);
 
   const saveResumeNow = (posSec: number, durSec: number, isBeacon = false) => {
     const target = targetRef.current;

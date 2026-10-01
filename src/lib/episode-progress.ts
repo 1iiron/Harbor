@@ -71,6 +71,7 @@ export function getEpisodeProgress(
   traktSeason?: number,
   traktEpisode?: number,
   pmdbWatched?: Set<string>,
+  absoluteNumber?: number,
 ): EpisodeProgress {
   const resumeIds = traktImdbId && traktImdbId !== resumeId ? [resumeId, traktImdbId] : [resumeId];
   let entry: { ms: number; t: number; pct?: number } | null = null;
@@ -106,9 +107,21 @@ export function getEpisodeProgress(
   const anilistDone = anilistWatched ? anilistWatched.has(`${season}:${episode}`) : false;
   const simklDone = simklWatched ? simklWatched.has(`${season}:${episode}`) : false;
   const malDone = malWatched ? malWatched.has(`${season}:${episode}`) : false;
+  const hasAbs = absoluteNumber != null && Number.isFinite(absoluteNumber) && absoluteNumber > 0;
   const pmdbDone = pmdbWatched
     ? pmdbWatched.has(`${season}:${episode}`) ||
-      (traktImdbId ? pmdbWatched.has(`imdb:${traktImdbId}:${season}:${episode}`) : false)
+      (canonDiffers ? pmdbWatched.has(`${canonS}:${canonE}`) : false) ||
+      (hasAbs ? pmdbWatched.has(`1:${absoluteNumber}`) : false) ||
+      (traktImdbId
+        ? pmdbWatched.has(`imdb:${traktImdbId}:${season}:${episode}`) ||
+          pmdbWatched.has(`imdb:${traktImdbId}:${canonS}:${canonE}`) ||
+          (hasAbs ? pmdbWatched.has(`imdb:${traktImdbId}:1:${absoluteNumber}`) : false)
+        : false) ||
+      (resumeId.startsWith("tmdb:tv:")
+        ? pmdbWatched.has(`${resumeId}:${season}:${episode}`) ||
+          pmdbWatched.has(`${resumeId}:${canonS}:${canonE}`) ||
+          (hasAbs ? pmdbWatched.has(`${resumeId}:1:${absoluteNumber}`) : false)
+        : false)
     : false;
   const manualDone = resumeIds.some(
     (id) =>

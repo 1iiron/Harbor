@@ -198,3 +198,162 @@ test("PmdbSession preserves and updates username", () => {
   assert.equal(getSession(), null);
 });
 
+test("resolvePmdbEpisodeTarget maps anime cour episodes to canonical TMDB series coordinates via AniZip", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("api.ani.zip/mappings")) {
+      return new Response(
+        JSON.stringify({
+          mappings: {
+            kitsu_id: 45619,
+            mal_id: 50602,
+            anilist_id: 142838,
+            themoviedb_id: "120089",
+            imdb_id: "tt13706018",
+          },
+          episodes: {
+            "1": {
+              seasonNumber: 1,
+              episodeNumber: 13,
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    return originalFetch(input);
+  };
+
+  try {
+    const kitsuTarget = await resolvePmdbEpisodeTarget("kitsu:45619", { season: 1, episode: 1 });
+    assert.deepEqual(kitsuTarget, {
+      tmdb_id: 120089,
+      media_type: "tv",
+      season: 1,
+      episode: 13,
+      id_type: "imdb",
+      id_value: "tt13706018",
+    });
+
+    const malTarget = await resolvePmdbEpisodeTarget("mal:50602", { season: 1, episode: 1 });
+    assert.deepEqual(malTarget, {
+      tmdb_id: 120089,
+      media_type: "tv",
+      season: 1,
+      episode: 13,
+      id_type: "imdb",
+      id_value: "tt13706018",
+    });
+
+    const anilistTarget = await resolvePmdbEpisodeTarget("anilist:142838", { season: 1, episode: 1 });
+    assert.deepEqual(anilistTarget, {
+      tmdb_id: 120089,
+      media_type: "tv",
+      season: 1,
+      episode: 13,
+      id_type: "imdb",
+      id_value: "tt13706018",
+    });
+
+    const showTarget = await resolvePmdbTarget("kitsu:45619", "series");
+    assert.deepEqual(showTarget, {
+      tmdb_id: 120089,
+      media_type: "tv",
+      id_type: "imdb",
+      id_value: "tt13706018",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("resolvePmdbEpisodeTarget falls back to imdbSeason and imdbEpisode for unmapped anime", async () => {
+  const target = await resolvePmdbEpisodeTarget(
+    "kitsu:99999",
+    { season: 1, episode: 1, imdbSeason: 1, imdbEpisode: 13 },
+    "tt13706018",
+  );
+  assert.deepEqual(target, {
+    id_type: "imdb",
+    id_value: "tt13706018",
+    media_type: "tv",
+    season: 1,
+    episode: 13,
+  });
+});
+
+test("resolvePmdbEpisodeTarget maps Re:Zero S2E14 to S1 absolute episode 39 for single-season TMDb show", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("api.ani.zip/mappings")) {
+      return new Response(
+        JSON.stringify({
+          mappings: {
+            kitsu_id: 43247,
+            themoviedb_id: "65942",
+            imdb_id: "tt5607616",
+          },
+          episodes: {
+            "14": {
+              seasonNumber: 2,
+              episodeNumber: 14,
+              absoluteEpisodeNumber: 39,
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    return originalFetch(input);
+  };
+
+  try {
+    const target = await resolvePmdbEpisodeTarget("kitsu:43247", {
+      season: 2,
+      episode: 14,
+      absoluteNumber: 39,
+    });
+    assert.deepEqual(target, {
+      tmdb_id: 65942,
+      media_type: "tv",
+      season: 1,
+      episode: 39,
+      id_type: "imdb",
+      id_value: "tt5607616",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("resolvePmdbEpisodeTarget maps direct TMDb single-season show to Season 1 when absoluteNumber is provided", async () => {
+  const target = await resolvePmdbEpisodeTarget("tmdb:tv:65942", {
+    season: 2,
+    episode: 14,
+    absoluteNumber: 39,
+  });
+  assert.deepEqual(target, {
+    tmdb_id: 65942,
+    media_type: "tv",
+    season: 1,
+    episode: 39,
+  });
+});
+
+test("resolvePmdbEpisodeTarget preserves season for normal multi-season anime", async () => {
+  const target = await resolvePmdbEpisodeTarget("tmdb:tv:120089", {
+    season: 2,
+    episode: 1,
+    absoluteNumber: 26,
+  });
+  assert.deepEqual(target, {
+    tmdb_id: 120089,
+    media_type: "tv",
+    season: 2,
+    episode: 1,
+  });
+});
+
+
