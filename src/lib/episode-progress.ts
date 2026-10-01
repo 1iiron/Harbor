@@ -70,6 +70,7 @@ export function getEpisodeProgress(
   malWatched?: Set<string>,
   traktSeason?: number,
   traktEpisode?: number,
+  pmdbWatched?: Set<string>,
 ): EpisodeProgress {
   const resumeIds = traktImdbId && traktImdbId !== resumeId ? [resumeId, traktImdbId] : [resumeId];
   let entry: { ms: number; t: number; pct?: number } | null = null;
@@ -105,12 +106,16 @@ export function getEpisodeProgress(
   const anilistDone = anilistWatched ? anilistWatched.has(`${season}:${episode}`) : false;
   const simklDone = simklWatched ? simklWatched.has(`${season}:${episode}`) : false;
   const malDone = malWatched ? malWatched.has(`${season}:${episode}`) : false;
+  const pmdbDone = pmdbWatched
+    ? pmdbWatched.has(`${season}:${episode}`) ||
+      (traktImdbId ? pmdbWatched.has(`imdb:${traktImdbId}:${season}:${episode}`) : false)
+    : false;
   const manualDone = resumeIds.some(
     (id) =>
       manualWatchedState(id, season, episode) === true ||
       (canonDiffers && manualWatchedState(id, canonS, canonE) === true),
   );
-  const done = manualDone || traktDone || stremioDone || anilistDone || simklDone || malDone;
+  const done = manualDone || traktDone || stremioDone || anilistDone || simklDone || malDone || pmdbDone;
 
   return {
     ratio: done ? 1 : ratio,

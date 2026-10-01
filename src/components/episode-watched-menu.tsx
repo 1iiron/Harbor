@@ -15,6 +15,9 @@ import { clearResume, readResumeEntry } from "@/lib/resume";
 import { markEpisodesWatched, unmarkEpisodeWatched } from "@/lib/simkl/history";
 import { stremioIdToSimklTarget } from "@/lib/simkl/ids";
 import { useSimkl } from "@/lib/simkl/provider";
+import { markPmdbWatched, unmarkPmdbWatched } from "@/lib/publicmetadb/history";
+import { stremioIdToPmdbTarget } from "@/lib/publicmetadb/ids";
+import { usePublicMetaDb } from "@/lib/publicmetadb/provider";
 
 export type WatchedMenuTarget = {
   x: number;
@@ -46,6 +49,7 @@ export function EpisodeWatchedMenu({
 }) {
   const t = useT();
   const { isConnected: simklConnected } = useSimkl();
+  const { isConnected: pmdbConnected } = usePublicMetaDb();
   const { settings } = useSettings();
   const hidden = isEpisodeHidden(metaId, target.season, target.episode);
 
@@ -79,6 +83,10 @@ export function EpisodeWatchedMenu({
     setManualWatched(metaId, target.season, target.episode, false);
     clearResume(metaId, target.season, target.episode);
     if (showIds) void unmarkEpisodeWatched(showIds, target.season, target.episode);
+    if (pmdbConnected) {
+      const pmTarget = stremioIdToPmdbTarget(metaId, { season: target.season, episode: target.episode }, "tv");
+      if (pmTarget) void unmarkPmdbWatched(pmTarget);
+    }
     onClose();
   };
 
@@ -107,6 +115,10 @@ export function EpisodeWatchedMenu({
               recordManualWatchedMeta(metaId, meta);
               setManualWatched(metaId, target.season, target.episode, true);
               if (showIds) void markEpisodesWatched(showIds, target.season, [target.episode]);
+              if (pmdbConnected) {
+                const pmTarget = stremioIdToPmdbTarget(metaId, { season: target.season, episode: target.episode }, "tv");
+                if (pmTarget) void markPmdbWatched(pmTarget);
+              }
               onClose();
             }}
           />
@@ -127,11 +139,23 @@ export function EpisodeWatchedMenu({
                   const eps = upTo.filter((e) => e.season === target.season).map((e) => e.episode);
                   if (eps.length > 0) void markEpisodesWatched(showIds, target.season, eps);
                 }
+                if (pmdbConnected) {
+                  for (const ep of upTo) {
+                    const pmTarget = stremioIdToPmdbTarget(metaId, { season: ep.season, episode: ep.episode }, "tv");
+                    if (pmTarget) void markPmdbWatched(pmTarget);
+                  }
+                }
               } else {
                 setManualWatchedUpTo(metaId, target.season, target.episode, true);
                 if (showIds) {
                   const eps = Array.from({ length: target.episode }, (_, i) => i + 1);
                   void markEpisodesWatched(showIds, target.season, eps);
+                }
+                if (pmdbConnected) {
+                  for (let i = 1; i <= target.episode; i++) {
+                    const pmTarget = stremioIdToPmdbTarget(metaId, { season: target.season, episode: i }, "tv");
+                    if (pmTarget) void markPmdbWatched(pmTarget);
+                  }
                 }
               }
               onClose();

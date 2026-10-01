@@ -421,7 +421,7 @@ export const DEFAULT: Settings = {
   showSimklCard: false,
   showLetterboxdCard: false,
   externalContinueWatching: false,
-  cwSources: { library: true, trakt: false, simkl: false, local: true },
+  cwSources: { library: true, trakt: false, simkl: false, local: true, publicmetadb: false },
   showPlaylistsTab: false,
   skipProfileScreen: false,
   profilePromptInterval: "launch",
@@ -562,6 +562,7 @@ export const DEFAULT: Settings = {
   simklTrendingRailEnabled: false,
   simklScrobbleEnabled: true,
   simklAnimeTitleLanguage: "english",
+  publicmetadbScrobbleEnabled: true,
   weekStartsMonday: false,
   calendarPosterSize: "default",
   customCalendar: {

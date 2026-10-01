@@ -516,7 +516,13 @@ export type Settings = {
   showSimklCard: boolean;
   showLetterboxdCard: boolean;
   externalContinueWatching: boolean;
-  cwSources: { library: boolean; trakt: boolean; simkl: boolean; local: boolean };
+  cwSources: {
+    library: boolean;
+    trakt: boolean;
+    simkl: boolean;
+    local: boolean;
+    publicmetadb: boolean;
+  };
   showPlaylistsTab: boolean;
   skipProfileScreen: boolean;
   profilePromptInterval: "launch" | "15m" | "30m" | "never";
@@ -681,6 +687,7 @@ export type Settings = {
   simklTrendingRailEnabled: boolean;
   simklScrobbleEnabled: boolean;
   simklAnimeTitleLanguage: "english" | "romaji" | "native";
+  publicmetadbScrobbleEnabled: boolean;
   weekStartsMonday: boolean;
   calendarPosterSize: CalendarPosterSize;
   customCalendar: {

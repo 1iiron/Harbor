@@ -9,6 +9,8 @@ import { libraryGetOne } from "@/lib/stremio";
 import { decodeWatchedEpisodes } from "@/lib/stremio-watched";
 import { fetchWatchedKeySet } from "@/lib/trakt/history";
 import { useTrakt } from "@/lib/trakt/provider";
+import { fetchPmdbWatchedKeySet } from "@/lib/publicmetadb/history";
+import { usePublicMetaDb } from "@/lib/publicmetadb/provider";
 import type { PlayEpisode } from "@/lib/view";
 
 export function usePlayerWatched(params: {
@@ -20,9 +22,11 @@ export function usePlayerWatched(params: {
   const { meta, authKey, imdbId, enabled } = params;
   const { isConnected: traktConnected } = useTrakt();
   const { isConnected: simklConnected } = useSimkl();
+  const { isConnected: pmdbConnected } = usePublicMetaDb();
   useSyncExternalStore(subscribeManualWatched, manualWatchedVersion);
   const [traktWatched, setTraktWatched] = useState<Set<string>>(() => new Set());
   const [simklWatched, setSimklWatched] = useState<Set<string>>(() => new Set());
+  const [pmdbWatched, setPmdbWatched] = useState<Set<string>>(() => new Set());
   const [stremioWatched, setStremioWatched] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
@@ -49,7 +53,20 @@ export function usePlayerWatched(params: {
     return () => {
       cancelled = true;
     };
-  }, [enabled, simklConnected, meta.id, imdbId]);
+  }, [enabled, simklConnected, imdbId, meta.id]);
+
+  useEffect(() => {
+    if (!enabled || !pmdbConnected) return;
+    let cancelled = false;
+    fetchPmdbWatchedKeySet()
+      .then((s) => {
+        if (!cancelled) setPmdbWatched(s);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, pmdbConnected, meta.id]);
 
   useEffect(() => {
     if (!enabled || !authKey) return;
@@ -79,6 +96,10 @@ export function usePlayerWatched(params: {
       stremioWatched,
       undefined,
       simklWatched,
+      undefined,
+      undefined,
+      undefined,
+      pmdbWatched,
     ).watched;
 
   return { watchedFor };
