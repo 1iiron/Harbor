@@ -1,8 +1,7 @@
 import { PmdbApiError, pmdbRequest } from "./client";
 import { markPmdbWatched } from "./history";
-import { getSession, isAuthenticated } from "./session";
+import { isAuthenticated } from "./session";
 import type { PmdbResumeResponse, PmdbSaveResumeResponse, PmdbTarget } from "./types";
-import { PMDB_BASE_URL } from "./client";
 
 const RESUME_LOOKUP_PER_PAGE = 100;
 const RESUME_LOOKUP_MAX_PAGES = 10;
@@ -121,29 +120,4 @@ export async function pmdbDeleteResume(resumeId: string): Promise<boolean> {
     console.error("PublicMetaDB resume delete failed:", err);
     return false;
   }
-}
-
-export function pmdbBeaconResume(
-  target: PmdbTarget,
-  positionMs: number,
-  runtimeMs: number,
-): void {
-  const session = getSession();
-  if (!session?.apiKey) return;
-
-  const url = `${PMDB_BASE_URL}/api/external/resume`;
-  const body = JSON.stringify(resumeBody(target, positionMs, runtimeMs));
-
-  try {
-    fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: `Bearer ${session.apiKey}`,
-      },
-      body,
-      keepalive: true,
-    }).catch(() => {});
-  } catch {}
 }

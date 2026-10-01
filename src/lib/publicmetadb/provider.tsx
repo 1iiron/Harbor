@@ -10,6 +10,8 @@ import {
 import { verifyApiKey } from "./client";
 import { invalidatePmdbWatchedCache, markPmdbWatched, unmarkPmdbWatched } from "./history";
 import { resolvePmdbEpisodeTarget, resolvePmdbTarget, stremioIdToPmdbTarget } from "./ids";
+import { armOnlineFlush, clearPendingResumes, flushPendingResumes } from "./pending-sync";
+import { pmdbSaveResume } from "./scrobble";
 import { getSession, setSession, subscribeSession, updateSessionUsername } from "./session";
 import { clearPmdbWatchlistCache } from "./watchlist";
 import type { PmdbSession, PmdbTarget } from "./types";
@@ -78,6 +80,7 @@ export function PublicMetaDbProvider({ children }: { children: ReactNode }) {
     setSession(null);
     invalidatePmdbWatchedCache();
     clearPmdbWatchlistCache();
+    clearPendingResumes();
   }, []);
 
   const resolveTarget = useCallback(
@@ -150,6 +153,23 @@ export function PublicMetaDbProvider({ children }: { children: ReactNode }) {
     },
     [resolveTarget],
   );
+
+  // Replays resume points amassed while unloading/offline. safeFetch routes
+  // through the Tauri bridge in prod, so unlike a raw keepalive beacon this
+  // survives app restarts and has no CORS preflight problem.
+  useEffect(
+    () =>
+      armOnlineFlush({
+        hasSession: () => getSession() != null,
+        save: (target, positionMs, runtimeMs) =>
+          pmdbSaveResume(target, positionMs, runtimeMs).then((res) => res !== null),
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    if (session) void flushPendingResumes().catch(() => {});
+  }, [session]);
 
   const value = useMemo<Value>(
     () => ({

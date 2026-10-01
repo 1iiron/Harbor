@@ -4,7 +4,8 @@ import { useSettings } from "@/lib/settings";
 import type { PlayerSrc } from "@/lib/view";
 import { resolvePmdbEpisodeTarget, resolvePmdbTarget } from "./ids";
 import { usePublicMetaDb } from "./provider";
-import { pmdbBeaconResume, pmdbDeleteResumeForTarget, pmdbSaveResume } from "./scrobble";
+import { pmdbDeleteResumeForTarget, pmdbSaveResume } from "./scrobble";
+import { pendingResumeKey, recordPendingResume, removePendingResume } from "./pending-sync";
 import { markPmdbWatched } from "./history";
 import type { PmdbTarget } from "./types";
 
@@ -51,34 +52,50 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
     }
   };
 
+  // mode "live": the page is alive, so attempt the save now and keep the
+  // outbox entry only when it fails. mode "unload": pagehide/unmount, where a
+  // network attempt cannot complete (and raw cross-origin beacons die on CORS
+  // preflight) — persist to the outbox only; the provider flush replays it.
   const saveOrWatched = (
     target: PmdbTarget | null,
     posSec: number,
     durSec: number,
-    isBeacon = false,
+    mode: "live" | "unload" = "live",
   ) => {
     if (!target || durSec < STUB_MAX_SEC) return;
     const clampedPos = Math.max(0, Math.min(durSec, Number.isFinite(posSec) ? posSec : 0));
     const ratio = durSec > 0 ? clampedPos / durSec : 0;
     if (ratio < 0.02) return;
 
+    const posMs = Math.round(clampedPos * 1000);
+    const durMs = Math.round(durSec * 1000);
+
     if (ratio >= COMPLETION_RATIO) {
-      void markPmdbWatched(target).then(() => {
-        void pmdbDeleteResumeForTarget(target);
+      const key = recordPendingResume(target, posMs, durMs);
+      if (mode === "unload") return;
+      // A completed flush replays as a 100% resume save, which the server
+      // answers as completed and converts to watched + resume cleanup.
+      void markPmdbWatched(target).then((ok) => {
+        void pmdbDeleteResumeForTarget(target).finally(() => {
+          if (ok && key) removePendingResume(key);
+        });
       });
+      return;
+    }
+
+    if (mode === "unload") {
+      recordPendingResume(target, posMs, durMs);
       return;
     }
 
     lastSaveTimeRef.current = Date.now();
     lastSavedPosRef.current = clampedPos;
 
-    const posMs = clampedPos * 1000;
-    const durMs = durSec * 1000;
-    if (isBeacon) {
-      pmdbBeaconResume(target, posMs, durMs);
-    } else {
-      void pmdbSaveResume(target, posMs, durMs);
-    }
+    const key = pendingResumeKey(target);
+    void pmdbSaveResume(target, posMs, durMs).then((res) => {
+      if (res) removePendingResume(key);
+      else recordPendingResume(target, posMs, durMs);
+    });
   };
 
   // Track latest usable duration for the current key. Updated from the live
@@ -249,7 +266,7 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
       if (!t || dur < STUB_MAX_SEC) return;
       const live = getPlaybackPosition();
       const best = Math.max(live, maxPosRef.current);
-      saveOrWatched(t, best, dur, true);
+      saveOrWatched(t, best, dur, "unload");
     };
 
     window.addEventListener("pagehide", onPageHide);
@@ -268,7 +285,7 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
       if (!t || dur < STUB_MAX_SEC) return;
       const live = getPlaybackPosition();
       const best = Math.max(live, maxPosRef.current);
-      saveOrWatched(t, best, dur, true);
+      saveOrWatched(t, best, dur, "unload");
     };
   }, []);
 }
