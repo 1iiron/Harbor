@@ -3,6 +3,7 @@ export * from "./session";
 export * from "./client";
 export * from "./ids";
 export * from "./history";
+export * from "./mappings";
 export * from "./scrobble";
 export * from "./pending-sync";
 export * from "./scrobble-hook";

@@ -1,4 +1,5 @@
 import { pmdbRequest } from "./client";
+import { getTmdbForExternal } from "./mappings";
 import { isAuthenticated } from "./session";
 import type { PmdbTarget, PmdbWatchedItem, PmdbWatchedResponse } from "./types";
 
@@ -32,6 +33,29 @@ async function fetchWatchedPage(target: PmdbTarget | undefined, page: number) {
   return pmdbRequest<PmdbWatchedResponse>(watchedQuery(target, page), { method: "GET" });
 }
 
+/**
+ * The watch-history GET documents only page/perPage, so server-side
+ * filtering by show cannot be relied on. Resolve ID-only targets to a TMDB
+ * id through the mappings API and filter items client-side instead.
+ */
+async function resolveTargetTmdb(target: PmdbTarget): Promise<PmdbTarget | null> {
+  if (target.tmdb_id != null) return target;
+  if (!target.id_type || !target.id_value) return null;
+  const found = await getTmdbForExternal(target.id_type, target.id_value).catch(() => null);
+  if (!found) return null;
+  return { ...target, tmdb_id: found.tmdb_id };
+}
+
+export function watchedItemMatchesTarget(item: PmdbWatchedItem, target: PmdbTarget): boolean {
+  if (target.tmdb_id != null && item.tmdb_id !== target.tmdb_id) return false;
+  if (target.media_type && item.media_type !== target.media_type) return false;
+  if (target.media_type !== "movie") {
+    if (target.season != null && item.season !== target.season) return false;
+    if (target.episode != null && item.episode !== target.episode) return false;
+  }
+  return true;
+}
+
 export async function fetchPmdbWatchedKeySet(target?: PmdbTarget): Promise<Set<string>> {
   if (!isAuthenticated()) return new Set();
 
@@ -44,18 +68,26 @@ export async function fetchPmdbWatchedKeySet(target?: PmdbTarget): Promise<Set<s
   // A targeted fetch belongs to one show, so bare `S:E` keys are safe there.
   // A global fetch spans shows, so only scoped keys may be added.
   const scopedOnly = !target;
+  const effective = target ? await resolveTargetTmdb(target).catch(() => null) : undefined;
+  if (target && !effective) return set;
 
   try {
     const first = await fetchWatchedPage(target, 1);
     const items = Array.isArray(first?.items) ? first.items : [];
-    for (const item of items) addWatchedKeys(set, item, target, scopedOnly);
+    for (const item of items) {
+      if (effective && !watchedItemMatchesTarget(item, effective)) continue;
+      addWatchedKeys(set, item, target, scopedOnly);
+    }
     const totalPages = Math.max(1, Number(first?.totalPages ?? 1) || 1);
     const pages = Math.min(totalPages, WATCHED_MAX_PAGES);
     for (let page = 2; page <= pages; page++) {
       try {
         const data = await fetchWatchedPage(target, page);
         if (!Array.isArray(data?.items)) break;
-        for (const item of data.items) addWatchedKeys(set, item, target, scopedOnly);
+        for (const item of data.items) {
+          if (effective && !watchedItemMatchesTarget(item, effective)) continue;
+          addWatchedKeys(set, item, target, scopedOnly);
+        }
         if (data.items.length === 0) break;
       } catch {
         break;
@@ -125,12 +157,15 @@ export async function markPmdbWatched(
   watchedAt?: string,
 ): Promise<boolean> {
   if (!isAuthenticated()) return false;
+  // Mark-watched requires a TMDB id; resolve ID-only targets first.
+  const resolved = await resolveTargetTmdb(target).catch(() => null);
+  if (!resolved) return false;
   invalidatePmdbWatchedCache();
 
   try {
     await pmdbRequest("/api/external/watched", {
       method: "POST",
-      body: watchedBody(target, watchedAt),
+      body: watchedBody(resolved, watchedAt),
     });
     return true;
   } catch (err) {
@@ -156,10 +191,13 @@ function unmarkQuery(target: PmdbTarget): string {
 
 export async function unmarkPmdbWatched(target: PmdbTarget): Promise<boolean> {
   if (!isAuthenticated()) return false;
+  // Bulk delete requires a TMDB id; resolve ID-only targets first.
+  const resolved = await resolveTargetTmdb(target).catch(() => null);
+  if (!resolved) return false;
   invalidatePmdbWatchedCache();
 
   try {
-    await pmdbRequest(unmarkQuery(target), {
+    await pmdbRequest(unmarkQuery(resolved), {
       method: "DELETE",
     });
     return true;

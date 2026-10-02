@@ -13,13 +13,16 @@ export type PmdbRequestOptions = {
 };
 
 export class PmdbApiError extends Error {
-  constructor(
-    public status: number,
-    public body: string,
-    public retryAt?: number,
-  ) {
+  status: number;
+  body: string;
+  retryAt?: number;
+
+  constructor(status: number, body: string, retryAt?: number) {
     super(`PublicMetaDB HTTP ${status}: ${body.slice(0, 200)}`);
     this.name = "PmdbApiError";
+    this.status = status;
+    this.body = body;
+    this.retryAt = retryAt;
   }
 }
 
