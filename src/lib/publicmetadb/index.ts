@@ -4,6 +4,7 @@ export * from "./client";
 export * from "./ids";
 export * from "./history";
 export * from "./mappings";
+export * from "./watched-keys";
 export * from "./scrobble";
 export * from "./pending-sync";
 export * from "./scrobble-hook";
