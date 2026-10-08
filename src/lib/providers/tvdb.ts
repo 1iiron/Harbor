@@ -291,22 +291,131 @@ export async function tvdbSeasonTypes(
   }));
 }
 
-export async function tvdbSeasonNames(
+export type TvdbSeasonInfo = {
+  id: number | null;
+  number: number;
+  /** Base (original-language) name; may be empty or non-displayable. Use tvdbSeasonNames for the display name. */
+  name: string;
+  image?: string;
+};
+
+export async function tvdbSeasons(
   apiKey: string,
   seriesId: number,
   typeSlug: string,
-): Promise<Map<number, string>> {
-  const map = new Map<number, string>();
+): Promise<Map<number, TvdbSeasonInfo>> {
+  const map = new Map<number, TvdbSeasonInfo>();
   if (!seriesId) return map;
   const data = await getJson<any>(apiKey, `/series/${seriesId}/extended?short=true`);
   const seasons = (data?.seasons ?? []) as any[];
   for (const s of seasons) {
     if (s?.type?.type !== typeSlug) continue;
     const num = typeof s.number === "number" ? s.number : null;
+    if (num == null) continue;
     const name = typeof s.name === "string" ? s.name.trim() : "";
-    if (num != null && name && isDisplayableName(name)) map.set(num, name);
+    const id = typeof s.id === "number" ? s.id : null;
+    map.set(num, { id, number: num, name, image: tvdbImg(s.image) });
   }
   return map;
+}
+
+export async function tvdbSeasonTranslation(
+  apiKey: string,
+  seasonId: number,
+  lang: string,
+): Promise<string | null> {
+  if (!apiKey || !seasonId || !lang) return null;
+  const data = await getJson<{ name?: unknown }>(
+    apiKey,
+    `/seasons/${seasonId}/translations/${lang}`,
+  );
+  const name = typeof data?.name === "string" ? data.name.trim() : "";
+  return name || null;
+}
+
+export async function tvdbSeasonNames(
+  apiKey: string,
+  seriesId: number,
+  typeSlug: string,
+): Promise<Map<number, string>> {
+  const infos = await tvdbSeasons(apiKey, seriesId, typeSlug);
+  // Season names are English-only by design: the base TVDB record carries the
+  // original-language name (Japanese for anime), so resolve the English
+  // translation instead. The Harbor proxy only forwards /series/* paths
+  // (/seasons/* answers 400), so per-season translation lookups require a
+  // direct API key.
+  const direct = apiKey.trim().length > 0;
+  const map = new Map<number, string>();
+  await Promise.all(
+    [...infos.values()].map(async (info) => {
+      if (info.number < 1) return;
+      if (direct && info.id != null) {
+        const t = await tvdbSeasonTranslation(apiKey, info.id, "eng").catch(() => null);
+        if (t && isDisplayableName(t)) {
+          map.set(info.number, t);
+          return;
+        }
+      }
+      if (info.name && isDisplayableName(info.name)) map.set(info.number, info.name);
+    }),
+  );
+  return map;
+}
+
+export type TvdbSeasonArtwork = {
+  image?: unknown;
+  thumbnail?: unknown;
+  language?: string | null;
+  type?: number | null;
+  score?: number | null;
+  includesText?: boolean | null;
+};
+
+export async function tvdbSeasonExtended(
+  apiKey: string,
+  seasonId: number,
+): Promise<{ image?: string; artwork: TvdbSeasonArtwork[] } | null> {
+  if (!seasonId) return null;
+  const data = await getJson<any>(apiKey, `/seasons/${seasonId}/extended`);
+  if (!data) return null;
+  const artwork = Array.isArray(data.artwork) ? (data.artwork as TvdbSeasonArtwork[]) : [];
+  return { image: tvdbImg(data.image), artwork };
+}
+
+function normArtLang(v: unknown): string {
+  return (typeof v === "string" ? v : "").trim().toLowerCase();
+}
+
+/**
+ * Pick a season poster in the requested metadata language, falling back to
+ * English. TVDB artwork carries a 3-letter `language` (e.g. `fra`, `eng`)
+ * and `type === 2` for posters. Wrong-language text posters are avoided:
+ * after `lang` -> `eng` we prefer textless/neutral art, then the season's
+ * default image, and only then any poster rather than nothing.
+ */
+export function pickSeasonPoster(opts: {
+  artwork?: TvdbSeasonArtwork[] | null;
+  extendedImage?: unknown;
+  baseImage?: unknown;
+  lang?: string | null;
+}): string | undefined {
+  const langNorm = normArtLang(opts.lang) || "eng";
+  const posters = (opts.artwork ?? [])
+    .filter((a) => a && Number(a.type) === 2 && typeof a.image === "string" && a.image)
+    .slice()
+    .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+  const byLang = (code: string) => posters.find((a) => normArtLang(a.language) === code);
+  const langHit = byLang(langNorm)?.image;
+  if (typeof langHit === "string" && langHit) return tvdbImg(langHit);
+  if (langNorm !== "eng") {
+    const engHit = byLang("eng")?.image;
+    if (typeof engHit === "string" && engHit) return tvdbImg(engHit);
+  }
+  const textlessHit = posters.find((a) => a.includesText === false)?.image;
+  if (typeof textlessHit === "string" && textlessHit) return tvdbImg(textlessHit);
+  const neutralHit = posters.find((a) => !normArtLang(a.language))?.image;
+  if (typeof neutralHit === "string" && neutralHit) return tvdbImg(neutralHit);
+  return tvdbImg(opts.extendedImage) ?? tvdbImg(opts.baseImage) ?? tvdbImg(posters[0]?.image);
 }
 
 export async function tvdbEpisodes(

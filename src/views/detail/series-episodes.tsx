@@ -347,6 +347,8 @@ export function SeriesEpisodes({
     setActive,
     setOrderSeason,
     userPickedRef,
+    tmdbSeasonNameFallback:
+      settings.tvdbSeasonType === "aired" || settings.tvdbSeasonType === "official",
   });
   useEffect(() => {
     let cancelled = false;

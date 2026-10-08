@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { Season } from "@/lib/providers/tmdb";
 import { setViewedSeason } from "@/lib/season-view-pref";
-import { seasonDateRange, type TvdbOrder } from "@/lib/providers/tvdb-order";
+import { isGenericTvdbSeasonName, seasonDateRange, type TvdbOrder } from "@/lib/providers/tvdb-order";
 import { isNewSeason } from "../helpers";
 import type { ArcGroupsState } from "./use-arc-groups";
 import type { PickerItem } from "./season-arc-picker";
@@ -18,6 +18,7 @@ export function useSeasonArcPicker({
   setActive,
   setOrderSeason,
   userPickedRef,
+  tmdbSeasonNameFallback,
 }: {
   source: "arcs" | "order" | "default";
   arc: ArcGroupsState;
@@ -30,6 +31,12 @@ export function useSeasonArcPicker({
   setActive: (n: number) => void;
   setOrderSeason: (n: number) => void;
   userPickedRef: React.MutableRefObject<boolean>;
+  /**
+   * When true, a generic TVDB season name ("Season N") falls back to the
+   * TMDB season name for the same number. Only enable for aired-order
+   * views, where TVDB and TMDB season numbering align.
+   */
+  tmdbSeasonNameFallback?: boolean;
 }): { items: PickerItem[]; activeKey: string; onSelect: (key: string) => void } {
   return useMemo(() => {
     if (source === "arcs") {
@@ -40,12 +47,24 @@ export function useSeasonArcPicker({
       };
     }
     if (source === "order" && ordering) {
+      const tmdbByNumber = tmdbSeasonNameFallback
+        ? new Map(seasons.map((s) => [s.seasonNumber, s.name.trim()] as const))
+        : null;
       return {
         items: ordering.seasons.map((s) => {
           const { from, to } = seasonDateRange(ordering.bySeason.get(s.seasonNumber) ?? []);
+          let name = s.name;
+          const tmdbName = tmdbByNumber?.get(s.seasonNumber);
+          if (
+            tmdbName &&
+            isGenericTvdbSeasonName(name, s.seasonNumber) &&
+            !isGenericTvdbSeasonName(tmdbName, s.seasonNumber)
+          ) {
+            name = tmdbName;
+          }
           return {
             key: String(s.seasonNumber),
-            name: s.name,
+            name,
             count: s.episodeCount,
             year: s.airDate?.slice(0, 4),
             from,
@@ -87,5 +106,6 @@ export function useSeasonArcPicker({
     setActive,
     setOrderSeason,
     userPickedRef,
+    tmdbSeasonNameFallback,
   ]);
 }

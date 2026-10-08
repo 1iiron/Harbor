@@ -1,5 +1,13 @@
 import type { Episode, Season } from "@/lib/providers/tmdb";
-import { tvdbEpisodesByType, tvdbSeasonNames, tvdbSeriesByRemote, type TvdbEpisode } from "./tvdb";
+import {
+  pickSeasonPoster,
+  tvdbEpisodesByType,
+  tvdbSeasonExtended,
+  tvdbSeasonNames,
+  tvdbSeasons,
+  tvdbSeriesByRemote,
+  type TvdbEpisode,
+} from "./tvdb";
 import { isStaleTvdbOrder, readOrderCache, writeOrderCache } from "./tvdb-order-cache";
 import { firstRealEpisodeText } from "./episode-placeholder";
 import { episodeTextLanguage } from "@/lib/episode-text-language";
@@ -17,6 +25,19 @@ export type TvdbOrder = {
   absByEpId: Map<number, number>;
   imageByAbs: Map<number, string>;
 };
+
+/**
+ * True when a TVDB order season carries no real name — only the English
+ * fallbacks built in build() below. Callers may substitute another source
+ * (e.g. the TMDB season name) for these. "All Episodes" is deliberately
+ * excluded: that single bucket spans many seasons, so a per-season name
+ * from elsewhere would be wrong.
+ */
+export function isGenericTvdbSeasonName(name: string, seasonNumber: number): boolean {
+  if (seasonNumber === 0) return name === "Specials";
+  if (seasonNumber < 0) return true;
+  return name === `Season ${seasonNumber}`;
+}
 
 export function seasonDateRange(eps: Episode[]): { from?: string; to?: string } {
   let from: string | undefined;
@@ -89,10 +110,13 @@ async function build(
   const slug = seasonType === "aired" || joinedClean ? "default" : rawAbsolute ? "absolute" : seasonType;
   const nameTypeSlug =
     seasonType === "aired" || joinedClean || rawAbsolute ? "official" : seasonType;
-  const [defaultEps, names] = await Promise.all([
+  const [defaultEps, seasonInfos, names] = await Promise.all([
     tvdbEpisodesByType(apiKey, seriesId, "default"),
-    tvdbSeasonNames(apiKey, seriesId, nameTypeSlug),
+    tvdbSeasons(apiKey, seriesId, nameTypeSlug),
+    tvdbSeasonNames(apiKey, seriesId, nameTypeSlug).catch(() => new Map<number, string>()),
   ]);
+  // Posters come from the base season records even when no displayable name
+  // resolved, so keep ids/images for every season of this order type.
   const altEps = slug === "default" ? defaultEps : await tvdbEpisodesByType(apiKey, seriesId, slug);
   if (altEps.length === 0) return null;
   // Translations in the requested language. When a translation is missing, TVDB falls back to
@@ -191,6 +215,34 @@ async function build(
     }
   }
 
+  const langForArt = (lang ?? "eng").toLowerCase();
+  const posterBySeason = new Map<number, string>();
+  for (const [num, info] of seasonInfos) {
+    const base = pickSeasonPoster({ baseImage: info.image, lang: langForArt });
+    if (base) posterBySeason.set(num, base);
+  }
+  // Language-matched upgrade per season. Skipped for the joined/absolute
+  // single-bucket views, which have no single season to represent, and for
+  // proxy users: the Harbor proxy only forwards /series/* paths, so
+  // /seasons/* needs a direct API key.
+  const directApi = apiKey.trim().length > 0;
+  if (!joinedClean && !rawAbsolute && directApi) {
+    await Promise.all(
+      [...seasonInfos.entries()].map(async ([num, info]) => {
+        if (!bySeason.has(num) || info.id == null) return;
+        const ext = await tvdbSeasonExtended(apiKey, info.id).catch(() => null);
+        if (!ext) return;
+        const picked = pickSeasonPoster({
+          artwork: ext.artwork,
+          extendedImage: ext.image,
+          baseImage: info.image,
+          lang: langForArt,
+        });
+        if (picked) posterBySeason.set(num, picked);
+      }),
+    );
+  }
+
   const seasons: Season[] = [...bySeason.keys()]
     .sort((a, b) => (a <= 0 ? 1 : b <= 0 ? -1 : a - b))
     .map((n) => ({
@@ -201,7 +253,9 @@ async function build(
           ? "All Episodes"
           : names.get(n) || (n === 0 ? "Specials" : `Season ${n}`),
       overview: "",
-      posterPath: null,
+      // TVDB posters are absolute URLs (artworks.thetvdb.com), unlike TMDB
+      // paths. Consumers should handle both forms.
+      posterPath: posterBySeason.get(n) ?? null,
       episodeCount: bySeason.get(n)!.length,
       airDate: bySeason.get(n)![0]?.airDate ?? null,
     }));
