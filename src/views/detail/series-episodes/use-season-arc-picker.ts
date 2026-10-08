@@ -70,6 +70,7 @@ export function useSeasonArcPicker({
             from,
             to,
             extra: s.seasonNumber <= 0,
+            seasonNumber: s.seasonNumber,
           };
         }),
         activeKey: String(orderSeasonEff),
@@ -86,6 +87,7 @@ export function useSeasonArcPicker({
         count: s.episodeCount,
         year: s.airDate?.slice(0, 4),
         isNew: isNewSeason(s, lastEpisodeAir),
+        seasonNumber: s.seasonNumber,
       })),
       activeKey: String(active),
       onSelect: (k: string) => {

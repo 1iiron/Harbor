@@ -88,6 +88,7 @@ export function buildAnimeOrder(
       year: s.airDate?.slice(0, 4),
       from,
       to,
+      seasonNumber: s.seasonNumber,
     });
     subsetByKey.set(key, ordered);
   }

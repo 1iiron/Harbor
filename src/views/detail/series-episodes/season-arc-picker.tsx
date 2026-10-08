@@ -2,6 +2,7 @@ import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "@/lib/i18n";
+import { isGenericTvdbSeasonName } from "@/lib/providers/tvdb-order";
 import { NewBadge } from "../badges";
 
 export type PickerItem = {
@@ -14,7 +15,28 @@ export type PickerItem = {
   isNew?: boolean;
   extra?: boolean;
   badge?: string;
+  /** Season number for the "Season N" pill. Absent for non-season entries. */
+  seasonNumber?: number;
 };
+
+/**
+ * Pill text for a season row, or null when no pill should render: entries
+ * without a season number, specials buckets, and generic names ("Season N",
+ * localized or not) keep their current look instead of duplicating the name.
+ */
+export function seasonPill(
+  item: Pick<PickerItem, "name" | "seasonNumber">,
+  t: ReturnType<typeof useT>,
+): string | null {
+  const n = item.seasonNumber;
+  if (n == null || n < 1) return null;
+  const name = item.name.trim();
+  if (name === "All Episodes") return null;
+  const pill = t("Season {n}", { n });
+  if (name === pill) return null;
+  if (isGenericTvdbSeasonName(name, n)) return null;
+  return pill;
+}
 
 type MenuPos = { right: number; top?: number; bottom?: number; maxH: number };
 
@@ -81,6 +103,7 @@ export function SeasonArcPicker({
 
   const renderRow = (item: PickerItem) => {
     const isActive = item.key === activeKey;
+    const pill = seasonPill(item, t);
     return (
       <button
         key={item.key}
@@ -89,7 +112,7 @@ export function SeasonArcPicker({
           setMenu(null);
         }}
         className={`flex w-full items-center justify-between gap-3 px-4 py-2.5 text-start transition-colors ${
-          isActive ? "bg-ink/10 text-ink" : "text-ink-muted hover:bg-raised hover:text-ink"
+          isActive ? "bg-ink/10 text-ink" : "text-ink hover:bg-raised"
         }`}
       >
         <div className="flex min-w-0 flex-col">
@@ -97,11 +120,18 @@ export function SeasonArcPicker({
             <span className="truncate">{item.name}</span>
             {item.isNew && <NewBadge />}
           </span>
-          <span className="text-[11.5px] text-ink-subtle">
-            {item.count === 1
-              ? t("{n} episode", { n: item.count })
-              : t("{n} episodes", { n: item.count })}
-            {item.year && ` · ${item.year}`}
+          <span className="flex items-center gap-1.5 text-[11.5px] text-ink-muted">
+            {pill && (
+              <span className="shrink-0 rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">
+                {pill}
+              </span>
+            )}
+            <span className="truncate">
+              {item.count === 1
+                ? t("{n} episode", { n: item.count })
+                : t("{n} episodes", { n: item.count })}
+              {item.year && ` · ${item.year}`}
+            </span>
           </span>
         </div>
       </button>

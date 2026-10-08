@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "@/lib/i18n";
 import type { PickerItem } from "./season-arc-picker";
+import { seasonPill } from "./season-arc-picker";
 
 function shortOrderLabel(label: string): string {
   return label.replace(/\s*Order$/i, "");
@@ -166,6 +167,7 @@ export function TvdbOrderPanel({
                   <OrderRow
                     key={item.key}
                     name={item.name}
+                    pill={seasonPill(item, t)}
                     sub={dateSub(item, ongoing, t("Current"))}
                     count={item.count}
                     active={item.key === activeKey}
@@ -194,6 +196,7 @@ export function TvdbOrderPanel({
                     <OrderRow
                       key={item.key}
                       name={item.name}
+                      pill={seasonPill(item, t)}
                       sub={dateSub(item, ongoing, t("Current"))}
                       count={item.count}
                       active={item.key === activeKey}
@@ -214,6 +217,7 @@ export function TvdbOrderPanel({
 
 function OrderRow({
   name,
+  pill,
   sub,
   count,
   active,
@@ -223,6 +227,7 @@ function OrderRow({
   onClick,
 }: {
   name: string;
+  pill?: string | null;
   sub: string;
   count: number;
   active: boolean;
@@ -235,7 +240,7 @@ function OrderRow({
     <button
       onClick={onClick}
       className={`grid w-full grid-cols-[1fr_auto] items-center gap-x-3 px-4 py-2.5 text-start transition-colors ${
-        active ? "bg-ink/10 text-ink" : "text-ink-muted hover:bg-raised hover:text-ink"
+        active ? "bg-ink/10 text-ink" : "text-ink hover:bg-raised"
       }`}
     >
       <span className="flex min-w-0 flex-col">
@@ -253,9 +258,18 @@ function OrderRow({
             </span>
           )}
         </span>
-        {sub && <span className="text-[11.5px] text-ink-subtle">{sub}</span>}
+        {(pill || sub) && (
+          <span className="flex items-center gap-1.5 text-[11.5px] text-ink-muted">
+            {pill && (
+              <span className="shrink-0 rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">
+                {pill}
+              </span>
+            )}
+            {sub && <span className="truncate">{sub}</span>}
+          </span>
+        )}
       </span>
-      <span className="tabular-nums text-[12.5px] text-ink-subtle">{count}</span>
+      <span className="tabular-nums text-[12.5px] text-ink-muted">{count}</span>
     </button>
   );
 }

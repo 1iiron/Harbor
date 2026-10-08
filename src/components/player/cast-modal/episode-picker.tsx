@@ -175,6 +175,7 @@ export function EpisodePicker({
           year: s.airDate?.slice(0, 4) ?? undefined,
           from,
           to,
+          seasonNumber: s.seasonNumber,
         };
       });
   }, [ordering]);
