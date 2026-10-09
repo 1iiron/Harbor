@@ -1,8 +1,7 @@
 import type { Episode, Season } from "@/lib/providers/tmdb";
 import {
-  pickSeasonPoster,
+  tvdbBaseSeasonNames,
   tvdbEpisodesByType,
-  tvdbSeasonExtended,
   tvdbSeasonNames,
   tvdbSeasons,
   tvdbSeriesByRemote,
@@ -21,6 +20,7 @@ export type OrderedEpisode = Episode & {
 
 export type TvdbOrder = {
   seasons: Season[];
+  seasonNamesResolved?: boolean;
   bySeason: Map<number, OrderedEpisode[]>;
   absByEpId: Map<number, number>;
   imageByAbs: Map<number, string>;
@@ -55,6 +55,13 @@ const orderCache = new Map<string, { t: number; order: TvdbOrder }>();
 // becomes the real name right after an episode airs), so the in-memory order
 // must expire instead of pinning stale titles until the next restart.
 const ORDER_CACHE_TTL_MS = 10 * 60 * 1000;
+const orderInflight = new Map<string, Promise<TvdbOrder | null>>();
+const nameInflight = new WeakMap<TvdbOrder, Promise<TvdbOrder>>();
+
+/** The core order is immediately usable; callers can apply names when ready. */
+export function waitForTvdbSeasonNames(order: TvdbOrder): Promise<TvdbOrder> {
+  return nameInflight.get(order) ?? Promise.resolve(order);
+}
 
 export async function fetchTvdbOrder(
   apiKey: string,
@@ -75,7 +82,8 @@ export async function fetchTvdbOrderBySeriesId(
   lang?: string,
 ): Promise<TvdbOrder | null> {
   if (!seriesId) return null;
-  const typeKey = lang ? `${seasonType}:${lang}` : seasonType;
+  const mode = apiKey.trim() ? "direct" : "proxy";
+  const typeKey = `${mode}:${seasonType}${lang ? `:${lang}` : ""}`;
   const cacheKey = `${seriesId}:${typeKey}`;
   const cached = orderCache.get(cacheKey);
   if (
@@ -86,17 +94,39 @@ export async function fetchTvdbOrderBySeriesId(
     return cached.order;
   }
   if (cached) orderCache.delete(cacheKey);
-  const persisted = readOrderCache(seriesId, typeKey);
-  if (persisted) {
-    orderCache.set(cacheKey, { t: Date.now(), order: persisted });
-    return persisted;
-  }
-  const result = await build(apiKey, seriesId, seasonType, lang).catch(() => null);
-  if (result) {
+  const running = orderInflight.get(cacheKey);
+  if (running) return running;
+  const load = (async () => {
+    const persisted = readOrderCache(seriesId, typeKey);
+    const result = persisted ?? await build(apiKey, seriesId, seasonType, lang).catch(() => null);
+    if (!result) return null;
     orderCache.set(cacheKey, { t: Date.now(), order: result });
-    writeOrderCache(seriesId, typeKey, result);
+    if (!persisted) writeOrderCache(seriesId, typeKey, result);
+    if (!result.seasonNamesResolved && mode === "direct") {
+      const nameType = seasonType === "aired" || seasonType === "official" ? "official" : seasonType;
+      const enrichment = tvdbSeasonNames(apiKey, seriesId, nameType).then((names) => {
+        const enriched: TvdbOrder = {
+          ...result,
+          seasonNamesResolved: true,
+          seasons: result.seasons.map((season) => {
+            const name = names.get(season.seasonNumber) || season.name;
+            return { ...season, name, isGenericName: isGenericTvdbSeasonName(name, season.seasonNumber) };
+          }),
+        };
+        orderCache.set(cacheKey, { t: Date.now(), order: enriched });
+        writeOrderCache(seriesId, typeKey, enriched);
+        return enriched;
+      }).catch(() => result);
+      nameInflight.set(result, enrichment);
+    }
+    return result;
+  })();
+  orderInflight.set(cacheKey, load);
+  try {
+    return await load;
+  } finally {
+    orderInflight.delete(cacheKey);
   }
-  return result;
 }
 
 async function build(
@@ -107,16 +137,19 @@ async function build(
 ): Promise<TvdbOrder | null> {
   const joinedClean = seasonType === "absolute";
   const rawAbsolute = seasonType === "tvdbabsolute";
-  const slug = seasonType === "aired" || joinedClean ? "default" : rawAbsolute ? "absolute" : seasonType;
+  const slug =
+    seasonType === "aired" || seasonType === "official" || joinedClean
+      ? "default"
+      : rawAbsolute ? "absolute" : seasonType;
   const nameTypeSlug =
     seasonType === "aired" || joinedClean || rawAbsolute ? "official" : seasonType;
-  const [defaultEps, seasonInfos, names] = await Promise.all([
+  const [defaultEps, seasonInfos] = await Promise.all([
     tvdbEpisodesByType(apiKey, seriesId, "default"),
-    tvdbSeasons(apiKey, seriesId, nameTypeSlug),
-    tvdbSeasonNames(apiKey, seriesId, nameTypeSlug).catch(() => new Map<number, string>()),
+    joinedClean || rawAbsolute
+      ? Promise.resolve(new Map())
+      : tvdbSeasons(apiKey, seriesId, nameTypeSlug),
   ]);
-  // Posters come from the base season records even when no displayable name
-  // resolved, so keep ids/images for every season of this order type.
+  const names = tvdbBaseSeasonNames(seasonInfos);
   const altEps = slug === "default" ? defaultEps : await tvdbEpisodesByType(apiKey, seriesId, slug);
   if (altEps.length === 0) return null;
   // Translations in the requested language. When a translation is missing, TVDB falls back to
@@ -215,49 +248,29 @@ async function build(
     }
   }
 
-  const langForArt = (lang ?? "eng").toLowerCase();
-  const posterBySeason = new Map<number, string>();
-  for (const [num, info] of seasonInfos) {
-    const base = pickSeasonPoster({ baseImage: info.image, lang: langForArt });
-    if (base) posterBySeason.set(num, base);
-  }
-  // Language-matched upgrade per season. Skipped for the joined/absolute
-  // single-bucket views, which have no single season to represent, and for
-  // proxy users: the Harbor proxy only forwards /series/* paths, so
-  // /seasons/* needs a direct API key.
-  const directApi = apiKey.trim().length > 0;
-  if (!joinedClean && !rawAbsolute && directApi) {
-    await Promise.all(
-      [...seasonInfos.entries()].map(async ([num, info]) => {
-        if (!bySeason.has(num) || info.id == null) return;
-        const ext = await tvdbSeasonExtended(apiKey, info.id).catch(() => null);
-        if (!ext) return;
-        const picked = pickSeasonPoster({
-          artwork: ext.artwork,
-          extendedImage: ext.image,
-          baseImage: info.image,
-          lang: langForArt,
-        });
-        if (picked) posterBySeason.set(num, picked);
-      }),
-    );
-  }
-
   const seasons: Season[] = [...bySeason.keys()]
     .sort((a, b) => (a <= 0 ? 1 : b <= 0 ? -1 : a - b))
-    .map((n) => ({
-      id: n,
-      seasonNumber: n,
-      name:
-        joinedClean || rawAbsolute
-          ? "All Episodes"
-          : names.get(n) || (n === 0 ? "Specials" : `Season ${n}`),
-      overview: "",
-      // TVDB posters are absolute URLs (artworks.thetvdb.com), unlike TMDB
-      // paths. Consumers should handle both forms.
-      posterPath: posterBySeason.get(n) ?? null,
-      episodeCount: bySeason.get(n)!.length,
-      airDate: bySeason.get(n)![0]?.airDate ?? null,
-    }));
-  return { seasons, bySeason, absByEpId, imageByAbs };
+    .map((n) => {
+      const name = joinedClean || rawAbsolute
+        ? "All Episodes"
+        : names.get(n) || (n === 0 ? "Specials" : `Season ${n}`);
+      return {
+        id: n,
+        seasonNumber: n,
+        name,
+        isGenericName: joinedClean || rawAbsolute || isGenericTvdbSeasonName(name, n),
+        overview: "",
+        // TVDB artwork uses absolute URLs, unlike TMDB poster paths.
+        posterPath: joinedClean || rawAbsolute ? null : seasonInfos.get(n)?.image ?? null,
+        episodeCount: bySeason.get(n)!.length,
+        airDate: bySeason.get(n)![0]?.airDate ?? null,
+      };
+    });
+  return {
+    seasons,
+    bySeason,
+    absByEpId,
+    imageByAbs,
+    seasonNamesResolved: joinedClean || rawAbsolute || !apiKey.trim(),
+  };
 }

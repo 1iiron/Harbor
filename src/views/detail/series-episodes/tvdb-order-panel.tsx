@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "@/lib/i18n";
 import type { PickerItem } from "./season-arc-picker";
-import { seasonPill } from "./season-arc-picker";
+import { seasonPill } from "@/lib/season-name";
 
 function shortOrderLabel(label: string): string {
   return label.replace(/\s*Order$/i, "");
@@ -65,6 +65,7 @@ export function TvdbOrderPanel({
   const open = menu != null;
   const current = items.find((i) => i.key === activeKey) ?? items[0];
   const activeIsExtra = current?.extra ?? false;
+  const currentPill = current ? seasonPill(current, t) : null;
   const [showExtras, setShowExtras] = useState(false);
   useEffect(() => {
     if (activeIsExtra) setShowExtras(true);
@@ -124,6 +125,11 @@ export function TvdbOrderPanel({
         className="relative flex h-10 items-center gap-2 rounded-full bg-white/[0.06] ps-4 pe-3 text-[13.5px] font-medium text-ink transition-colors hover:bg-white/[0.10]"
       >
         <span className="max-w-[220px] truncate">{current?.name ?? t("Seasons")}</span>
+        {currentPill && (
+          <span className="shrink-0 rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">
+            {currentPill}
+          </span>
+        )}
         <ChevronDown
           size={15}
           className={`text-ink-muted transition-transform duration-200 ${open ? "rotate-180" : ""}`}

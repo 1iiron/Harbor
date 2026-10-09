@@ -89,6 +89,7 @@ export function buildAnimeOrder(
       from,
       to,
       seasonNumber: s.seasonNumber,
+      isGenericName: s.isGenericName,
     });
     subsetByKey.set(key, ordered);
   }

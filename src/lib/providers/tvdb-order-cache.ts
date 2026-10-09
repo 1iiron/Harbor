@@ -30,6 +30,7 @@ type Serialized = {
   t: number;
   textEvidenceVersion?: number;
   seasons: Season[];
+  seasonNamesResolved?: boolean;
   bySeason: [number, OrderedEpisode[]][];
   absByEpId: [number, number][];
   imageByAbs: [number, string][];
@@ -54,6 +55,7 @@ export function readOrderCache(seriesId: number, seasonType: string): TvdbOrder 
     }
     return {
       seasons: s.seasons,
+      seasonNamesResolved: s.seasonNamesResolved,
       bySeason: new Map(s.bySeason),
       absByEpId: new Map(s.absByEpId),
       imageByAbs: new Map(s.imageByAbs),
@@ -69,6 +71,7 @@ export function writeOrderCache(seriesId: number, seasonType: string, order: Tvd
       t: Date.now(),
       textEvidenceVersion: 1,
       seasons: order.seasons,
+      seasonNamesResolved: order.seasonNamesResolved,
       bySeason: [...order.bySeason],
       absByEpId: [...order.absByEpId],
       imageByAbs: [...order.imageByAbs],

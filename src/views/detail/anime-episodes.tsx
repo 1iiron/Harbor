@@ -479,19 +479,6 @@ export function AnimeEpisodes({
     activeEntryId,
     onSelectEntry,
   );
-  // Track explicit picker selections so renderCount only resets when the user
-  // changes season, not when async ordering resolves to a new activeKey.
-  const pickedKeyRef = useRef<string | null>(null);
-  useEffect(() => {
-    pickedKeyRef.current = null;
-  }, [meta.id]);
-  const onPickerSelect = useCallback(
-    (key: string) => {
-      pickedKeyRef.current = key;
-      selectPickerItem(key);
-    },
-    [selectPickerItem],
-  );
   const [watchedMenu, setWatchedMenu] = useState<WatchedMenuTarget | null>(null);
   const openWatchedMenu = (
     e: React.MouseEvent,
@@ -540,12 +527,20 @@ export function AnimeEpisodes({
   useEffect(() => {
     setRenderCount(WINDOW_STEP);
   }, [meta.id, settings.episodeLayout, settings.episodeSort, activeEntryId]);
-  useEffect(() => {
-    if (pickedKeyRef.current == null) return;
-    if (order?.activeKey !== pickedKeyRef.current) return;
-    pickedKeyRef.current = null;
-    setRenderCount(WINDOW_STEP);
-  }, [order?.activeKey]);
+  const onPickerSelect = useCallback(
+    (key: string) => {
+      setRenderCount(WINDOW_STEP);
+      selectPickerItem(key);
+    },
+    [selectPickerItem],
+  );
+  const onTvdbSelect = useCallback(
+    (key: string) => {
+      setRenderCount(WINDOW_STEP);
+      tvdbPanel.panel?.onSelect(key);
+    },
+    [tvdbPanel.panel?.onSelect],
+  );
   const grow = useCallback(
     () =>
       setRenderCount((c) =>
@@ -699,7 +694,7 @@ export function AnimeEpisodes({
               <TvdbOrderPanel
                 items={tvdbPanel.panel.items}
                 activeKey={tvdbPanel.panel.activeKey}
-                onSelect={tvdbPanel.panel.onSelect}
+                onSelect={onTvdbSelect}
                 orderTypes={tvdbPanel.panel.orderTypes}
                 activeType={tvdbPanel.panel.activeType}
                 onSelectType={(v) =>

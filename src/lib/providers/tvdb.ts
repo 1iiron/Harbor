@@ -256,7 +256,7 @@ const ORDER_PRIORITY: TvdbOrderType[] = [
   "regional",
 ];
 
-function defaultOrderLabel(value: TvdbOrderType): string {
+export function defaultOrderLabel(value: TvdbOrderType): string {
   const map: Record<TvdbOrderType, string> = {
     aired: "Aired Order",
     dvd: "DVD Order",
@@ -333,33 +333,39 @@ export async function tvdbSeasonTranslation(
   return name || null;
 }
 
+export function tvdbBaseSeasonNames(
+  infos: ReadonlyMap<number, TvdbSeasonInfo>,
+): Map<number, string> {
+  const names = new Map<number, string>();
+  for (const info of infos.values()) {
+    if (info.number >= 0 && info.name && isDisplayableName(info.name))
+      names.set(info.number, info.name);
+  }
+  return names;
+}
+
 export async function tvdbSeasonNames(
   apiKey: string,
   seriesId: number,
   typeSlug: string,
 ): Promise<Map<number, string>> {
   const infos = await tvdbSeasons(apiKey, seriesId, typeSlug);
-  // Season names are English-only by design: the base TVDB record carries the
-  // original-language name (Japanese for anime), so resolve the English
-  // translation instead. The Harbor proxy only forwards /series/* paths
-  // (/seasons/* answers 400), so per-season translation lookups require a
-  // direct API key.
-  const direct = apiKey.trim().length > 0;
-  const map = new Map<number, string>();
+  const names = tvdbBaseSeasonNames(infos);
+  // The proxy cannot serve /seasons/*; direct users resolve English names
+  // in the background, with a small request budget for long-running series.
+  if (!apiKey.trim()) return names;
+  const pending = [...infos.values()].filter((info) => info.number >= 0 && info.id != null);
+  let next = 0;
   await Promise.all(
-    [...infos.values()].map(async (info) => {
-      if (info.number < 1) return;
-      if (direct && info.id != null) {
-        const t = await tvdbSeasonTranslation(apiKey, info.id, "eng").catch(() => null);
-        if (t && isDisplayableName(t)) {
-          map.set(info.number, t);
-          return;
-        }
+    Array.from({ length: Math.min(4, pending.length) }, async () => {
+      while (next < pending.length) {
+        const info = pending[next++];
+        const name = await tvdbSeasonTranslation(apiKey, info.id!, "eng").catch(() => null);
+        if (name && isDisplayableName(name)) names.set(info.number, name);
       }
-      if (info.name && isDisplayableName(info.name)) map.set(info.number, info.name);
     }),
   );
-  return map;
+  return names;
 }
 
 export type TvdbSeasonArtwork = {

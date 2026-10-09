@@ -2,7 +2,7 @@ import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "@/lib/i18n";
-import { isGenericTvdbSeasonName } from "@/lib/providers/tvdb-order";
+import { seasonPill } from "@/lib/season-name";
 import { NewBadge } from "../badges";
 
 export type PickerItem = {
@@ -17,26 +17,8 @@ export type PickerItem = {
   badge?: string;
   /** Season number for the "Season N" pill. Absent for non-season entries. */
   seasonNumber?: number;
+  isGenericName?: boolean;
 };
-
-/**
- * Pill text for a season row, or null when no pill should render: entries
- * without a season number, specials buckets, and generic names ("Season N",
- * localized or not) keep their current look instead of duplicating the name.
- */
-export function seasonPill(
-  item: Pick<PickerItem, "name" | "seasonNumber">,
-  t: ReturnType<typeof useT>,
-): string | null {
-  const n = item.seasonNumber;
-  if (n == null || n < 1) return null;
-  const name = item.name.trim();
-  if (name === "All Episodes") return null;
-  const pill = t("Season {n}", { n });
-  if (name === pill) return null;
-  if (isGenericTvdbSeasonName(name, n)) return null;
-  return pill;
-}
 
 type MenuPos = { right: number; top?: number; bottom?: number; maxH: number };
 
@@ -59,6 +41,7 @@ export function SeasonArcPicker({
   const menuRef = useRef<HTMLDivElement>(null);
   const current = items.find((i) => i.key === activeKey) ?? items[0];
   const open = menu != null;
+  const currentPill = current ? seasonPill(current, t) : null;
   const hasUnseenNew = !open && items.some((i) => i.isNew && i.key !== activeKey);
   const mainItems = items.filter((i) => !i.extra);
   const extraItems = items.filter((i) => i.extra);
@@ -147,6 +130,11 @@ export function SeasonArcPicker({
         className="relative flex h-10 items-center gap-2 rounded-full bg-white/[0.06] ps-4 pe-3 text-[13.5px] font-medium text-ink transition-colors hover:bg-white/[0.10]"
       >
         <span className="max-w-[220px] truncate">{current?.name ?? t("Seasons")}</span>
+        {currentPill && (
+          <span className="shrink-0 rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">
+            {currentPill}
+          </span>
+        )}
         {current?.isNew && <NewBadge />}
         <ChevronDown
           size={15}

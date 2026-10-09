@@ -6,6 +6,7 @@ import { tvdbLangFromIso1 } from "@/lib/providers/tvdb";
 import {
   fetchTvdbOrder,
   fetchTvdbOrderBySeriesId,
+  waitForTvdbSeasonNames,
   type TvdbOrder,
 } from "@/lib/providers/tvdb-order";
 
@@ -45,7 +46,12 @@ export function useEpisodeOrder(
       }
       if (!o && remoteId)
         o = await fetchTvdbOrder(tvdbKey, remoteId, seasonType, lang).catch(() => null);
-      if (!cancelled) setOrder(o);
+      if (cancelled) return;
+      setOrder(o);
+      if (o) {
+        const named = await waitForTvdbSeasonNames(o);
+        if (!cancelled && named !== o) setOrder(named);
+      }
     })();
     return () => {
       cancelled = true;

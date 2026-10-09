@@ -176,6 +176,7 @@ export function EpisodePicker({
           from,
           to,
           seasonNumber: s.seasonNumber,
+          isGenericName: s.isGenericName,
         };
       });
   }, [ordering]);

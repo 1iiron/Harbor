@@ -3,6 +3,7 @@ import type { Season } from "@/lib/providers/tmdb";
 import { setViewedSeason } from "@/lib/season-view-pref";
 import { isGenericTvdbSeasonName, seasonDateRange, type TvdbOrder } from "@/lib/providers/tvdb-order";
 import { isNewSeason } from "../helpers";
+import { isGenericSeasonName } from "@/lib/season-name";
 import type { ArcGroupsState } from "./use-arc-groups";
 import type { PickerItem } from "./season-arc-picker";
 
@@ -58,7 +59,7 @@ export function useSeasonArcPicker({
           if (
             tmdbName &&
             isGenericTvdbSeasonName(name, s.seasonNumber) &&
-            !isGenericTvdbSeasonName(tmdbName, s.seasonNumber)
+            !isGenericSeasonName(tmdbName, s.seasonNumber)
           ) {
             name = tmdbName;
           }
@@ -71,6 +72,7 @@ export function useSeasonArcPicker({
             to,
             extra: s.seasonNumber <= 0,
             seasonNumber: s.seasonNumber,
+            isGenericName: name === s.name ? s.isGenericName : false,
           };
         }),
         activeKey: String(orderSeasonEff),
@@ -88,6 +90,7 @@ export function useSeasonArcPicker({
         year: s.airDate?.slice(0, 4),
         isNew: isNewSeason(s, lastEpisodeAir),
         seasonNumber: s.seasonNumber,
+        isGenericName: s.isGenericName,
       })),
       activeKey: String(active),
       onSelect: (k: string) => {
