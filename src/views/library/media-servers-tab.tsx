@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Server,
   Wand2,
+  X,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Poster } from "@/components/poster";
@@ -65,6 +66,7 @@ const fallbackMeta = (title: MediaServerTitle): Meta => ({
   name: title.fallbackTitle,
   releaseInfo: title.year ? String(title.year) : undefined,
 });
+const REVIEW_DISMISSED_KEY = "harbor.media-server.review-dismissed.v1";
 
 export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLElement | null> }) {
   const t = useT();
@@ -83,6 +85,21 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
   const [activeCollection, setActiveCollection] = useState<MediaServerCollection | null>(null);
   const [collectionIds, setCollectionIds] = useState<Set<string> | null>(null);
   const collectionIdsCache = useRef(new Map<string, Set<string>>());
+  const [reviewDismissed, setReviewDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(REVIEW_DISMISSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const dismissReview = () => {
+    setReviewDismissed(true);
+    try {
+      localStorage.setItem(REVIEW_DISMISSED_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+  };
   const [syncMessage, setSyncMessage] = useState(initialProgress?.message ?? "");
   const [reviewing, setReviewing] = useState<MediaServerTitle | null>(null);
   const [syncCount, setSyncCount] = useState<{ processed?: number; total?: number }>({
@@ -547,19 +564,31 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
           </div>
         }
       />
-      {unmatched.length > 0 && (
-        <button
-          onClick={() => setReviewing(unmatched[0])}
-          className="flex items-center gap-2 rounded-xl bg-amber-500/12 px-3.5 py-2.5 text-start ring-1 ring-amber-500/30"
-        >
-          <AlertTriangle size={15} className="text-amber-500" />
-          <span className="text-[12.5px] text-ink">
-            {t("{n} titles need review — help us identify them.", { n: unmatched.length })}
-          </span>
-          <span className="ms-auto rounded-full bg-amber-500 px-3 py-1 text-[11px] font-semibold text-black">
-            {t("Review")}
-          </span>
-        </button>
+      {unmatched.length > 0 && !reviewDismissed && (
+        <div className="flex items-center gap-2 rounded-xl bg-amber-500/12 px-3.5 py-2.5 ring-1 ring-amber-500/30">
+          <button
+            type="button"
+            onClick={() => setReviewing(unmatched[0])}
+            className="flex flex-1 items-center gap-2 text-start"
+          >
+            <AlertTriangle size={15} className="text-amber-500" />
+            <span className="text-[12.5px] text-ink">
+              {t("{n} titles need review — help us identify them.", { n: unmatched.length })}
+            </span>
+            <span className="ms-auto rounded-full bg-amber-500 px-3 py-1 text-[11px] font-semibold text-black">
+              {t("Review")}
+            </span>
+          </button>
+          <button
+            type="button"
+            aria-label={t("Dismiss")}
+            title={t("Dismiss")}
+            onClick={dismissReview}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-amber-500/80 transition-colors hover:text-amber-400"
+          >
+            <X size={15} />
+          </button>
+        </div>
       )}
       {type === "collections" && !activeCollection ? (
         collections && collections.length > 0 ? (
