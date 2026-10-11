@@ -22,6 +22,7 @@ import {
 } from "@/lib/subtitles/autoload-run";
 import { resolveAnimeSearchCoords } from "@/lib/subtitles/anime-numbering";
 import {
+  desiredSubtitleIsEmbedded,
   isAutoSelectableSubtitleTrack,
   pickDesiredSubtitleTrack,
   subtitleAutoSelectionSignature,
@@ -342,10 +343,23 @@ export function useTrackAutoload(params: {
             currentSelectionIsAutomatic,
             autoUpgradeEnabled: settings.subtitleAutoUpgrade,
           });
+        const prefs = readPlayerPrefs(src.meta.id);
+        const selectionLangs = prefs?.subLang
+          ? [prefs.subLang, ...langs.filter((lang) => lang !== prefs.subLang)]
+          : langs;
+        // The embedded-source preference must gate downloaded candidates too, or a
+        // prepared external track would replace the embedded track Harbor selected
+        // from the same preferences moments earlier.
+        const keepEmbedded = desiredSubtitleIsEmbedded(
+          snapRef.current.subtitleTracks,
+          selectionLangs,
+          settings.preferEmbeddedSubs,
+        );
         return (
           isActive() &&
+          !keepEmbedded &&
           !src.subtitlePreselect &&
-          !subsOffFor(readPlayerPrefs(src.meta.id), settings) &&
+          !subsOffFor(prefs, settings) &&
           !rememberedSubAppliesToStream(
             readRememberedSub(
               subtitleMediaKey(src.meta.id, src.episode?.season, src.episode?.episode),
