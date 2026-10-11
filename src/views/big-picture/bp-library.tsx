@@ -47,7 +47,7 @@ const SERVICE_NAMES: Partial<Record<BpLibTab, string>> = {
   letterboxd: "Letterboxd",
 };
 
-const TYPES: Array<{ id: TypeKey; label: string }> = [
+const TYPES: Array<{ id: "all" | "movie" | "series"; label: string }> = [
   { id: "all", label: "All" },
   { id: "movie", label: "Movies" },
   { id: "series", label: "Shows" },

@@ -59,6 +59,15 @@ export type MediaServerLibrary = {
   enabled: boolean;
 };
 
+export type MediaServerCollection = {
+  id: string;
+  connectionId: string;
+  name: string;
+  childCount?: number;
+  /** Primary-image path on the server (relative to its origin). */
+  posterPath?: string;
+};
+
 export type MediaServerVersion = {
   id: string;
   name?: string;
@@ -199,6 +208,13 @@ export interface MediaServerAdapter {
     library: MediaServerLibrary,
     cursor?: string,
   ): Promise<SyncPage>;
+  /** Server-side collections (Jellyfin/Emby BoxSets), when supported. */
+  collections?(connection: MediaServerConnection): Promise<MediaServerCollection[]>;
+  /** Ids of the items inside a collection, for filtering the synced library. */
+  collectionItemIds?(
+    connection: MediaServerConnection,
+    collectionId: string,
+  ): Promise<string[]>;
   lookup(connection: MediaServerConnection, identity: MediaIdentity): Promise<MediaServerItem[]>;
   playback(
     connection: MediaServerConnection,

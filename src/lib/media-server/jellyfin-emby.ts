@@ -4,6 +4,7 @@ import type {
   AuthResult,
   MediaIdentity,
   MediaServerAdapter,
+  MediaServerCollection,
   MediaServerConnection,
   MediaServerItem,
   MediaServerLibrary,
@@ -205,6 +206,54 @@ export class JellyfinEmbyAdapter implements MediaServerAdapter {
             : "mixed",
       enabled: true,
     }));
+  }
+  async collections(connection: MediaServerConnection): Promise<MediaServerCollection[]> {
+    const params = new URLSearchParams({
+      Recursive: "true",
+      IncludeItemTypes: "BoxSet",
+      Fields: "ChildCount,ImageTags",
+      SortBy: "SortName",
+    });
+    const r = await mediaServerRequest<{ Items?: ApiItem[] }>(
+      connection.origin,
+      `/Users/${encodeURIComponent(connection.userId)}/Items?${params}`,
+      { headers: this.headers(connection) },
+    );
+    return (r.body.Items ?? []).map((x) => ({
+      id: x.Id,
+      connectionId: connection.id,
+      name: x.Name ?? "Untitled",
+      childCount: typeof x.ChildCount === "number" ? x.ChildCount : undefined,
+      posterPath: x.ImageTags?.Primary
+        ? `Items/${x.Id}/Images/Primary?tag=${encodeURIComponent(x.ImageTags.Primary)}&maxHeight=600&quality=90`
+        : undefined,
+    }));
+  }
+  async collectionItemIds(
+    connection: MediaServerConnection,
+    collectionId: string,
+  ): Promise<string[]> {
+    const ids: string[] = [];
+    let start = 0;
+    for (;;) {
+      const params = new URLSearchParams({
+        ParentId: collectionId,
+        Recursive: "false",
+        IncludeItemTypes: "Movie,Series",
+        StartIndex: String(start),
+        Limit: "500",
+      });
+      const r = await mediaServerRequest<{ Items?: ApiItem[] }>(
+        connection.origin,
+        `/Users/${encodeURIComponent(connection.userId)}/Items?${params}`,
+        { headers: this.headers(connection) },
+      );
+      const raw = r.body.Items ?? [];
+      ids.push(...raw.map((x) => x.Id));
+      if (raw.length < 500) break;
+      start += raw.length;
+    }
+    return ids;
   }
   async synchronize(
     connection: MediaServerConnection,

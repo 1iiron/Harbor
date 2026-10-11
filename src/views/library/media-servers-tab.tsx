@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
+  ChevronLeft,
   Download,
   Info,
   Layers,
@@ -35,6 +36,7 @@ import {
   synchronizeMediaServer,
 } from "@/lib/media-server/sync";
 import type {
+  MediaServerCollection,
   MediaServerConnection,
   MediaServerItem,
   MediaServerTitle,
@@ -77,6 +79,9 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
   const [metadataLoading, setMetadataLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
   const metaCache = useRef(new Map<string, Meta>());
+  const [collections, setCollections] = useState<MediaServerCollection[] | null>(null);
+  const [activeCollection, setActiveCollection] = useState<MediaServerCollection | null>(null);
+  const [collectionIds, setCollectionIds] = useState<Set<string> | null>(null);
   const [syncMessage, setSyncMessage] = useState(initialProgress?.message ?? "");
   const [reviewing, setReviewing] = useState<MediaServerTitle | null>(null);
   const [syncCount, setSyncCount] = useState<{ processed?: number; total?: number }>({
@@ -172,6 +177,75 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
     },
     [connectionById],
   );
+  const collectionPoster = useCallback(
+    (collection: MediaServerCollection): string | undefined => {
+      if (!collection.posterPath) return undefined;
+      const connection = connectionById.get(collection.connectionId);
+      if (!connection) return undefined;
+      let url: URL;
+      try {
+        url = new URL(collection.posterPath.replace(/^\/+/, ""), `${connection.origin}/`);
+      } catch {
+        return undefined;
+      }
+      const token = mediaServerToken(connection);
+      if (token) {
+        if (connection.provider === "plex") url.searchParams.set("X-Plex-Token", token);
+        else url.searchParams.set("api_key", token);
+      }
+      return url.toString();
+    },
+    [connectionById],
+  );
+  const connectionsKey = connections.map((connection) => connection.id).join(",");
+  useEffect(() => {
+    let alive = true;
+    const capable = connections.filter(
+      (connection) => connection.enabled && mediaServerAdapter(connection).collections,
+    );
+    void Promise.all(
+      capable.map((connection) =>
+        mediaServerAdapter(connection)
+          .collections!(connection)
+          .catch(() => [] as MediaServerCollection[]),
+      ),
+    ).then((lists) => {
+      if (alive) setCollections(lists.flat());
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionsKey]);
+  useEffect(() => {
+    if (!activeCollection) {
+      setCollectionIds(null);
+      return;
+    }
+    const connection = connectionById.get(activeCollection.connectionId);
+    const adapter = connection ? mediaServerAdapter(connection) : null;
+    if (!connection || !adapter?.collectionItemIds) {
+      setCollectionIds(new Set());
+      return;
+    }
+    let alive = true;
+    const prefix = `${connection.id}:`;
+    setCollectionIds(null);
+    void adapter
+      .collectionItemIds(connection, activeCollection.id)
+      .then((ids) => {
+        if (alive) setCollectionIds(new Set(ids.map((id) => `${prefix}${id}`)));
+      })
+      .catch(() => {
+        if (alive) setCollectionIds(new Set());
+      });
+    return () => {
+      alive = false;
+    };
+  }, [activeCollection, connectionById]);
+  useEffect(() => {
+    if (type !== "collections") setActiveCollection(null);
+  }, [type]);
   useEffect(() => {
     if (loading || library === "all") return;
     if (!items.some((item) => item.libraryId === library)) setLibrary("all");
@@ -262,6 +336,10 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
     [cards],
   );
   const visible = useMemo(() => {
+    if (type === "collections") {
+      if (!activeCollection || !collectionIds) return [];
+      return cards.filter((card) => card.title.itemKeys.some((key) => collectionIds.has(key)));
+    }
     const mul = sortDir === "asc" ? 1 : -1;
     return cards
       .filter(
@@ -284,7 +362,7 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
                 : (entry.title.addedAt ?? 0);
         return mul * (value(a) - value(b));
       });
-  }, [cards, type, server, library, selectedGenres, query, sort, sortDir]);
+  }, [cards, type, server, library, selectedGenres, query, sort, sortDir, activeCollection, collectionIds]);
   const unmatched = titles.filter(
     (title) => !title.identity.tmdbId && !title.identity.imdbId && !title.identity.tvdbId,
   );
@@ -384,6 +462,7 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
         query={query}
         setQuery={setQuery}
         counts={counts}
+        collections={collections?.length ?? 0}
         trailing={
           <div className="ms-auto flex flex-wrap gap-2">
             <FilterSelect
@@ -464,30 +543,85 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
           </span>
         </button>
       )}
-      {!loading && !metadataLoading && !syncing && visible.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-edge-soft px-6 py-10 text-center text-[13px] text-ink-muted">
-          {t("No matches for these filters.")}
-        </div>
-      ) : (
-        visible.length > 0 &&
-        (scrollRef ? (
-          <VirtualGrid
-            items={visible}
-            scrollRef={scrollRef}
-            minColumnWidth={Math.round(150 * settings.posterScale)}
-            gapX={16}
-            gapY={32}
-            estimateRowHeight={Math.round(150 * settings.posterScale * 1.5) + 46}
-            getKey={(card) => card.title.key}
-            renderItem={renderCard}
-          />
-        ) : (
+      {type === "collections" && !activeCollection ? (
+        collections && collections.length > 0 ? (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-4 gap-y-8">
-            {visible.map((card) => (
-              <div key={card.title.key}>{renderCard(card)}</div>
-            ))}
+            {collections.map((collection) => {
+              const poster = collectionPoster(collection);
+              const connection = connectionById.get(collection.connectionId);
+              return (
+                <button
+                  key={`${collection.connectionId}:${collection.id}`}
+                  type="button"
+                  onClick={() => setActiveCollection(collection)}
+                  className="group flex flex-col gap-2 text-start"
+                >
+                  <div className="relative aspect-[2/3] overflow-hidden rounded-xl bg-raised ring-1 ring-edge-soft">
+                    {poster ? (
+                      <img
+                        src={poster}
+                        alt={collection.name}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="grid h-full w-full place-items-center text-ink-subtle">
+                        <Layers size={22} />
+                      </div>
+                    )}
+                  </div>
+                  <span className="truncate text-[13px] font-semibold text-ink">{collection.name}</span>
+                  <span className="truncate text-[11px] text-ink-subtle">
+                    {connection?.name}
+                    {collection.childCount != null ? ` · ${collection.childCount}` : ""}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-        ))
+        ) : (
+          <div className="rounded-2xl border border-dashed border-edge-soft px-6 py-10 text-center text-[13px] text-ink-muted">
+            {t("No collections on these servers.")}
+          </div>
+        )
+      ) : (
+        <>
+          {type === "collections" && activeCollection && (
+            <button
+              type="button"
+              onClick={() => setActiveCollection(null)}
+              className="flex items-center gap-1.5 self-start text-[13px] font-semibold text-ink-muted hover:text-ink"
+            >
+              <ChevronLeft size={16} />
+              {activeCollection.name}
+            </button>
+          )}
+          {!loading && !metadataLoading && !syncing && visible.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-edge-soft px-6 py-10 text-center text-[13px] text-ink-muted">
+              {t("No matches for these filters.")}
+            </div>
+          ) : (
+            visible.length > 0 &&
+            (scrollRef ? (
+              <VirtualGrid
+                items={visible}
+                scrollRef={scrollRef}
+                minColumnWidth={Math.round(150 * settings.posterScale)}
+                gapX={16}
+                gapY={32}
+                estimateRowHeight={Math.round(150 * settings.posterScale * 1.5) + 46}
+                getKey={(card) => card.title.key}
+                renderItem={renderCard}
+              />
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-4 gap-y-8">
+                {visible.map((card) => (
+                  <div key={card.title.key}>{renderCard(card)}</div>
+                ))}
+              </div>
+            ))
+          )}
+        </>
       )}
       <IdentifyModal
         target={localTarget}
