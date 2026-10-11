@@ -229,6 +229,81 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
     },
     [connectionById],
   );
+  const languageKey = `${settings.tmdbLanguage || "en"}:${(settings.tmdbImageLangs ?? []).join(",")}`;
+  const metaKey = useCallback(
+    (title: MediaServerTitle) => `${title.key}:locale:${languageKey}`,
+    [languageKey],
+  );
+  // TMDB fallback hydration is a persistent, deduplicated pool so it can run
+  // while a sync is still streaming items in. Driving it from the metadata
+  // effect instead cancelled it on every 1.5s reload, so titles the server had
+  // no poster for stayed blank until the whole sync finished.
+  const metaPending = useRef(new Set<string>());
+  const metaTried = useRef(new Set<string>());
+  const metaQueue = useRef<MediaServerTitle[]>([]);
+  const metaActive = useRef(0);
+  const mountedRef = useRef(true);
+  const hydrateDeps = useRef({ serverPoster, tmdbKey: settings.tmdbKey, metaKey });
+  useEffect(() => {
+    hydrateDeps.current = { serverPoster, tmdbKey: settings.tmdbKey, metaKey };
+  });
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
+  const pumpMeta = useCallback(() => {
+    const MAX = 6;
+    while (metaActive.current < MAX && metaQueue.current.length > 0) {
+      const title = metaQueue.current.shift()!;
+      const { serverPoster: posterFor, tmdbKey, metaKey: keyFor } = hydrateDeps.current;
+      const key = keyFor(title);
+      if (metaCache.current.has(key)) {
+        metaPending.current.delete(key);
+        continue;
+      }
+      metaActive.current += 1;
+      void (async () => {
+        try {
+          const resolved = await hydrateLibraryMeta(title.key, title.kind, tmdbKey).catch(() => null);
+          if (resolved) {
+            const poster = posterFor(title);
+            const meta = poster ? { ...resolved, poster } : resolved;
+            metaCache.current.set(key, meta);
+            await putMediaServerMetadata(key, meta);
+            if (mountedRef.current) {
+              setCards((current) =>
+                current.map((entry) =>
+                  entry.title.key === title.key ? { ...entry, meta } : entry,
+                ),
+              );
+            }
+          }
+        } finally {
+          metaTried.current.add(key);
+          metaPending.current.delete(key);
+          metaActive.current -= 1;
+          pumpMeta();
+        }
+      })();
+    }
+  }, []);
+  const enqueueMeta = useCallback(
+    (titles: MediaServerTitle[]) => {
+      const { serverPoster: posterFor, metaKey: keyFor } = hydrateDeps.current;
+      for (const title of titles) {
+        if (posterFor(title)) continue;
+        const key = keyFor(title);
+        if (metaCache.current.has(key) || metaPending.current.has(key) || metaTried.current.has(key))
+          continue;
+        metaPending.current.add(key);
+        metaQueue.current.push(title);
+      }
+      pumpMeta();
+    },
+    [pumpMeta],
+  );
   const connectionsKey = connections.map((connection) => connection.id).join(",");
   useEffect(() => {
     let alive = true;
@@ -305,24 +380,37 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
     if (syncing) {
       // Stream items into the grid without resetting it: keep the cards we
       // already have (and their posters) and only append new titles, so a fresh
-      // connection fills in without the grid flickering.
+      // connection fills in without the grid flickering. Merge against the
+      // latest state and the metadata cache so a poster that just hydrated is
+      // not overwritten, and refresh the server poster in case a title first
+      // arrived before its series item did.
+      const titleByKey = new Map(titles.map((title) => [title.key, title]));
       setCards((current) => {
-        const existing = new Map(current.map((card) => [card.title.key, card]));
-        return titles.map((title) => {
-          const previous = existing.get(title.key);
-          if (previous) return { ...previous, title };
-          const base = fallbackMeta(title);
+        const seen = new Set<string>();
+        // Update existing cards in place so they keep their position (and their
+        // already-loaded posters), then append genuinely new titles at the end.
+        const next = current.map((card) => {
+          const title = titleByKey.get(card.title.key);
+          if (!title) return card;
+          seen.add(card.title.key);
+          const base = metaCache.current.get(metaKey(title)) ?? card.meta;
           const poster = serverPoster(title);
-          return { title, meta: poster ? { ...base, poster } : base };
+          return { title, meta: poster && poster !== base.poster ? { ...base, poster } : base };
         });
+        for (const title of titles) {
+          if (seen.has(title.key)) continue;
+          const base = metaCache.current.get(metaKey(title)) ?? fallbackMeta(title);
+          const poster = serverPoster(title);
+          next.push({ title, meta: poster && poster !== base.poster ? { ...base, poster } : base });
+        }
+        return next;
       });
-      return () => {
-        alive = false;
-      };
+      // Fall back to TMDB for anything the server has no poster for, even while
+      // the sync is still running.
+      enqueueMeta(titles);
+      return;
     }
     setMetadataLoading(true);
-    const languageKey = `${settings.tmdbLanguage || "en"}:${(settings.tmdbImageLangs ?? []).join(",")}`;
-    const metaKey = (title: MediaServerTitle) => `${title.key}:locale:${languageKey}`;
     // Paint the grid immediately from cached metadata (session cache first,
     // then the index store) or the filename fallback. A large library must not
     // sit blank while every title's metadata is fetched one by one.
@@ -346,36 +434,14 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
       if (!alive) return;
       setCards(initial);
       setMetadataLoading(false);
-      // While a sync is running, items keep arriving; cached posters still show
-      // above, but skip new network fetches until it settles.
-      if (syncing) return;
       // Fill in the posters for titles that had nothing cached, updating each
-      // card as it lands. A small concurrency pool keeps TMDB traffic sane.
-      const pending = initial.filter((card) => !card.meta.poster);
-      let index = 0;
-      const worker = async () => {
-        while (alive && index < pending.length) {
-          const card = pending[index++];
-          const resolved = await hydrateLibraryMeta(card.title.key, card.title.kind, settings.tmdbKey).catch(
-            () => null,
-          );
-          if (!alive || !resolved) continue;
-          const poster = serverPoster(card.title);
-          const meta = poster ? { ...resolved, poster } : resolved;
-          metaCache.current.set(metaKey(card.title), meta);
-          await putMediaServerMetadata(metaKey(card.title), meta);
-          if (!alive) return;
-          setCards((current) =>
-            current.map((entry) => (entry.title.key === card.title.key ? { ...entry, meta } : entry)),
-          );
-        }
-      };
-      void Promise.all(Array.from({ length: Math.min(6, pending.length) }, worker));
+      // card as it lands. The shared pool keeps TMDB traffic sane.
+      enqueueMeta(titles);
     })();
     return () => {
       alive = false;
     };
-  }, [loading, titles, settings.tmdbKey, settings.tmdbLanguage, settings.tmdbImageLangs, syncing, serverPoster]);
+  }, [loading, titles, syncing, serverPoster, enqueueMeta, metaKey]);
   useEffect(() => {
     if (!loading && !metadataLoading && !syncing) {
       setShowLoading(false);
@@ -408,28 +474,45 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
       return cards.filter((card) => card.title.itemKeys.some((key) => collectionIds.has(key)));
     }
     const mul = sortDir === "asc" ? 1 : -1;
-    return cards
-      .filter(
-        (card) =>
-          (gridType === "all" || card.title.kind === gridType) &&
-          (server === "all" || card.title.connectionIds.includes(server)) &&
-          (library === "all" || card.title.libraryIds.includes(library)) &&
-          [...selectedGenres].every((name) => card.meta.genres?.includes(name)) &&
-          (!query.trim() || card.meta.name.toLowerCase().includes(query.trim().toLowerCase())),
-      )
-      .sort((a, b) => {
-        if (sort === "title") return mul * a.meta.name.localeCompare(b.meta.name);
-        const value = (entry: Card) =>
-          sort === "year"
-            ? Number(entry.meta.releaseInfo?.slice(0, 4) ?? 0)
-            : sort === "rating"
-              ? Number(entry.meta.imdbRating ?? 0)
-              : sort === "runtime"
-                ? Number(entry.meta.runtime?.match(/\d+/)?.[0] ?? 0)
-                : (entry.title.addedAt ?? 0);
-        return mul * (value(a) - value(b));
-      });
-  }, [cards, gridType, type, server, library, selectedGenres, query, sort, sortDir, activeCollection, collectionIds]);
+    const filtered = cards.filter(
+      (card) =>
+        (gridType === "all" || card.title.kind === gridType) &&
+        (server === "all" || card.title.connectionIds.includes(server)) &&
+        (library === "all" || card.title.libraryIds.includes(library)) &&
+        [...selectedGenres].every((name) => card.meta.genres?.includes(name)) &&
+        (!query.trim() || card.meta.name.toLowerCase().includes(query.trim().toLowerCase())),
+    );
+    // While a sync streams items in, keep their arrival order. Re-sorting on
+    // every reload shuffles cards between virtual rows, which remounts them and
+    // aborts in-flight poster loads, so the grid looked blank until the sync
+    // finished. The chosen sort is applied once the sync ends.
+    if (syncing) return filtered;
+    return filtered.sort((a, b) => {
+      if (sort === "title") return mul * a.meta.name.localeCompare(b.meta.name);
+      const value = (entry: Card) =>
+        sort === "year"
+          ? Number(entry.meta.releaseInfo?.slice(0, 4) ?? 0)
+          : sort === "rating"
+            ? Number(entry.meta.imdbRating ?? 0)
+            : sort === "runtime"
+              ? Number(entry.meta.runtime?.match(/\d+/)?.[0] ?? 0)
+              : (entry.title.addedAt ?? 0);
+      return mul * (value(a) - value(b));
+    });
+  }, [
+    cards,
+    gridType,
+    type,
+    server,
+    library,
+    selectedGenres,
+    query,
+    sort,
+    sortDir,
+    syncing,
+    activeCollection,
+    collectionIds,
+  ]);
   const unmatched = titles.filter(
     (title) => !title.identity.tmdbId && !title.identity.imdbId && !title.identity.tvdbId,
   );
