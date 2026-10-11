@@ -319,18 +319,31 @@ export async function tvdbSeasons(
   return map;
 }
 
+export type TvdbSeasonText = { name?: string; overview?: string };
+
+export async function tvdbSeasonText(
+  apiKey: string,
+  seasonId: number,
+  lang: string,
+): Promise<TvdbSeasonText | null> {
+  if (!seasonId || !lang) return null;
+  const data = await getJson<{ name?: unknown; overview?: unknown }>(
+    apiKey,
+    `/seasons/${seasonId}/translations/${lang}`,
+  );
+  if (!data) return null;
+  return {
+    name: typeof data.name === "string" ? data.name.trim() || undefined : undefined,
+    overview: typeof data.overview === "string" ? data.overview.trim() || undefined : undefined,
+  };
+}
+
 export async function tvdbSeasonTranslation(
   apiKey: string,
   seasonId: number,
   lang: string,
 ): Promise<string | null> {
-  if (!apiKey || !seasonId || !lang) return null;
-  const data = await getJson<{ name?: unknown }>(
-    apiKey,
-    `/seasons/${seasonId}/translations/${lang}`,
-  );
-  const name = typeof data?.name === "string" ? data.name.trim() : "";
-  return name || null;
+  return (await tvdbSeasonText(apiKey, seasonId, lang))?.name ?? null;
 }
 
 export function tvdbBaseSeasonNames(
@@ -351,9 +364,7 @@ export async function tvdbSeasonNames(
 ): Promise<Map<number, string>> {
   const infos = await tvdbSeasons(apiKey, seriesId, typeSlug);
   const names = tvdbBaseSeasonNames(infos);
-  // The proxy cannot serve /seasons/*; direct users resolve English names
-  // in the background, with a small request budget for long-running series.
-  if (!apiKey.trim()) return names;
+  // Resolve English names with bounded concurrency for long-running series.
   const pending = [...infos.values()].filter((info) => info.number >= 0 && info.id != null);
   let next = 0;
   await Promise.all(
@@ -380,12 +391,22 @@ export type TvdbSeasonArtwork = {
 export async function tvdbSeasonExtended(
   apiKey: string,
   seasonId: number,
-): Promise<{ image?: string; artwork: TvdbSeasonArtwork[] } | null> {
+): Promise<{
+  image?: string;
+  name?: string;
+  overview?: string;
+  artwork: TvdbSeasonArtwork[];
+} | null> {
   if (!seasonId) return null;
   const data = await getJson<any>(apiKey, `/seasons/${seasonId}/extended`);
   if (!data) return null;
   const artwork = Array.isArray(data.artwork) ? (data.artwork as TvdbSeasonArtwork[]) : [];
-  return { image: tvdbImg(data.image), artwork };
+  return {
+    image: tvdbImg(data.image),
+    name: typeof data.name === "string" ? data.name.trim() || undefined : undefined,
+    overview: typeof data.overview === "string" ? data.overview.trim() || undefined : undefined,
+    artwork,
+  };
 }
 
 function normArtLang(v: unknown): string {
@@ -395,7 +416,8 @@ function normArtLang(v: unknown): string {
 /**
  * Pick a season poster in the requested metadata language, falling back to
  * English. TVDB artwork carries a 3-letter `language` (e.g. `fra`, `eng`)
- * and `type === 2` for posters. Wrong-language text posters are avoided:
+ * and `type === 7` for season posters (`2` for series posters).
+ * Wrong-language text posters are avoided:
  * after `lang` -> `eng` we prefer textless/neutral art, then the season's
  * default image, and only then any poster rather than nothing.
  */
@@ -407,7 +429,7 @@ export function pickSeasonPoster(opts: {
 }): string | undefined {
   const langNorm = normArtLang(opts.lang) || "eng";
   const posters = (opts.artwork ?? [])
-    .filter((a) => a && Number(a.type) === 2 && typeof a.image === "string" && a.image)
+    .filter((a) => a && [2, 7].includes(Number(a.type)) && typeof a.image === "string" && a.image)
     .slice()
     .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
   const byLang = (code: string) => posters.find((a) => normArtLang(a.language) === code);

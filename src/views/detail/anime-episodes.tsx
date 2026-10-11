@@ -58,6 +58,7 @@ import {
   type EpisodeArtwork,
 } from "@/lib/providers/anime-episode-enrich";
 import { TvdbOrderPanel } from "./series-episodes/tvdb-order-panel";
+import { SeasonExplorer } from "./season-explorer";
 import { parseKitsuId } from "@/lib/providers/kitsu";
 import { aiIsGroq, aiKey, providerForModel } from "@/lib/ai-models";
 
@@ -631,8 +632,28 @@ export function AnimeEpisodes({
       })),
     [displayEpisodes],
   );
+  const explorerPicker = tvdbPanel.panel ?? (activeIsAnchor ? effectiveOrder : null);
+  const explorerType =
+    tvdbPanel.panel?.activeType ??
+    (effectiveOrderProvider(settings) === "tvdb" ? settings.tvdbSeasonType : "aired");
+
   return (
     <div data-anime-episodes className="flex flex-col gap-6 scroll-mt-24">
+      {!isOneOff &&
+        !soloEntry &&
+        explorerPicker &&
+        !["absolute", "tvdbabsolute"].includes(explorerType) && (
+          <SeasonExplorer
+            key={`${meta.id}:${explorerType}`}
+            metaId={meta.id}
+            imdbId={imdbId}
+            tvdbKey={settings.tvdbKey}
+            seasonType={explorerType === "aired" ? "official" : explorerType}
+            items={tvdbPanel.panel?.items ?? pickerItems}
+            activeKey={tvdbPanel.panel?.activeKey ?? franchiseActiveKey ?? explorerPicker.activeKey}
+            onSelect={tvdbPanel.panel ? onTvdbSelect : onPickerSelect}
+          />
+        )}
       <div className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-4">
           <h3 className="shrink-0 pt-1 text-[22px] font-medium tracking-tight text-ink">

@@ -52,6 +52,7 @@ import { useEpisodeProgressMap } from "./series-episodes/use-episode-progress-ma
 import { useTvdbSeasonTypes } from "./series-episodes/use-tvdb-season-types";
 import { useSeriesTvdbStills } from "./series-episodes/use-series-tvdb-stills";
 import { TvdbOrderPanel } from "./series-episodes/tvdb-order-panel";
+import { SeasonExplorer } from "./season-explorer";
 
 export function SeriesEpisodes({
   meta,
@@ -509,8 +510,26 @@ export function SeriesEpisodes({
     [enrichedEpisodes],
   );
 
+  const explorerType = orderActive ? settings.tvdbSeasonType : "aired";
+  const showExplorer =
+    !arcActive &&
+    picker.items.length > 0 &&
+    !["absolute", "tvdbabsolute"].includes(explorerType);
+
   return (
     <div data-episodes className="flex scroll-mt-24 flex-col gap-6">
+      {showExplorer && (
+        <SeasonExplorer
+          key={`${meta.id}:${source}:${settings.tvdbSeasonType}`}
+          metaId={meta.id}
+          imdbId={imdbId}
+          tvdbKey={settings.tvdbKey}
+          seasonType={explorerType === "aired" ? "official" : explorerType}
+          items={picker.items}
+          activeKey={picker.activeKey}
+          onSelect={picker.onSelect}
+        />
+      )}
       <div className="flex items-start justify-between gap-4">
         <h3 className="shrink-0 pt-1 text-[22px] font-medium tracking-tight text-ink">
           {t("Episodes")}

@@ -21,6 +21,7 @@ import { DragStrip } from "@/components/drag-strip";
 import { EpisodeGrid } from "./episode-grid";
 import { EpisodeGridCard } from "./episode-grid-card";
 import type { GridEpisode, Progress } from "./episode-grid-types";
+import { SeasonExplorer } from "./season-explorer";
 import { EpisodeLayoutToggle } from "./episode-layout-toggle";
 import { isUpcomingDate } from "./helpers";
 import { EpisodeRatingBadge } from "./episode-rating-badge";
@@ -125,6 +126,28 @@ export function CinemetaEpisodes({
     settings.omdbKey,
   );
 
+  const selectSeason = (season: number) => {
+    userPickedRef.current = true;
+    setViewedSeason(meta.id, season);
+    setActive(season);
+  };
+  const explorerItems = useMemo(
+    () =>
+      grouped.map((group) => ({
+        key: String(group.seasonNumber),
+        seasonNumber: group.seasonNumber >= 0 ? group.seasonNumber : undefined,
+        name:
+          group.seasonNumber === NO_SEASON
+            ? t("No Season")
+            : group.seasonNumber === 0
+              ? t("Specials")
+              : t("Season {n}", { n: group.seasonNumber }),
+        count: group.episodes.length,
+        year: group.episodes[0]?.released?.slice(0, 4),
+      })),
+    [grouped, t],
+  );
+
   const activeEps = grouped.find((g) => g.seasonNumber === active)?.episodes ?? [];
 
   const watchedAt = (season: number, number: number): boolean => {
@@ -197,6 +220,17 @@ export function CinemetaEpisodes({
 
   return (
     <div data-episodes className="flex scroll-mt-24 flex-col gap-6">
+      {grouped.some((group) => group.seasonNumber >= 1) && (
+        <SeasonExplorer
+          key={meta.id}
+          metaId={meta.id}
+          tvdbKey={settings.tvdbKey}
+          seasonType="official"
+          items={explorerItems}
+          activeKey={String(active)}
+          onSelect={(key) => selectSeason(Number(key))}
+        />
+      )}
       <div className="flex items-end justify-between gap-6">
         <h3 className="text-[22px] font-medium tracking-tight text-ink">{t("Episodes")}</h3>
         <div className="flex items-center gap-3">
@@ -204,11 +238,7 @@ export function CinemetaEpisodes({
             <SeasonDropdown
               seasons={grouped.map((g) => g.seasonNumber)}
               active={active}
-              onChange={(n) => {
-                userPickedRef.current = true;
-                setViewedSeason(meta.id, n);
-                setActive(n);
-              }}
+              onChange={selectSeason}
             />
           )}
           <EpisodeLayoutToggle
