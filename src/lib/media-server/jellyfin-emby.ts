@@ -255,19 +255,19 @@ export class JellyfinEmbyAdapter implements MediaServerAdapter {
     }
     return ids;
   }
-  async synchronize(
+  private async fetchItemsPage(
     connection: MediaServerConnection,
     library: MediaServerLibrary,
-    cursor?: string,
-  ): Promise<SyncPage> {
-    const start = Number(cursor ?? 0);
+    start: number,
+    limit: number,
+  ): Promise<{ raw: ApiItem[]; total: number }> {
     const params = new URLSearchParams({
       ParentId: library.id,
       Recursive: "true",
       IncludeItemTypes: "Movie,Series,Season,Episode",
       Fields: fields,
       StartIndex: String(start),
-      Limit: "1000",
+      Limit: String(limit),
       SortBy: "SortName",
     });
     const r = await mediaServerRequest<{ Items?: ApiItem[]; TotalRecordCount?: number }>(
@@ -276,17 +276,45 @@ export class JellyfinEmbyAdapter implements MediaServerAdapter {
       { headers: this.headers(connection) },
     );
     const raw = r.body.Items ?? [];
+    return { raw, total: r.body.TotalRecordCount ?? start + raw.length };
+  }
+  async synchronize(
+    connection: MediaServerConnection,
+    library: MediaServerLibrary,
+    cursor?: string,
+  ): Promise<SyncPage> {
+    const start = Number(cursor ?? 0);
+    const PAGE = 1000;
+    // Fetch one page to learn the total, then a few more at the same time.
+    // Keeps each response small while cutting the wall-clock time of a large
+    // library by roughly the concurrency factor.
+    const first = await this.fetchItemsPage(connection, library, start, PAGE);
+    const total = first.total;
+    const pages = [first];
+    if (first.raw.length === PAGE) {
+      const offsets: number[] = [];
+      for (let index = 1; index < 4; index += 1) {
+        const offset = start + index * PAGE;
+        if (offset >= total) break;
+        offsets.push(offset);
+      }
+      const rest = await Promise.all(
+        offsets.map((offset) => this.fetchItemsPage(connection, library, offset, PAGE)),
+      );
+      pages.push(...rest);
+    }
+    const raw = pages.flatMap((page) => page.raw);
     const items = raw
       .map((x) => normalized(connection.id, library, x))
       .filter((x): x is MediaServerItem => !!x);
-    const total = r.body.TotalRecordCount ?? raw.length;
+    // Only advance when every page came back full; a short or empty page ends
+    // the library (some servers report a TotalRecordCount larger than the items
+    // they return, which would otherwise loop forever).
+    const consumed = pages.length * PAGE;
+    const full = pages.every((page) => page.raw.length === PAGE);
     return {
       items,
-      // Stop as soon as the server returns an empty page. Some servers report a
-      // TotalRecordCount larger than the items they actually return, which would
-      // otherwise keep the cursor on the same index and loop forever.
-      cursor:
-        raw.length > 0 && start + raw.length < total ? String(start + raw.length) : undefined,
+      cursor: full && start + consumed < total ? String(start + consumed) : undefined,
       processed: Math.min(total, start + raw.length),
       total,
     };
