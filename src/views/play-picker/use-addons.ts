@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchInstalledAddons, fetchManifestAt, filterEnabled } from "@/lib/addon-store";
-import { torboxAddonFor, userAddons, withDebridKeys, type Addon } from "@/lib/addons";
+import { userAddons, withDebridKeys, type Addon } from "@/lib/addons";
 import { applyOrderToItems, loadDisplayOrder } from "@/lib/addons-store/reorder";
 import type { useSettings } from "@/lib/settings";
 import {
@@ -61,7 +61,6 @@ export function useAddons(
       pmKey: settings.pmKey,
       dlKey: settings.dlKey,
     };
-    const torbox = torboxAddonFor(settings.tbKey);
     (async () => {
       const stremioAddons = filterEnabled(authKey ? await userAddons(authKey).catch(() => []) : []);
       const installed = filterEnabled(await fetchInstalledAddons().catch(() => []));
@@ -92,27 +91,9 @@ export function useAddons(
       const userStreamCount = merged.filter(declaresStream).length;
       setUserHasStreamAddons(userStreamCount > 0);
       const list = withDebridKeys(merged, debridKeys);
-      const existingTorboxIdx = list.findIndex(
-        (a) =>
-          a.manifest.id === "app.torbox.stremio" || a.transportUrl?.includes("stremio.torbox.app"),
-      );
       console.info(
-        `[picker] authKey=${authKey ? "yes" : "no"} tbKey=${settings.tbKey ? `set(${settings.tbKey.slice(0, 8)}…)` : "EMPTY"} stremioAddons=${stremioAddons.length} installed=${installed.length} merged=${merged.length} userStreamCount=${userStreamCount} hasTorbox=${existingTorboxIdx >= 0} torboxAutoAddable=${!!torbox}`,
+        `[picker] authKey=${authKey ? "yes" : "no"} tbKey=${settings.tbKey ? `set(${settings.tbKey.slice(0, 8)}…)` : "EMPTY"} stremioAddons=${stremioAddons.length} installed=${installed.length} merged=${merged.length} userStreamCount=${userStreamCount}`,
       );
-      if (torbox) {
-        if (existingTorboxIdx >= 0) {
-          const existing = list[existingTorboxIdx];
-          if (existing.transportUrl !== torbox.transportUrl) {
-            console.info(
-              `[picker] overriding stale TorBox URL: ${existing.transportUrl} → ${torbox.transportUrl}`,
-            );
-            list[existingTorboxIdx] = torbox;
-          }
-        } else {
-          console.info(`[picker] auto-adding TorBox addon: ${torbox.transportUrl}`);
-          list.push(torbox);
-        }
-      }
       // The store is read even while the switch keeps the extensions back: an item that names the
       // plugin that listed it is still that plugin's to answer, and answering needs the installed
       // set. Reading it starts no runtime; only querying one does.
