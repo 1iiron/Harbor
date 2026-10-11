@@ -81,6 +81,7 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
   const [metadataLoading, setMetadataLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
   const metaCache = useRef(new Map<string, Meta>());
+  const lastSyncReload = useRef(0);
   const [collections, setCollections] = useState<MediaServerCollection[] | null>(null);
   const [activeCollection, setActiveCollection] = useState<MediaServerCollection | null>(null);
   const [collectionIds, setCollectionIds] = useState<Set<string> | null>(null);
@@ -155,6 +156,14 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
           // Collection membership may have changed; drop the cached ids.
           collectionIdsCache.current.clear();
           void reload();
+        } else {
+          // Stream items in as they arrive, throttled, so a fresh connection is
+          // not blank until the whole library is indexed.
+          const now = Date.now();
+          if (now - lastSyncReload.current >= 1500) {
+            lastSyncReload.current = now;
+            void reload();
+          }
         }
       }),
     [reload],
@@ -288,6 +297,24 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
   useEffect(() => {
     if (loading) return;
     let alive = true;
+    if (syncing) {
+      // Stream items into the grid without resetting it: keep the cards we
+      // already have (and their posters) and only append new titles, so a fresh
+      // connection fills in without the grid flickering.
+      setCards((current) => {
+        const existing = new Map(current.map((card) => [card.title.key, card]));
+        return titles.map((title) => {
+          const previous = existing.get(title.key);
+          if (previous) return { ...previous, title };
+          const base = fallbackMeta(title);
+          const poster = serverPoster(title);
+          return { title, meta: poster ? { ...base, poster } : base };
+        });
+      });
+      return () => {
+        alive = false;
+      };
+    }
     setMetadataLoading(true);
     const languageKey = `${settings.tmdbLanguage || "en"}:${(settings.tmdbImageLangs ?? []).join(",")}`;
     const metaKey = (title: MediaServerTitle) => `${title.key}:locale:${languageKey}`;
