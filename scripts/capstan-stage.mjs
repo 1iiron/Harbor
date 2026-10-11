@@ -18,6 +18,10 @@
  * and after every stage that was skipped, and it starts the staged runtime and makes
  * the bridge answer. A build ships a runtime that ran, or it stops.
  *
+ * The layer's jars are not tracked in git, so a checkout can have the sources without
+ * them. Stage mode runs tools/deps.sh once to fill them in before judging the layer,
+ * which is what lets a fresh clone and a build runner provision themselves.
+ *
  * Modes:
  *   (none)      build the layer if stale, stage if stale, verify always.
  *   --check     verify what is staged. Never builds, never stages. Exit 1 if not ready.
@@ -384,6 +388,27 @@ async function withoutSources() {
   );
 }
 
+// libs/ and tools/dex-tools/ are gitignored, so a checkout with the layer can still be
+// missing everything it compiles against. deps.sh is the documented fresh-clone step;
+// stage mode runs it here so a build runner needs no human in front of it.
+function fetchLayerDeps() {
+  log("the extension layer is missing its jars, running tools/deps.sh");
+  try {
+    execFileSync("sh", ["tools/deps.sh"], { cwd: src, stdio: ["ignore", "inherit", "inherit"] });
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      die(
+        "no sh on this machine to run tools/deps.sh with, and the layer's jars are not tracked.",
+        "Run android-extension-compat/tools/deps.sh from a shell with sh, then try again.",
+      );
+    }
+    die(
+      `tools/deps.sh failed: ${String(error.message).split("\n")[0]}`,
+      "That script fetches the layer's jars; see its output above.",
+    );
+  }
+}
+
 async function main() {
   if (mode === "dev") {
     // pnpm dev chains this before vite, so nothing it finds may keep the dev server from starting.
@@ -398,8 +423,20 @@ async function main() {
     await withoutSources();
     return;
   }
-  for (const [label, path] of [["libs", libs], ["dex tools", dexLib]]) {
-    if (!existsSync(path)) die(`no ${label} at ${path}`);
+  const gaps = [["libs", libs], ["dex tools", dexLib]].filter(([, path]) => !existsSync(path));
+  if (gaps.length) {
+    if (mode === "check") {
+      die(`missing ${gaps.map(([label]) => label).join(" and ")} at ${src}`, "Run: pnpm run setup:capstan");
+    }
+    fetchLayerDeps();
+    for (const [label, path] of gaps) {
+      if (!existsSync(path)) {
+        die(
+          `no ${label} at ${path}, and tools/deps.sh did not produce it`,
+          "Run: cd android-extension-compat && sh tools/deps.sh",
+        );
+      }
+    }
   }
   try {
     ({ hostJdk, targetJdk } = await resolveJdks(target, (line) => log(line)));
