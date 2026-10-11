@@ -267,7 +267,7 @@ export class JellyfinEmbyAdapter implements MediaServerAdapter {
       IncludeItemTypes: "Movie,Series,Season,Episode",
       Fields: fields,
       StartIndex: String(start),
-      Limit: "500",
+      Limit: "1000",
       SortBy: "SortName",
     });
     const r = await mediaServerRequest<{ Items?: ApiItem[]; TotalRecordCount?: number }>(

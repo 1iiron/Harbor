@@ -904,6 +904,7 @@ const uiFallback: Record<string, string> = {
     "Signed in as {email}. Your library, add-ons and watch history sync with Stremio.",
   "Signed in. Enter your server address below.": "Signed in. Enter your server address below.",
   Collections: "Collections",
+  Daily: "Daily",
   "No collections on these servers.": "No collections on these servers.",
   "Signs in to Letterboxd and unlocks your diary, friends activity and ratings.":
     "Signs in to Letterboxd and unlocks your diary, friends activity and ratings.",

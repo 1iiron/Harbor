@@ -166,13 +166,11 @@ export function HomeServersTab() {
             : null;
           const syncing = syncingIds.has(connection.id);
           const legacyDays =
-            connection.refreshInterval === "daily"
-              ? 1
-              : connection.refreshInterval === "three-days"
-                ? 3
-                : connection.refreshInterval === "weekly"
-                  ? 7
-                  : null;
+            connection.refreshInterval === "three-days"
+              ? 3
+              : connection.refreshInterval === "weekly"
+                ? 7
+                : null;
           const refreshInterval = legacyDays == null ? connection.refreshInterval : "custom";
           const refreshDays = legacyDays ?? connection.refreshEveryDays ?? 1;
           return (
@@ -287,6 +285,7 @@ export function HomeServersTab() {
                         })
                       }
                       options={[
+                        { value: "daily", label: t("Daily") },
                         { value: "launch", label: t("Every launch") },
                         { value: "custom", label: t("Every…") },
                         { value: "manual", label: t("Manual") },
@@ -694,7 +693,7 @@ function ConnectionEditor({
           preferredQuality: "original",
           priority: mediaServerConnections().length,
           createdAt: Date.now(),
-          refreshInterval: "launch",
+          refreshInterval: "daily",
         };
       }
       if (abort.signal.aborted || profileId.current !== activeProfileId()) return;
