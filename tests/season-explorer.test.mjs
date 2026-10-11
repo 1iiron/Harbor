@@ -3,11 +3,19 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
+import * as episodeTextLanguage from "../src/lib/episode-text-language.ts";
+import * as React from "react";
+import * as jsxRuntime from "react/jsx-runtime";
+import { renderToStaticMarkup } from "react-dom/server";
 
 function load(file, dependencies) {
   const source = readFileSync(new URL("../" + file, import.meta.url), "utf8");
   const code = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+      jsx: ts.JsxEmit.ReactJSX,
+    },
   }).outputText;
   const module = { exports: {} };
   vm.runInNewContext(code, {
@@ -23,10 +31,11 @@ function load(file, dependencies) {
   return module.exports;
 }
 
-function providerFixture({ fail = false } = {}) {
+function providerFixture({ fail = false, localizedOverview = " ", missingEnglish = false } = {}) {
   const calls = [];
   const requests = [];
   const tvdb = load("src/lib/providers/tvdb.ts", {
+    "@/lib/episode-text-language": episodeTextLanguage,
     "@/lib/cache": { lruSet: (map, key, value) => map.set(key, value) },
     "@/lib/memory-profiler": { registerCache: () => {} },
     "@/lib/config/endpoints": { HARBOR_TVDB_BASE: "https://mock.invalid" },
@@ -38,8 +47,19 @@ function providerFixture({ fail = false } = {}) {
         if (path.endsWith("/login"))
           return { ok: true, json: async () => ({ data: { token: "test-token" } }) };
         if (fail) return { ok: false, status: 404 };
+        if (path.includes("/series/"))
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: {
+                seasons: [{ ...season, name: "Saga française", type: { type: "official" } }],
+              },
+            }),
+          };
+        if (missingEnglish && path.endsWith("/eng")) return { ok: false, status: 404 };
         const data = path.endsWith("/fra")
-          ? { name: "Saga française", overview: " " }
+          ? { name: "Saga française", overview: localizedOverview }
           : path.endsWith("/eng")
             ? { name: "English Saga", overview: "English season synopsis" }
             : {
@@ -47,7 +67,15 @@ function providerFixture({ fail = false } = {}) {
                 artwork: [
                   { type: 7, language: "eng", score: 99, image: "/english.jpg" },
                   { type: 7, language: "fra", score: 2, image: "/french.jpg" },
-                  { type: 6, language: "fra", score: 100, image: "/banner.jpg" },
+                  {
+                    type: 6,
+                    width: 758,
+                    height: 140,
+                    language: "fra",
+                    score: 100,
+                    image: "/banner.jpg",
+                  },
+                  { width: 1920, height: 1080, score: 10, image: "/background.jpg" },
                 ],
               };
         return { ok: true, status: 200, json: async () => ({ data }) };
@@ -68,9 +96,10 @@ const season = {
 test("selected season uses its own TVDB ID, localized poster, and per-field English fallback", async () => {
   const f = providerFixture();
   const result = await f.fetchTvdbSeasonDetails("test-key", season, "fra");
-  assert.equal(result.name, "Saga française");
+  assert.equal(result.name, "English Saga");
   assert.equal(result.overview, "English season synopsis");
   assert.equal(result.poster, "https://artworks.thetvdb.com/french.jpg");
+  assert.equal(result.background, "https://artworks.thetvdb.com/background.jpg");
   assert.deepEqual(f.calls.filter((path) => path.includes("/seasons/")).sort(), [
     "/v4/seasons/31893/extended",
     "/v4/seasons/31893/translations/eng",
@@ -90,7 +119,7 @@ test("revisiting a season reuses cached requests and English requires just one t
 test("proxy-only users load translated season details and artwork without authentication", async () => {
   const f = providerFixture();
   const result = await f.fetchTvdbSeasonDetails("", season, "fra");
-  assert.equal(result.name, "Saga française");
+  assert.equal(result.name, "English Saga");
   assert.equal(result.overview, "English season synopsis");
   assert.equal(result.poster, "https://artworks.thetvdb.com/french.jpg");
   assert.equal(f.requests.length, 3);
@@ -103,7 +132,7 @@ test("proxy-only users load translated season details and artwork without authen
 test("unavailable proxy metadata falls back to the base season", async () => {
   const f = providerFixture({ fail: true });
   const result = await f.fetchTvdbSeasonDetails("", season, "eng");
-  assert.equal(result.name, season.name);
+  assert.equal(result.name, undefined);
   assert.equal(result.poster, season.image);
   assert.equal(result.overview, undefined);
 });
@@ -111,7 +140,7 @@ test("unavailable proxy metadata falls back to the base season", async () => {
 test("seasons without a TVDB ID preserve base data without requests", async () => {
   const f = providerFixture();
   const result = await f.fetchTvdbSeasonDetails("", { ...season, id: null }, "eng");
-  assert.equal(result.name, season.name);
+  assert.equal(result.name, undefined);
   assert.equal(result.poster, season.image);
   assert.equal(f.calls.length, 0);
 });
@@ -162,6 +191,7 @@ function hookFixture({ catalog, detail } = {}) {
   let stateIndex = 0,
     effectIndex = 0;
   const react = {
+    useMemo: (callback) => callback(),
     useState: (initial) => {
       const index = stateIndex++;
       if (!(index in state)) state[index] = initial;
@@ -188,7 +218,9 @@ function hookFixture({ catalog, detail } = {}) {
     "@/lib/providers/kitsu": {
       parseKitsuId: (id) => Number(/^kitsu:(\d+)$/.exec(id)?.[1]) || null,
     },
+    "@/lib/season-name": { isGenericSeasonName: (name, n) => name === `Season ${n}` },
     "@/lib/providers/tvdb": {
+      tvdbSeasonNames: async () => new Map(),
       tvdbSeriesByRemote: async () => 81797,
       tvdbSeasons:
         catalog ??
@@ -207,6 +239,7 @@ function hookFixture({ catalog, detail } = {}) {
   });
   return {
     calls,
+    englishSeasonItems: hook.englishSeasonItems,
     render: (props) => {
       stateIndex = 0;
       effectIndex = 0;
@@ -290,4 +323,139 @@ test("extras do not inherit a numbered season synopsis", async () => {
   await flush();
   assert.equal(f.calls.length, 0);
   f.unmount();
+});
+
+test("season title stays English while the synopsis follows the metadata language", async () => {
+  const f = providerFixture({ localizedOverview: "Résumé français" });
+  const result = await f.fetchTvdbSeasonDetails("", season, "fra");
+  assert.equal(result.name, "English Saga");
+  assert.equal(result.overview, "Résumé français");
+});
+
+test("missing English translation never falls back to a foreign or original title", async () => {
+  const f = providerFixture({ localizedOverview: "Résumé français", missingEnglish: true });
+  const result = await f.fetchTvdbSeasonDetails("", { ...season, name: "日本語" }, "fra");
+  assert.equal(result.name, undefined);
+  assert.equal(result.overview, "Résumé français");
+});
+
+test("poster and dropdown items share English titles and preserve season identity", () => {
+  const { englishSeasonItems } = hookFixture();
+  const items = [
+    { key: "4", seasonNumber: 4, name: "日本語", count: 12 },
+    { key: "5", seasonNumber: 5, name: "Saison cinq", count: 20 },
+    { key: "0", seasonNumber: 0, name: "特別", count: 3 },
+    { key: "extra", name: "Movie", count: 1 },
+  ];
+  const names = new Map([[4, "High School DxD HERO"]]);
+  const result = englishSeasonItems(items, names, new Map());
+  assert.equal(result[0].name, "High School DxD HERO");
+  assert.equal(result[0].seasonNumber, 4);
+  assert.equal(result[0].count, 12);
+  assert.equal(result[0].isGenericName, false);
+  assert.equal(result[1].name, "Season 5");
+  assert.equal(result[1].isGenericName, true);
+  assert.equal(result[2].name, "Specials");
+  assert.equal(result[3], items[3]);
+  assert.equal(items[0].name, "日本語");
+});
+
+test("hidden explorer views do not request season metadata", async () => {
+  const f = hookFixture();
+  f.render({ ...props, enabled: false });
+  await flush();
+  f.render({ ...props, enabled: false });
+  assert.equal(f.calls.length, 0);
+  f.unmount();
+});
+
+function seasonExplorerComponent() {
+  const { SeasonExplorer } = load("src/views/detail/season-explorer.tsx", {
+    react: React,
+    "react/jsx-runtime": jsxRuntime,
+    "lucide-react": {
+      Film: () => null,
+      CalendarDays: () => null,
+      ChevronLeft: () => null,
+      ChevronRight: () => null,
+    },
+    "@/lib/horizontal-scroll": {
+      horizontalScrollState: () => ({ rtl: false, max: 0, position: 0 }),
+    },
+    "@/lib/use-reduced-motion": { useReducedMotion: () => false },
+    "./season-explorer.css": {},
+    "@/components/player/subtitle-menu/marquee-motion": load(
+      "src/components/player/subtitle-menu/marquee-motion.ts",
+      {},
+    ),
+    "@/lib/i18n": { useT: () => (key, vars) => key.replace("{n}", String(vars?.n ?? "")) },
+    "@/lib/season-name": { isGenericSeasonName: (name, n) => name === `Season ${n}` },
+    "./synopsis": { Synopsis: ({ text }) => React.createElement("p", null, text) },
+  });
+  return SeasonExplorer;
+}
+
+test("English season titles render beside the original dropdown-style number badge", () => {
+  const SeasonExplorer = seasonExplorerComponent();
+  const html = renderToStaticMarkup(
+    React.createElement(SeasonExplorer, {
+      activeKey: "4",
+      onSelect: () => {},
+      data: {
+        items: [{ key: "4", seasonNumber: 4, name: "High School DxD HERO", count: 12 }],
+        seasons: new Map(),
+        names: new Map(),
+        loading: false,
+        details: new Map([[4, { overview: "Résumé français" }]]),
+      },
+    }),
+  );
+  assert.match(html, /aria-label="Season 4 · High School DxD HERO · 12 episodes"/);
+  assert.equal((html.match(/>Season 4<\/span>/g) ?? []).length, 2);
+  assert.match(
+    html,
+    /rounded bg-ink\/10 px-1.5 py-px text-\[10.5px\] font-semibold text-ink-muted/,
+  );
+  assert.match(html, /Résumé français/);
+});
+
+test("season catalog names use English translations and never original-language Latin titles", async () => {
+  const f = providerFixture();
+  assert.equal((await f.tvdbSeasonNames("", 81797, "official")).get(1), "English Saga");
+  const unavailable = providerFixture({ missingEnglish: true });
+  assert.equal((await unavailable.tvdbSeasonNames("", 81797, "official")).size, 0);
+});
+
+test("season row excludes Extras while retaining season zero and episode-picker entries", () => {
+  const SeasonExplorer = seasonExplorerComponent();
+  const items = Object.freeze([
+    Object.freeze({ key: "4", seasonNumber: 4, name: "English Saga", count: 12 }),
+    Object.freeze({ key: "0", seasonNumber: 0, name: "Specials", count: 63, extra: true }),
+    Object.freeze({ key: "specials", name: "Extras", count: 231, extra: true }),
+    Object.freeze({ key: "-1", seasonNumber: -1, name: "Other extras", count: 2, extra: true }),
+  ]);
+  const data = { items, seasons: new Map(), names: new Map(), details: new Map(), loading: false };
+  for (const activeKey of ["4", "specials"]) {
+    const html = renderToStaticMarkup(
+      React.createElement(SeasonExplorer, { data, activeKey, onSelect: () => {} }),
+    );
+    assert.match(html, /aria-label="Season 4 · English Saga · 12 episodes"/);
+    assert.match(html, /aria-label="Specials · 63 episodes"/);
+    assert.doesNotMatch(html, /Extras|Other extras|231 episodes/);
+    if (activeKey === "specials") {
+      assert.doesNotMatch(html, /aria-pressed="true"|aria-live="polite"/);
+    }
+  }
+  assert.equal(data.items.length, 4);
+  assert.equal(data.items[2].name, "Extras");
+  assert.equal(
+    renderToStaticMarkup(
+      React.createElement(SeasonExplorer, {
+        data: { ...data, items: [items[2], items[3]] },
+        activeKey: "specials",
+        onSelect: () => {},
+      }),
+    ),
+    "",
+  );
 });

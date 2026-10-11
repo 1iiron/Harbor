@@ -53,6 +53,8 @@ import { useTvdbSeasonTypes } from "./series-episodes/use-tvdb-season-types";
 import { useSeriesTvdbStills } from "./series-episodes/use-series-tvdb-stills";
 import { TvdbOrderPanel } from "./series-episodes/tvdb-order-panel";
 import { SeasonExplorer } from "./season-explorer";
+import { useSeasonExplorerView } from "./use-season-explorer";
+import { tvdbLangFromIso1 } from "@/lib/providers/tvdb";
 
 export function SeriesEpisodes({
   meta,
@@ -516,16 +518,24 @@ export function SeriesEpisodes({
     picker.items.length > 0 &&
     !["absolute", "tvdbabsolute"].includes(explorerType);
 
+  const explorer = useSeasonExplorerView({
+    metaId: meta.id,
+    imdbId,
+    tvdbKey: settings.tvdbKey,
+    seasonType: explorerType === "aired" ? "official" : explorerType,
+    lang: tvdbLangFromIso1(tmdbLanguageIso()),
+    items: picker.items,
+    activeKey: picker.activeKey,
+    enabled: showExplorer,
+  });
+
   return (
     <div data-episodes className="flex scroll-mt-24 flex-col gap-6">
       {showExplorer && (
         <SeasonExplorer
           key={`${meta.id}:${source}:${settings.tvdbSeasonType}`}
-          metaId={meta.id}
-          imdbId={imdbId}
-          tvdbKey={settings.tvdbKey}
-          seasonType={explorerType === "aired" ? "official" : explorerType}
-          items={picker.items}
+          data={explorer}
+          background={meta.background}
           activeKey={picker.activeKey}
           onSelect={picker.onSelect}
         />
@@ -585,7 +595,7 @@ export function SeriesEpisodes({
           />
           {panelActive ? (
             <TvdbOrderPanel
-              items={picker.items}
+              items={explorer.items}
               activeKey={picker.activeKey}
               onSelect={picker.onSelect}
               orderTypes={orderTypesEff}
@@ -595,7 +605,7 @@ export function SeriesEpisodes({
           ) : (
             (picker.items.length > 1 || arcAvailable) && (
               <SeasonArcPicker
-                items={picker.items}
+                items={explorer.items}
                 activeKey={picker.activeKey}
                 onSelect={picker.onSelect}
                 mode={arcAvailable ? mode : undefined}

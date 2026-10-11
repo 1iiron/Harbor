@@ -2112,10 +2112,16 @@ export function DetailView({
       </section>
 
       <div {...contentDrag} className="flex flex-col gap-16 px-12 pb-24 pt-14">
-        {(overview || heroAwardsInline) && (
-          <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
+        {(overview ||
+          heroAwardsInline ||
+          (isAnime ? streamers.length > 0 : watchProviders.length > 0)) && (
+          <div className="grid min-w-0 grid-cols-1 items-start gap-8 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] xl:gap-10">
             {overview && <Synopsis text={overview} />}
-            {heroAwardsInline && <div className="lg:ms-auto lg:shrink-0">{heroAwardsInline}</div>}
+            <div className="flex min-w-0 flex-col gap-6">
+              {isAnime && streamers.length > 0 && <StreamingLinks streamers={streamers} />}
+              {!isAnime && watchProviders.length > 0 && <WatchOn providers={watchProviders} />}
+              {heroAwardsInline}
+            </div>
           </div>
         )}
         {loading &&
@@ -2125,18 +2131,6 @@ export function DetailView({
           ) : (
             <EpisodeGridSkeleton />
           ))}
-
-        {isAnime && streamers.length > 0 && (
-          <FadeInUp>
-            <StreamingLinks streamers={streamers} />
-          </FadeInUp>
-        )}
-
-        {!isAnime && watchProviders.length > 0 && (
-          <FadeInUp>
-            <WatchOn providers={watchProviders} />
-          </FadeInUp>
-        )}
 
         {!liveContext &&
           detail &&

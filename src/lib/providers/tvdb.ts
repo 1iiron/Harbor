@@ -363,7 +363,7 @@ export async function tvdbSeasonNames(
   typeSlug: string,
 ): Promise<Map<number, string>> {
   const infos = await tvdbSeasons(apiKey, seriesId, typeSlug);
-  const names = tvdbBaseSeasonNames(infos);
+  const names = new Map<number, string>();
   // Resolve English names with bounded concurrency for long-running series.
   const pending = [...infos.values()].filter((info) => info.number >= 0 && info.id != null);
   let next = 0;
@@ -380,6 +380,8 @@ export async function tvdbSeasonNames(
 }
 
 export type TvdbSeasonArtwork = {
+  width?: number | null;
+  height?: number | null;
   image?: unknown;
   thumbnail?: unknown;
   language?: string | null;

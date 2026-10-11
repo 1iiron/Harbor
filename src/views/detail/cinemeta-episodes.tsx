@@ -22,6 +22,9 @@ import { EpisodeGrid } from "./episode-grid";
 import { EpisodeGridCard } from "./episode-grid-card";
 import type { GridEpisode, Progress } from "./episode-grid-types";
 import { SeasonExplorer } from "./season-explorer";
+import { useSeasonExplorerView } from "./use-season-explorer";
+import { tvdbLangFromIso1 } from "@/lib/providers/tvdb";
+import { tmdbLanguageIso } from "@/lib/providers/tmdb/tmdb-client";
 import { EpisodeLayoutToggle } from "./episode-layout-toggle";
 import { isUpcomingDate } from "./helpers";
 import { EpisodeRatingBadge } from "./episode-rating-badge";
@@ -216,6 +219,15 @@ export function CinemetaEpisodes({
     ],
   );
 
+  const explorer = useSeasonExplorerView({
+    metaId: meta.id,
+    tvdbKey: settings.tvdbKey,
+    seasonType: "official",
+    lang: tvdbLangFromIso1(tmdbLanguageIso()),
+    items: explorerItems,
+    activeKey: String(active),
+    enabled: grouped.some((group) => group.seasonNumber >= 1),
+  });
   if (grouped.length === 0) return null;
 
   return (
@@ -223,10 +235,8 @@ export function CinemetaEpisodes({
       {grouped.some((group) => group.seasonNumber >= 1) && (
         <SeasonExplorer
           key={meta.id}
-          metaId={meta.id}
-          tvdbKey={settings.tvdbKey}
-          seasonType="official"
-          items={explorerItems}
+          data={explorer}
+          background={meta.background}
           activeKey={String(active)}
           onSelect={(key) => selectSeason(Number(key))}
         />
@@ -237,6 +247,7 @@ export function CinemetaEpisodes({
           {grouped.length > 1 && (
             <SeasonDropdown
               seasons={grouped.map((g) => g.seasonNumber)}
+              items={explorer.items}
               active={active}
               onChange={selectSeason}
             />
@@ -417,10 +428,12 @@ export function CinemetaEpisodeRow({
 
 function SeasonDropdown({
   seasons,
+  items,
   active,
   onChange,
 }: {
   seasons: number[];
+  items: { key: string; name: string; seasonNumber?: number; isGenericName?: boolean }[];
   active: number;
   onChange: (n: number) => void;
 }) {
@@ -481,7 +494,8 @@ function SeasonDropdown({
         onClick={() => (menu ? setMenu(null) : openMenu())}
         className="flex h-10 items-center gap-2 rounded-full bg-white/[0.06] ps-4 pe-3 text-[13.5px] font-medium text-ink transition-colors hover:bg-white/[0.10]"
       >
-        <span>{seasonLabel(t, active)}</span>
+        <span className="max-w-[220px] truncate">{items.find((item) => item.key === String(active))?.name ?? seasonLabel(t, active)}</span>
+        {active > 0 && !items.find((item) => item.key === String(active))?.isGenericName && <span className="shrink-0 rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">{`Season ${active}`}</span>}
         <ChevronDown
           size={15}
           className={`text-ink-muted transition-transform ${open ? "rotate-180" : ""}`}
@@ -493,7 +507,7 @@ function SeasonDropdown({
             ref={menuRef}
             onMouseDown={(e) => e.stopPropagation()}
             style={{ right: menu.right, top: menu.top, bottom: menu.bottom }}
-            className="animate-fade-in fixed z-[200] w-44 overflow-hidden rounded-lg border border-edge bg-elevated py-1.5 shadow-[0_18px_44px_-12px_rgba(0,0,0,0.6)]"
+            className="animate-fade-in fixed z-[200] w-72 overflow-hidden rounded-lg border border-edge bg-elevated py-1.5 shadow-[0_18px_44px_-12px_rgba(0,0,0,0.6)]"
           >
             <div className="overflow-y-auto" style={{ maxHeight: menu.maxH }}>
               {seasons.map((s) => {
@@ -511,7 +525,10 @@ function SeasonDropdown({
                         : "text-ink-muted hover:bg-raised hover:text-ink"
                     }`}
                   >
-                    {seasonLabel(t, s)}
+                    <span className="flex min-w-0 flex-col gap-1">
+                      <span className="truncate">{items.find((item) => item.key === String(s))?.name ?? seasonLabel(t, s)}</span>
+                      {s > 0 && !items.find((item) => item.key === String(s))?.isGenericName && <span className="w-fit rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">{`Season ${s}`}</span>}
+                    </span>
                   </button>
                 );
               })}

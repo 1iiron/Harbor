@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
+import * as episodeTextLanguage from "../src/lib/episode-text-language.ts";
+import * as episodePlaceholder from "../src/lib/providers/episode-placeholder.ts";
+import * as dates from "../src/lib/dates.ts";
 
 function deferred() {
   let resolve;
@@ -56,13 +59,19 @@ function fixture({ storage = new Map(), blockNames = false } = {}) {
     return module.exports;
   }
   const tvdb = load("src/lib/providers/tvdb.ts", {
+    "@/lib/episode-text-language": episodeTextLanguage,
     "@/lib/cache": { lruSet: (m, k, v) => m.set(k, v) },
     "@/lib/memory-profiler": { registerCache: () => {} },
     "@/lib/safe-fetch": { safeFetch },
     "@/lib/config/endpoints": { HARBOR_TVDB_BASE: "https://mock.invalid" },
   });
-  const cache = load("src/lib/providers/tvdb-order-cache.ts", {});
-  const order = load("src/lib/providers/tvdb-order.ts", { "./tvdb": tvdb, "./tvdb-order-cache": cache });
+  const cache = load("src/lib/providers/tvdb-order-cache.ts", { "./episode-placeholder": episodePlaceholder });
+  const order = load("src/lib/providers/tvdb-order.ts", {
+    "./tvdb": tvdb,
+    "./tvdb-order-cache": cache,
+    "./episode-placeholder": episodePlaceholder,
+    "@/lib/episode-text-language": episodeTextLanguage,
+  });
   return { ...order, tvdb, calls, names, storage, load };
 }
 
@@ -180,6 +189,8 @@ function panelFixture(f, availability, seasonType = "aired") {
     "@/lib/i18n": { useT: () => (key) => key },
     "@/lib/providers/anime-mapping": {},
     "@/lib/providers/anime-detail": {},
+    "@/lib/providers/anime-episode-build": { isForeignScriptTitle: episodeTextLanguage.isForeignScriptTitle },
+    "@/lib/dates": dates,
     "@/lib/providers/tvdb": {
       ...f.tvdb,
       tvdbSeasonTypes: () => availability.promise,
