@@ -82,6 +82,7 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
   const [showLoading, setShowLoading] = useState(false);
   const metaCache = useRef(new Map<string, Meta>());
   const lastSyncReload = useRef(0);
+  const lastGridType = useRef<TypeKey>("all");
   const [collections, setCollections] = useState<MediaServerCollection[] | null>(null);
   const [activeCollection, setActiveCollection] = useState<MediaServerCollection | null>(null);
   const [collectionIds, setCollectionIds] = useState<Set<string> | null>(null);
@@ -288,7 +289,11 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
     };
   }, [activeCollection]);
   useEffect(() => {
-    if (type !== "collections") setActiveCollection(null);
+    if (type === "collections") return;
+    // Remember the last real filter so the grid can stay mounted (and keep its
+    // posters) while the Collections list is on screen.
+    lastGridType.current = type;
+    setActiveCollection(null);
   }, [type]);
   useEffect(() => {
     if (loading || library === "all") return;
@@ -397,16 +402,16 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
       })),
     [cards],
   );
+  const gridType: TypeKey = type === "collections" ? lastGridType.current : type;
   const visible = useMemo(() => {
-    if (type === "collections") {
-      if (!activeCollection || !collectionIds) return [];
+    if (type === "collections" && activeCollection && collectionIds) {
       return cards.filter((card) => card.title.itemKeys.some((key) => collectionIds.has(key)));
     }
     const mul = sortDir === "asc" ? 1 : -1;
     return cards
       .filter(
         (card) =>
-          (type === "all" || card.title.kind === type) &&
+          (gridType === "all" || card.title.kind === gridType) &&
           (server === "all" || card.title.connectionIds.includes(server)) &&
           (library === "all" || card.title.libraryIds.includes(library)) &&
           [...selectedGenres].every((name) => card.meta.genres?.includes(name)) &&
@@ -424,7 +429,7 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
                 : (entry.title.addedAt ?? 0);
         return mul * (value(a) - value(b));
       });
-  }, [cards, type, server, library, selectedGenres, query, sort, sortDir, activeCollection, collectionIds]);
+  }, [cards, gridType, type, server, library, selectedGenres, query, sort, sortDir, activeCollection, collectionIds]);
   const unmatched = titles.filter(
     (title) => !title.identity.tmdbId && !title.identity.imdbId && !title.identity.tvdbId,
   );
@@ -617,8 +622,9 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
           </button>
         </div>
       )}
-      {type === "collections" && !activeCollection ? (
-        collections && collections.length > 0 ? (
+      {type === "collections" &&
+        !activeCollection &&
+        (collections && collections.length > 0 ? (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-4 gap-y-8">
             {collections.map((collection) => {
               const poster = collectionPoster(collection);
@@ -657,50 +663,53 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
           <div className="rounded-2xl border border-dashed border-edge-soft px-6 py-10 text-center text-[13px] text-ink-muted">
             {t("No collections on these servers.")}
           </div>
-        )
-      ) : (
-        <>
-          {type === "collections" && activeCollection && (
-            <button
-              type="button"
-              onClick={() => setActiveCollection(null)}
-              className="flex items-center gap-1.5 self-start text-[13px] font-semibold text-ink-muted hover:text-ink"
-            >
-              <ChevronLeft size={16} />
-              {activeCollection.name}
-            </button>
-          )}
-          {type === "collections" && activeCollection && collectionIds == null ? (
-            <div className="grid place-items-center py-10 text-ink-subtle">
-              <LoaderCircle size={18} className="animate-spin" />
-            </div>
-          ) : !loading && !metadataLoading && !syncing && visible.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-edge-soft px-6 py-10 text-center text-[13px] text-ink-muted">
-              {t("No matches for these filters.")}
-            </div>
+        ))}
+      {/* Keep the title grid mounted (only hidden) while the Collections list is
+          on screen, so switching back does not tear its posters down and refetch
+          them. */}
+      <div className={type === "collections" && !activeCollection ? "hidden" : "flex flex-col gap-4"}>
+        {type === "collections" && activeCollection && (
+          <button
+            type="button"
+            onClick={() => setActiveCollection(null)}
+            className="flex items-center gap-1.5 self-start text-[13px] font-semibold text-ink-muted hover:text-ink"
+          >
+            <ChevronLeft size={16} />
+            {activeCollection.name}
+          </button>
+        )}
+        {type === "collections" && activeCollection && collectionIds == null ? (
+          <div className="grid place-items-center py-10 text-ink-subtle">
+            <LoaderCircle size={18} className="animate-spin" />
+          </div>
+        ) : !loading && !metadataLoading && !syncing && visible.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-edge-soft px-6 py-10 text-center text-[13px] text-ink-muted">
+            {t("No matches for these filters.")}
+          </div>
+        ) : (
+          visible.length > 0 &&
+          (scrollRef ? (
+            <VirtualGrid
+              items={visible}
+              scrollRef={scrollRef}
+              minColumnWidth={Math.round(150 * settings.posterScale)}
+              gapX={16}
+              gapY={32}
+              overscan={6}
+              paused={type === "collections" && !activeCollection}
+              estimateRowHeight={Math.round(150 * settings.posterScale * 1.5) + 46}
+              getKey={(card) => card.title.key}
+              renderItem={renderCard}
+            />
           ) : (
-            visible.length > 0 &&
-            (scrollRef ? (
-              <VirtualGrid
-                items={visible}
-                scrollRef={scrollRef}
-                minColumnWidth={Math.round(150 * settings.posterScale)}
-                gapX={16}
-                gapY={32}
-                estimateRowHeight={Math.round(150 * settings.posterScale * 1.5) + 46}
-                getKey={(card) => card.title.key}
-                renderItem={renderCard}
-              />
-            ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-4 gap-y-8">
-                {visible.map((card) => (
-                  <div key={card.title.key}>{renderCard(card)}</div>
-                ))}
-              </div>
-            ))
-          )}
-        </>
-      )}
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-4 gap-y-8">
+              {visible.map((card) => (
+                <div key={card.title.key}>{renderCard(card)}</div>
+              ))}
+            </div>
+          ))
+        )}
+      </div>
       <IdentifyModal
         target={localTarget}
         onClose={() => setReviewing(null)}
