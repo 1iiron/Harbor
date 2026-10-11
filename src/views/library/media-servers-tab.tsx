@@ -76,7 +76,6 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
   const [loading, setLoading] = useState(true);
   const [metadataLoading, setMetadataLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
-  const lastProgressReload = useRef(0);
   const metaCache = useRef(new Map<string, Meta>());
   const [syncMessage, setSyncMessage] = useState(initialProgress?.message ?? "");
   const [reviewing, setReviewing] = useState<MediaServerTitle | null>(null);
@@ -127,14 +126,9 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
         setSyncing(progress.active);
         setSyncMessage(progress.message);
         setSyncCount({ processed: progress.processed, total: progress.total });
-        // Surface items as they are indexed instead of waiting for the whole
-        // library, but throttle the reads so a large sync is not re-reading the
-        // store on every page.
-        const now = Date.now();
-        if (!progress.active || now - lastProgressReload.current >= 1500) {
-          lastProgressReload.current = now;
-          void reload();
-        }
+        // Only read the store when the sync finishes. Re-reading mid-sync made
+        // the grid and its posters re-render on every page (a visible flicker).
+        if (!progress.active) void reload();
       }),
     [reload],
   );
