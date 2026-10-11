@@ -75,6 +75,8 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
   const [loading, setLoading] = useState(true);
   const [metadataLoading, setMetadataLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
+  const lastProgressReload = useRef(0);
+  const metaCache = useRef(new Map<string, Meta>());
   const [syncMessage, setSyncMessage] = useState(initialProgress?.message ?? "");
   const [reviewing, setReviewing] = useState<MediaServerTitle | null>(null);
   const [syncCount, setSyncCount] = useState<{ processed?: number; total?: number }>({
@@ -124,7 +126,14 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
         setSyncing(progress.active);
         setSyncMessage(progress.message);
         setSyncCount({ processed: progress.processed, total: progress.total });
-        if (!progress.active) void reload();
+        // Surface items as they are indexed instead of waiting for the whole
+        // library, but throttle the reads so a large sync is not re-reading the
+        // store on every page.
+        const now = Date.now();
+        if (!progress.active || now - lastProgressReload.current >= 1500) {
+          lastProgressReload.current = now;
+          void reload();
+        }
       }),
     [reload],
   );
@@ -156,27 +165,56 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
     let alive = true;
     setMetadataLoading(true);
     const languageKey = `${settings.tmdbLanguage || "en"}:${(settings.tmdbImageLangs ?? []).join(",")}`;
-    void Promise.all(
-      titles.map(async (title) => {
-        const key = `${title.key}:locale:${languageKey}`;
-        const cached = await mediaServerMetadata<Meta>(key);
-        if (cached?.poster) return { title, meta: cached };
-        const meta = await hydrateLibraryMeta(title.key, title.kind, settings.tmdbKey).catch(
-          () => null,
-        );
-        if (meta) await putMediaServerMetadata(key, meta);
-        return { title, meta: meta ?? cached ?? fallbackMeta(title) };
-      }),
-    ).then((next) => {
-      if (alive) {
-        setCards(next);
-        setMetadataLoading(false);
-      }
-    });
+    const metaKey = (title: MediaServerTitle) => `${title.key}:locale:${languageKey}`;
+    // Paint the grid immediately from cached metadata (session cache first,
+    // then the index store) or the filename fallback. A large library must not
+    // sit blank while every title's metadata is fetched one by one.
+    void (async () => {
+      const initial = await Promise.all(
+        titles.map(async (title) => {
+          const key = metaKey(title);
+          let meta = metaCache.current.get(key);
+          if (!meta) {
+            const cached = await mediaServerMetadata<Meta>(key);
+            if (cached) {
+              meta = cached;
+              metaCache.current.set(key, cached);
+            }
+          }
+          return { title, meta: meta ?? fallbackMeta(title) };
+        }),
+      );
+      if (!alive) return;
+      setCards(initial);
+      setMetadataLoading(false);
+      // While a sync is running, items keep arriving; cached posters still show
+      // above, but skip new network fetches until it settles.
+      if (syncing) return;
+      // Fill in the posters for titles that had nothing cached, updating each
+      // card as it lands. A small concurrency pool keeps TMDB traffic sane.
+      const pending = initial.filter((card) => !card.meta.poster);
+      let index = 0;
+      const worker = async () => {
+        while (alive && index < pending.length) {
+          const card = pending[index++];
+          const meta = await hydrateLibraryMeta(card.title.key, card.title.kind, settings.tmdbKey).catch(
+            () => null,
+          );
+          if (!alive || !meta) continue;
+          metaCache.current.set(metaKey(card.title), meta);
+          await putMediaServerMetadata(metaKey(card.title), meta);
+          if (!alive) return;
+          setCards((current) =>
+            current.map((entry) => (entry.title.key === card.title.key ? { ...entry, meta } : entry)),
+          );
+        }
+      };
+      void Promise.all(Array.from({ length: Math.min(6, pending.length) }, worker));
+    })();
     return () => {
       alive = false;
     };
-  }, [loading, titles, settings.tmdbKey, settings.tmdbLanguage, settings.tmdbImageLangs]);
+  }, [loading, titles, settings.tmdbKey, settings.tmdbLanguage, settings.tmdbImageLangs, syncing]);
   useEffect(() => {
     if (!loading && !metadataLoading && !syncing) {
       setShowLoading(false);
