@@ -82,6 +82,7 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
   const [collections, setCollections] = useState<MediaServerCollection[] | null>(null);
   const [activeCollection, setActiveCollection] = useState<MediaServerCollection | null>(null);
   const [collectionIds, setCollectionIds] = useState<Set<string> | null>(null);
+  const collectionIdsCache = useRef(new Map<string, Set<string>>());
   const [syncMessage, setSyncMessage] = useState(initialProgress?.message ?? "");
   const [reviewing, setReviewing] = useState<MediaServerTitle | null>(null);
   const [syncCount, setSyncCount] = useState<{ processed?: number; total?: number }>({
@@ -133,7 +134,11 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
         setSyncCount({ processed: progress.processed, total: progress.total });
         // Only read the store when the sync finishes. Re-reading mid-sync made
         // the grid and its posters re-render on every page (a visible flicker).
-        if (!progress.active) void reload();
+        if (!progress.active) {
+          // Collection membership may have changed; drop the cached ids.
+          collectionIdsCache.current.clear();
+          void reload();
+        }
       }),
     [reload],
   );
@@ -235,11 +240,19 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
     }
     let alive = true;
     const prefix = `${connection.id}:`;
+    const cacheKey = `${connection.id}:${activeCollection.id}`;
+    const cached = collectionIdsCache.current.get(cacheKey);
+    if (cached) {
+      setCollectionIds(cached);
+      return;
+    }
     setCollectionIds(null);
     void adapter
       .collectionItemIds(connection, activeCollection.id)
       .then((ids) => {
-        if (alive) setCollectionIds(new Set(ids.map((id) => `${prefix}${id}`)));
+        const set = new Set(ids.map((id) => `${prefix}${id}`));
+        collectionIdsCache.current.set(cacheKey, set);
+        if (alive) setCollectionIds(set);
       })
       .catch(() => {
         if (alive) setCollectionIds(new Set());
@@ -601,7 +614,11 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
               {activeCollection.name}
             </button>
           )}
-          {!loading && !metadataLoading && !syncing && visible.length === 0 ? (
+          {type === "collections" && activeCollection && collectionIds == null ? (
+            <div className="grid place-items-center py-10 text-ink-subtle">
+              <LoaderCircle size={18} className="animate-spin" />
+            </div>
+          ) : !loading && !metadataLoading && !syncing && visible.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-edge-soft px-6 py-10 text-center text-[13px] text-ink-muted">
               {t("No matches for these filters.")}
             </div>
