@@ -222,7 +222,12 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
       setCollectionIds(null);
       return;
     }
-    const connection = connectionById.get(activeCollection.connectionId);
+    // Look the connection up at run time instead of depending on the memoized
+    // map: the connection list refreshes when a sync finishes, which used to
+    // re-run this effect, blank the member set, and empty the collection.
+    const connection = mediaServerConnections().find(
+      (entry) => entry.id === activeCollection.connectionId,
+    );
     const adapter = connection ? mediaServerAdapter(connection) : null;
     if (!connection || !adapter?.collectionItemIds) {
       setCollectionIds(new Set());
@@ -242,7 +247,7 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
     return () => {
       alive = false;
     };
-  }, [activeCollection, connectionById]);
+  }, [activeCollection]);
   useEffect(() => {
     if (type !== "collections") setActiveCollection(null);
   }, [type]);
