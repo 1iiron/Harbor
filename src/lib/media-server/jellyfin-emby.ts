@@ -134,12 +134,27 @@ export class JellyfinEmbyAdapter implements MediaServerAdapter {
   ) {
     this.origin = normalizeServerOrigin(origin);
   }
-  private headers(connection?: MediaServerConnection, token?: string) {
+  private headers(connection?: MediaServerConnection, token?: string): Record<string, string> {
     const auth = token ?? (connection ? mediaServerToken(connection) : null);
-    return {
-      Accept: "application/json",
-      "X-Emby-Authorization": `MediaBrowser Client="Harbor", Device="Harbor", DeviceId="harbor", Version="1"${auth ? `, Token="${auth}"` : ""}`,
-    };
+    const value = `MediaBrowser Client="Harbor", Device="Harbor", DeviceId="harbor", Version="1"${auth ? `, Token="${auth}"` : ""}`;
+    // Jellyfin (and current Emby) authenticate with the standard Authorization
+    // header. The X-Emby-Authorization header is legacy: some Jellyfin
+    // deployments reject it with a 400, so Jellyfin never sends it. Emby still
+    // reads X-Emby-Authorization.
+    return this.provider === "emby"
+      ? { Accept: "application/json", "X-Emby-Authorization": value }
+      : { Accept: "application/json", Authorization: value };
+  }
+  // Playback (mpv) requests are authorised by header, not by the URL. Jellyfin
+  // rejects the X-Emby-Token header and the api_key query param on current
+  // builds, so it uses a comma-free Authorization header (mpv treats commas as
+  // header separators). Emby keeps its X-Emby-Token.
+  private playbackHeaders(connection: MediaServerConnection): Record<string, string> {
+    const token = mediaServerToken(connection);
+    if (!token) return {};
+    return this.provider === "emby"
+      ? { "X-Emby-Token": token }
+      : { Authorization: `MediaBrowser Token="${token}"` };
   }
   async authenticate(input: Record<string, string>): Promise<AuthResult> {
     const response = await mediaServerRequest<ApiItem>(this.origin, "/Users/AuthenticateByName", {
@@ -275,6 +290,7 @@ export class JellyfinEmbyAdapter implements MediaServerAdapter {
       };
     });
     const token = mediaServerToken(connection) ?? "";
+    const playbackHeaders = this.playbackHeaders(connection);
     if (direct)
       return {
         url: new URL(
@@ -284,7 +300,7 @@ export class JellyfinEmbyAdapter implements MediaServerAdapter {
         protocol: "http",
         direct: true,
         versionId: version.id,
-        headers: { "X-Emby-Token": token },
+        headers: playbackHeaders,
         subtitles,
         effectiveQuality: request.quality,
         decision: "direct-play",
@@ -383,7 +399,7 @@ export class JellyfinEmbyAdapter implements MediaServerAdapter {
       protocol: "hls",
       direct: false,
       versionId: version.id,
-      headers: { "X-Emby-Token": token },
+      headers: playbackHeaders,
       subtitles,
       effectiveQuality: request.quality,
       playbackSessionId: playSessionId,
