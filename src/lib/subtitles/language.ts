@@ -333,11 +333,19 @@ export function trackLanguageName(lang?: string | null, title?: string | null): 
 const IMPLAUSIBLE_LANG_PATTERN =
   /[=<>{}[\]|\\]|\berror\b|\binvalid\b|\btimed?\s*out\b|\bfailed\b|\brequest\b/i;
 
+const MAX_PLAUSIBLE_LANG = 24;
+
+// A translating addon's generated offer is a display label ("Make Spanish (Latin
+// America) (SPN)"), not a language code, so it legitimately outgrows the cap above.
+const GENERATED_OFFER_LABEL_PATTERN = /^make\s+[\p{L}\p{N}][\p{L}\p{N}\s().,'&+\/-]*$/iu;
+const MAX_GENERATED_OFFER_LABEL = 64;
+
 export function isPlausibleLang(raw: string | undefined | null): boolean {
   if (!raw) return false;
   const s = raw.trim();
-  if (!s || s.length > 24) return false;
-  return !IMPLAUSIBLE_LANG_PATTERN.test(s);
+  if (!s || IMPLAUSIBLE_LANG_PATTERN.test(s)) return false;
+  if (s.length <= MAX_PLAUSIBLE_LANG) return true;
+  return s.length <= MAX_GENERATED_OFFER_LABEL && GENERATED_OFFER_LABEL_PATTERN.test(s);
 }
 
 export function langScore(lang: string, preferred: string[]): number {
