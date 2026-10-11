@@ -905,6 +905,12 @@ const uiFallback: Record<string, string> = {
   "Signed in. Enter your server address below.": "Signed in. Enter your server address below.",
   Collections: "Collections",
   Daily: "Daily",
+  Minutes: "Minutes",
+  Hours: "Hours",
+  Days: "Days",
+  Weeks: "Weeks",
+  "Refresh interval": "Refresh interval",
+  "Refresh unit": "Refresh unit",
   "No collections on these servers.": "No collections on these servers.",
   "Signs in to Letterboxd and unlocks your diary, friends activity and ratings.":
     "Signs in to Letterboxd and unlocks your diary, friends activity and ratings.",

@@ -37,7 +37,10 @@ export type MediaServerConnection = {
   priority: number;
   createdAt: number;
   refreshInterval: MediaServerRefreshInterval;
+  /** @deprecated superseded by refreshEveryValue/refreshEveryUnit. */
   refreshEveryDays?: number;
+  refreshEveryValue?: number;
+  refreshEveryUnit?: RefreshUnit;
   lastSyncAt?: number;
   lastSyncResult?: { ok: boolean; message: string; at: number };
   enabledLibraryIds?: string[];
@@ -50,6 +53,8 @@ export type MediaServerRefreshInterval =
   | "weekly"
   | "custom"
   | "manual";
+
+export type RefreshUnit = "minutes" | "hours" | "days" | "weeks";
 
 export type MediaServerLibrary = {
   id: string;

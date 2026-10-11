@@ -25,6 +25,7 @@ import type {
   MediaServerConnection,
   MediaServerProvider,
   MediaServerRefreshInterval,
+  RefreshUnit,
 } from "@/lib/media-server/types";
 import { MEDIA_SERVER_QUALITIES } from "@/lib/media-server/quality";
 import { signInWithPlex } from "@/lib/media-server/plex-auth";
@@ -172,7 +173,9 @@ export function HomeServersTab() {
                 ? 7
                 : null;
           const refreshInterval = legacyDays == null ? connection.refreshInterval : "custom";
-          const refreshDays = legacyDays ?? connection.refreshEveryDays ?? 1;
+          const refreshValue =
+            legacyDays ?? connection.refreshEveryValue ?? connection.refreshEveryDays ?? 1;
+          const refreshUnit = connection.refreshEveryUnit ?? "days";
           return (
             <div key={connection.id} role="group" aria-label={connection.name} className="mb-8">
               {[
@@ -281,7 +284,9 @@ export function HomeServersTab() {
                       onChange={(value) =>
                         updateMediaServerConnection(connection.id, {
                           refreshInterval: value as MediaServerRefreshInterval,
-                          ...(value === "custom" ? { refreshEveryDays: refreshDays } : {}),
+                          ...(value === "custom"
+                            ? { refreshEveryValue: refreshValue, refreshEveryUnit: refreshUnit }
+                            : {}),
                         })
                       }
                       options={[
@@ -296,21 +301,39 @@ export function HomeServersTab() {
                 ...(refreshInterval === "custom"
                   ? [
                       <SettingRow
-                        key={`${connection.id}-days`}
+                        key={`${connection.id}-interval`}
                         label={t("Refresh every")}
-                        desc={t("Days to wait between automatic refreshes of this library.")}
+                        desc={t("How often Harbor re-reads this library automatically.")}
                       >
                         <div className="flex items-center gap-2.5">
                           <RefreshDaysField
-                            value={refreshDays}
-                            onChange={(days) =>
+                            value={refreshValue}
+                            onChange={(value) =>
                               updateMediaServerConnection(connection.id, {
                                 refreshInterval: "custom",
-                                refreshEveryDays: days,
+                                refreshEveryValue: value,
                               })
                             }
                           />
-                          <span className={ROW_DESC}>{t("days")}</span>
+                          <div className="w-[160px]">
+                            <Dropdown
+                              size="md"
+                              ariaLabel={`${t("Refresh unit")}: ${connection.name}`}
+                              value={refreshUnit}
+                              onChange={(unit) =>
+                                updateMediaServerConnection(connection.id, {
+                                  refreshInterval: "custom",
+                                  refreshEveryUnit: unit as RefreshUnit,
+                                })
+                              }
+                              options={[
+                                { value: "minutes", label: t("Minutes") },
+                                { value: "hours", label: t("Hours") },
+                                { value: "days", label: t("Days") },
+                                { value: "weeks", label: t("Weeks") },
+                              ]}
+                            />
+                          </div>
                         </div>
                       </SettingRow>,
                     ]
@@ -377,17 +400,17 @@ function RefreshDaysField({
     const parsed = Number(draft);
     const next =
       draft.trim() && Number.isFinite(parsed)
-        ? Math.min(365, Math.max(1, Math.round(parsed)))
+        ? Math.min(9999, Math.max(1, Math.round(parsed)))
         : value;
     setDraft(String(next));
     if (next !== value) onChange(next);
   };
   return (
     <input
-      aria-label={t("Refresh interval in days")}
+      aria-label={t("Refresh interval")}
       type="number"
       min={1}
-      max={365}
+      max={9999}
       step={1}
       className={`${FIELD_BASE} w-[96px] px-3 text-center tabular-nums`}
       value={draft}
