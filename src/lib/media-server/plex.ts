@@ -203,12 +203,14 @@ export class PlexAdapter implements MediaServerAdapter {
     const raw: PlexNode[] = container.Metadata ?? [];
     const total = Number(container.totalSize ?? container.size ?? raw.length);
     const stageIndex = stages.indexOf(plexType);
-    const next =
-      start + raw.length < total
-        ? `${plexType}:${start + raw.length}`
-        : stageIndex >= 0 && stageIndex + 1 < stages.length
-          ? `${stages[stageIndex + 1]}:0`
-          : undefined;
+    // An empty page ends the stage even when the reported total is larger, so
+    // the cursor cannot stall on one index and loop forever.
+    const stageDone = raw.length === 0 || start + raw.length >= total;
+    const next = !stageDone
+      ? `${plexType}:${start + raw.length}`
+      : stageIndex >= 0 && stageIndex + 1 < stages.length
+        ? `${stages[stageIndex + 1]}:0`
+        : undefined;
     return {
       items: raw
         .map((entry) => normalizePlexItem(connection.id, library, entry))

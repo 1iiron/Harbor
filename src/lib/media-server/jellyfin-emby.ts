@@ -23,6 +23,22 @@ const ticksMs = (value: unknown) =>
   typeof value === "number" ? Math.round(value / 10_000) : undefined;
 const dateMs = (value: unknown) =>
   typeof value === "string" ? Date.parse(value) || undefined : undefined;
+// The server reports the true pixel height, which for 2.00:1 shows is 960 even
+// though the release is a 1080p source. Prefer the resolution named in the
+// filename (matching what the badges and every other client show) and only fall
+// back to the measured height.
+function resolutionLabel(name: string | undefined, height: number | undefined): string | undefined {
+  const match = name?.match(
+    /(?:^|[^0-9a-z])(2160p|1440p|1080p|1080i|720p|576p|480p|360p|240p|4k|8k|uhd)(?:[^0-9a-z]|$)/i,
+  );
+  if (match) {
+    const token = match[1].toLowerCase();
+    if (token === "4k" || token === "uhd") return "2160p";
+    if (token === "8k") return "4320p";
+    return token;
+  }
+  return height ? `${height}p` : undefined;
+}
 
 function normalized(
   connectionId: string,
@@ -97,7 +113,7 @@ function normalized(
         audioCodec: audio?.Codec,
         width: video?.Width,
         height: video?.Height,
-        resolution: video?.Height ? `${video.Height}p` : undefined,
+        resolution: resolutionLabel(sourceFilename, video?.Height),
         videoProfile: video?.Profile,
         hdr: /hdr/i.test(videoRange) ? videoRange : undefined,
         dolbyVisionProfile: /dovi|dolby.?vision/i.test(videoRange)
@@ -214,7 +230,11 @@ export class JellyfinEmbyAdapter implements MediaServerAdapter {
     const total = r.body.TotalRecordCount ?? raw.length;
     return {
       items,
-      cursor: start + raw.length < total ? String(start + raw.length) : undefined,
+      // Stop as soon as the server returns an empty page. Some servers report a
+      // TotalRecordCount larger than the items they actually return, which would
+      // otherwise keep the cursor on the same index and loop forever.
+      cursor:
+        raw.length > 0 && start + raw.length < total ? String(start + raw.length) : undefined,
       processed: Math.min(total, start + raw.length),
       total,
     };
