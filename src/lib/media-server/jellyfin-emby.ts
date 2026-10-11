@@ -18,7 +18,7 @@ import { parseEpisodeSpan } from "@/lib/episode-span";
 
 type ApiItem = Record<string, any>;
 const fields =
-  "ProviderIds,MediaSources,RunTimeTicks,DateCreated,UserData,ParentId,SeriesId,IndexNumber,ParentIndexNumber,ProductionYear,Path";
+  "ProviderIds,MediaSources,RunTimeTicks,DateCreated,UserData,ParentId,SeriesId,IndexNumber,ParentIndexNumber,ProductionYear,Path,ImageTags";
 const ticksMs = (value: unknown) =>
   typeof value === "number" ? Math.round(value / 10_000) : undefined;
 const dateMs = (value: unknown) =>
@@ -80,6 +80,9 @@ function normalized(
       episode: Number.isFinite(episode) ? episode : undefined,
       episodeEnd: episodeHint?.episodeEnd,
     },
+    posterPath: raw.ImageTags?.Primary
+      ? `Items/${raw.Id}/Images/Primary?tag=${encodeURIComponent(raw.ImageTags.Primary)}&maxHeight=600&quality=90`
+      : undefined,
     versions: (raw.MediaSources ?? []).map((source: ApiItem) => {
       const streams = source.MediaStreams ?? raw.MediaStreams ?? [];
       const video = streams.find((stream: ApiItem) => stream.Type === "Video");

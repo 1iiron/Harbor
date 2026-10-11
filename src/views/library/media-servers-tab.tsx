@@ -18,6 +18,7 @@ import { VirtualGrid } from "@/components/virtual-grid";
 import type { Meta } from "@/lib/cinemeta";
 import {
   mediaServerConnections,
+  mediaServerToken,
   subscribeMediaServerConnections,
 } from "@/lib/media-server/connections";
 import {
@@ -156,6 +157,27 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
     () => new Map(connections.map((connection) => [connection.id, connection])),
     [connections],
   );
+  // The server's own poster is the first choice; TMDB artwork is the fallback.
+  const serverPoster = useCallback(
+    (title: MediaServerTitle): string | undefined => {
+      if (!title.posterPath || !title.posterConnectionId) return undefined;
+      const connection = connectionById.get(title.posterConnectionId);
+      if (!connection) return undefined;
+      let url: URL;
+      try {
+        url = new URL(title.posterPath.replace(/^\/+/, ""), `${connection.origin}/`);
+      } catch {
+        return undefined;
+      }
+      const token = mediaServerToken(connection);
+      if (token) {
+        if (connection.provider === "plex") url.searchParams.set("X-Plex-Token", token);
+        else url.searchParams.set("api_key", token);
+      }
+      return url.toString();
+    },
+    [connectionById],
+  );
   useEffect(() => {
     if (loading || library === "all") return;
     if (!items.some((item) => item.libraryId === library)) setLibrary("all");
@@ -181,7 +203,9 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
               metaCache.current.set(key, cached);
             }
           }
-          return { title, meta: meta ?? fallbackMeta(title) };
+          const base = meta ?? fallbackMeta(title);
+          const poster = serverPoster(title);
+          return { title, meta: poster ? { ...base, poster } : base };
         }),
       );
       if (!alive) return;
@@ -197,10 +221,12 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
       const worker = async () => {
         while (alive && index < pending.length) {
           const card = pending[index++];
-          const meta = await hydrateLibraryMeta(card.title.key, card.title.kind, settings.tmdbKey).catch(
+          const resolved = await hydrateLibraryMeta(card.title.key, card.title.kind, settings.tmdbKey).catch(
             () => null,
           );
-          if (!alive || !meta) continue;
+          if (!alive || !resolved) continue;
+          const poster = serverPoster(card.title);
+          const meta = poster ? { ...resolved, poster } : resolved;
           metaCache.current.set(metaKey(card.title), meta);
           await putMediaServerMetadata(metaKey(card.title), meta);
           if (!alive) return;
@@ -214,7 +240,7 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
     return () => {
       alive = false;
     };
-  }, [loading, titles, settings.tmdbKey, settings.tmdbLanguage, settings.tmdbImageLangs, syncing]);
+  }, [loading, titles, settings.tmdbKey, settings.tmdbLanguage, settings.tmdbImageLangs, syncing, serverPoster]);
   useEffect(() => {
     if (!loading && !metadataLoading && !syncing) {
       setShowLoading(false);

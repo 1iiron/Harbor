@@ -118,6 +118,9 @@ export type MediaServerTitle = {
   libraryIds: string[];
   episodeCount: number;
   versionCount: number;
+  /** Path to this title's Primary image on the owning server (relative to its origin). */
+  posterPath?: string;
+  posterConnectionId?: string;
   addedAt?: number;
   progress?: MediaServerProgress;
 };
@@ -151,6 +154,8 @@ export type MediaServerItem = {
   year?: number;
   identity: MediaIdentity;
   versions: MediaServerVersion[];
+  /** Primary-image path (relative to the connection origin), when the server has one. */
+  posterPath?: string;
   progress?: MediaServerProgress;
   addedAt?: number;
   updatedAt: number;

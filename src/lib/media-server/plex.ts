@@ -121,6 +121,7 @@ function normalizePlexItem(
     title: raw.title ?? "Untitled",
     year: raw.year,
     identity: guidIdentity(raw),
+    posterPath: raw.thumb ? String(raw.thumb) : undefined,
     versions,
     progress:
       raw.viewOffset != null || raw.viewCount
