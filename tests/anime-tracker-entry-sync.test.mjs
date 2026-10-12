@@ -75,7 +75,7 @@ for (const service of ["anilist", "mal"]) {
       const h = autosave({ season: 1, episode: 1, imdbSeason: 2, imdbEpisode: 13, absoluteNumber: 13 });
       const args = h.trackerProgress.find((call) => call[0] === service).slice(1);
       assert.equal(h.trackerStatus.length, 0, "do not race a redundant watching write against progress");
-      assert.deepEqual(args, ["kitsu:45619", 1, "Test series", 2]);
+      assert.deepEqual(args, ["kitsu:45619", 1, "Test series", 2, true]);
       const api = tracker(service, { total });
       await api.sync(...args);
       assert.equal(api.writes.length, 1);
@@ -94,7 +94,7 @@ for (const service of ["anilist", "mal"]) {
     );
     await settle();
     const args = h.trackerProgress.find((call) => call[0] === service).slice(1);
-    assert.deepEqual(args, ["kitsu:99", 25, "Test series", 2]);
+    assert.deepEqual(args, ["kitsu:99", 25, "Test series", 2, true]);
     const api = tracker(service, { total: 25, current: 24 });
     await api.sync(...args);
     assert.equal(Number(api.writes[0].progress ?? api.writes[0].num_watched_episodes), 25);
@@ -119,14 +119,20 @@ for (const service of ["anilist", "mal"]) {
     }
   });
 
-  test(`${service}: completed and rewatching entries keep their deliberate status`, async () => {
+  test(`${service}: finished entries sync as rewatches unless counting is off`, async () => {
     const cases = service === "anilist"
       ? [{ status: "COMPLETED" }, { status: "REPEATING" }]
       : [{ status: "completed" }, { rewatching: true }];
     for (const options of cases) {
       const api = tracker(service, options);
       await api.sync("kitsu:1", 2, "Fixture");
-      assert.equal(api.writes.length, 0);
+      assert.equal(api.writes.length, 1);
+      assert.equal(Number(api.writes[0].progress ?? api.writes[0].num_watched_episodes), 2);
+      assert.equal(api.writes[0].status, service === "anilist" ? "REPEATING" : "watching");
+      if (service === "mal") assert.equal(api.writes[0].is_rewatching, "true");
+      const off = tracker(service, options);
+      await off.sync("kitsu:1", 2, "Fixture", undefined, false);
+      assert.equal(off.writes.length, 0, "counting off leaves the entry exactly as the user set it");
     }
   });
 
