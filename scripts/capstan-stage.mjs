@@ -252,6 +252,13 @@ function stagedPlanHash() {
   }
 }
 
+// resources/capstan is a bundled resource in tauri.conf.json, and the tracked .gitkeep is what
+// keeps the path present in a checkout that never stages (the Flatpak build, for one). Staging
+// wipes the directory, so the marker is written back to leave tracked files untouched.
+function keepStageMarker() {
+  writeFileSync(join(dest, ".gitkeep"), "");
+}
+
 function stage() {
   const jlink = join(hostJdk, "bin", exe("jlink"));
   const jmods = join(targetJdk, "jmods");
@@ -260,6 +267,7 @@ function stage() {
 
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(dest, { recursive: true });
+  keepStageMarker();
 
   log(`jlink ${MODULES.length} modules for ${target} from ${jmods}`);
   execFileSync(
@@ -382,6 +390,7 @@ async function withoutSources() {
   // directory and cannot resolve a missing one.
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(dest, { recursive: true });
+  keepStageMarker();
   warn(
     "BUILDING WITHOUT EXTENSION SUPPORT. HARBOR_CAPSTAN_OPTIONAL is set and this checkout has no",
     "compat layer, so nothing is staged and installed extensions will not run in this build.",
