@@ -82,10 +82,21 @@ mkdir -p "$DEXLIB"
 if [ -e "$DEXLIB/dex-tools-v2.4.jar" ]; then
   echo "  have dex-tools"
 else
-  command -v unzip >/dev/null 2>&1 || { echo "FAILED unzip is needed to extract dex-tools"; exit 1; }
   get dex-tools-v2.4.zip "$R/tools/dex-tools" "https://github.com/pxb1988/dex2jar/releases/download/v2.4/dex-tools-v2.4.zip"
   verify ee7c45eb3c1d2474a6145d8d447e651a736a22d9664b6d3d3be5a5a817dda23a "$R/tools/dex-tools/dex-tools-v2.4.zip"
-  unzip -j -o "$R/tools/dex-tools/dex-tools-v2.4.zip" 'dex-tools-v2.4/lib/*.jar' -d "$DEXLIB" >/dev/null
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -j -o "$R/tools/dex-tools/dex-tools-v2.4.zip" 'dex-tools-v2.4/lib/*.jar' -d "$DEXLIB" >/dev/null
+  elif command -v bsdtar >/dev/null 2>&1; then
+    # libarchive's bsdtar reads zip files and is present where unzip is not (Arch builds, for one).
+    rm -rf "$R/tools/dex-tools/.extract"
+    mkdir -p "$R/tools/dex-tools/.extract"
+    bsdtar -xf "$R/tools/dex-tools/dex-tools-v2.4.zip" -C "$R/tools/dex-tools/.extract"
+    cp "$R/tools/dex-tools/.extract"/dex-tools-v2.4/lib/*.jar "$DEXLIB"/
+    rm -rf "$R/tools/dex-tools/.extract"
+  else
+    echo "FAILED no unzip or bsdtar to extract dex-tools with"
+    exit 1
+  fi
   rm -f "$R/tools/dex-tools/dex-tools-v2.4.zip"
 fi
 
