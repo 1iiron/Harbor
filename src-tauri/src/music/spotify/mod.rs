@@ -4,6 +4,7 @@ mod auth;
 mod browse;
 pub mod connector;
 mod control;
+mod device_auth;
 pub mod devices;
 mod keystore;
 pub(super) mod library;
@@ -11,6 +12,8 @@ mod parse;
 mod player;
 mod session;
 mod tokens;
+
+pub use device_auth::{DevicePoll, DevicePrompt};
 
 use super::{MusicConnection, MusicConnectionField};
 use librespot_core::authentication::Credentials;
@@ -77,6 +80,7 @@ pub struct SpotifyState {
     linked: AtomicBool,
     remote: RwLock<Option<String>>,
     pub(super) remote_watch: AtomicU64,
+    device: RwLock<Option<device_auth::PendingDevice>>,
     paused: AtomicBool,
     paused_for_video: AtomicBool,
 }
@@ -94,6 +98,7 @@ impl SpotifyState {
             linked: AtomicBool::new(false),
             remote: RwLock::new(None),
             remote_watch: AtomicU64::new(0),
+            device: RwLock::new(None),
             paused: AtomicBool::new(true),
             paused_for_video: AtomicBool::new(false),
         }
@@ -139,7 +144,7 @@ impl SpotifyState {
             self.record_failure(error.clone());
             return Err(error);
         }
-        self.adopt_web_token(&app, granted, None);
+        self.adopt_web_token(&app, granted, None, None);
         self.status().await
     }
 
@@ -207,7 +212,7 @@ impl SpotifyState {
         *self.account.write() = Account {
             session: Some(spotify_session),
             username,
-            country,
+            country: country.clone(),
             tier,
         };
         *self.last_error.write() = None;

@@ -660,6 +660,24 @@ const music: Record<string, string> = {
     "No Client ID is saved on this device. Follow the setup steps and paste your Client ID.",
   "music.spotifySetup.rejected":
     "Check the Client ID and redirect URI in your Spotify app settings, then try again.",
+  "music.spotifySetup.pairTitle": "1 · Pair this device for playback",
+  "music.spotifySetup.pairBody":
+    "No Spotify app setup needed. Harbor shows a code — enter it at spotify.com/pair from a phone or browser, then approve.",
+  "music.spotifySetup.pairAction": "Pair with Spotify",
+  "music.spotifySetup.pairCodeLabel": "Pairing code",
+  "music.spotifySetup.pairWaiting": "Waiting for approval at spotify.com/pair…",
+  "music.spotifySetup.pairOpen": "Open spotify.com/pair",
+  "music.spotifySetup.pairCopy": "Copy code",
+  "music.spotifySetup.pairCopied": "Copied",
+  "music.spotifySetup.pairCopyFailed": "Select the code and copy it manually.",
+  "music.spotifySetup.pairManual": "2 · Browse with your own Spotify app",
+  "music.spotifySetup.browseRecommended": "Recommended",
+  "music.spotifySetup.browseBody":
+    "Browsing on Spotify's shared limit saturates often. Your own app gives browsing a private quota — playback stays paired.",
+  "music.spotifyBrowse.title": "Browsing shares Spotify's rate limit",
+  "music.spotifyBrowse.body":
+    "Playback is paired and working. Browsing currently shares librespot's Spotify quota, which saturates often — sign in with your own Spotify app to give browsing its own quota. Playback stays paired.",
+  "music.spotifyBrowse.action": "Use my own Spotify app",
   "music.recovery.title": "Playback help",
   "music.recovery.failed": "{source} couldn’t play this song",
   "music.recovery.skipping": "Skipping to the next song in {seconds}s",
