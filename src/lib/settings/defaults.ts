@@ -215,6 +215,7 @@ export const DEFAULT: Settings = {
   discordShowTimestamp: true,
   discordShowPartyJoin: false,
   discordMusicPresence: true,
+  discordHideMusicWhenPaused: true,
   playerEngine: "auto",
   pipBehavior: "resize",
   playerShellId: "default",

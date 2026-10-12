@@ -277,6 +277,7 @@ export type Settings = {
   discordShowTimestamp: boolean;
   discordShowPartyJoin: boolean;
   discordMusicPresence: boolean;
+  discordHideMusicWhenPaused: boolean;
   playerEngine: "auto" | "html5" | "mpv";
   /** resize shrinks the Harbor window; native floats the video in its own window. */
   pipBehavior: "resize" | "native";
