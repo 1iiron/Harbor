@@ -2,11 +2,13 @@ use super::super::MusicTrack;
 use super::meter::{MeteredSink, SpotifyMeter};
 use librespot_core::session::Session;
 use librespot_core::SpotifyUri;
+use librespot_metadata::audio::{AudioFileFormat, AudioFiles, AudioItem};
 use librespot_playback::audio_backend;
 use librespot_playback::config::{AudioFormat, Bitrate, PlayerConfig};
 use librespot_playback::mixer::softmixer::SoftMixer;
 use librespot_playback::mixer::{Mixer, MixerConfig};
 use librespot_playback::player::{Player, PlayerEvent};
+use librespot_playback::SAMPLE_RATE;
 use parking_lot::RwLock;
 use serde_json::json;
 use std::sync::Arc;
@@ -95,6 +97,9 @@ fn spawn_events(
                     ..
                 } => {
                     bind_request(&current, play_request_id, &track_id);
+                }
+                PlayerEvent::TrackChanged { audio_item } => {
+                    emit_audio_quality(&app, &current, &audio_item);
                 }
                 PlayerEvent::Playing {
                     play_request_id,
@@ -217,6 +222,67 @@ fn scrobble_current(app: &AppHandle, context: PlaybackContext) {
             }
         }
     });
+}
+
+/// The file librespot picks for the configured bitrate ceiling. Mirrors the selection order
+/// in `PlayerTrackLoader::load_remote_track` for `Bitrate::Bitrate320`; keep them in step.
+fn quality_for(files: &AudioFiles) -> Option<(&'static str, u32)> {
+    const ORDER: [AudioFileFormat; 7] = [
+        AudioFileFormat::OGG_VORBIS_320,
+        AudioFileFormat::MP3_320,
+        AudioFileFormat::MP3_256,
+        AudioFileFormat::OGG_VORBIS_160,
+        AudioFileFormat::MP3_160,
+        AudioFileFormat::OGG_VORBIS_96,
+        AudioFileFormat::MP3_96,
+    ];
+    let format = *ORDER.iter().find(|format| files.contains_key(*format))?;
+    Some(match format {
+        AudioFileFormat::OGG_VORBIS_320 => ("vorbis", 320),
+        AudioFileFormat::MP3_320 => ("mp3", 320),
+        AudioFileFormat::MP3_256 => ("mp3", 256),
+        AudioFileFormat::OGG_VORBIS_160 => ("vorbis", 160),
+        AudioFileFormat::MP3_160 => ("mp3", 160),
+        AudioFileFormat::OGG_VORBIS_96 => ("vorbis", 96),
+        AudioFileFormat::MP3_96 => ("mp3", 96),
+        _ => return None,
+    })
+}
+
+/// Report the selected file the way the mpv meter reports decoded audio, so the quality
+/// badge shows the same evidence for Spotify. Only the track that is actually on air is
+/// reported; a preloaded neighbour is not.
+fn emit_audio_quality(
+    app: &AppHandle,
+    current: &Arc<RwLock<Option<PlaybackContext>>>,
+    item: &AudioItem,
+) {
+    let (track_id, connector_id) = {
+        let slot = current.read();
+        let Some(context) = slot.as_ref() else {
+            return;
+        };
+        if context.track.source_id.as_deref() != Some(item.uri.as_str()) {
+            return;
+        }
+        (context.track.id.clone(), context.track.connector_id.clone())
+    };
+    let Some((codec, bitrate_kbps)) = quality_for(&item.files) else {
+        return;
+    };
+    let _ = app.emit(
+        "music://event",
+        json!({
+            "event": "audio-quality",
+            "trackId": track_id,
+            "connectorId": connector_id,
+            "quality": {
+                "codec": codec,
+                "sampleRateHz": SAMPLE_RATE,
+                "bitrateKbps": bitrate_kbps,
+            },
+        }),
+    );
 }
 
 fn bind_request(
@@ -390,5 +456,39 @@ mod tests {
         assert!(finish_context(&current, 1).is_none());
         assert!(current.read().is_some());
         assert!(finish_context(&current, 2).is_some());
+    }
+
+    fn files(formats: &[AudioFileFormat]) -> AudioFiles {
+        AudioFiles(
+            formats
+                .iter()
+                .map(|format| (*format, librespot_core::FileId([0u8; 20])))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn the_selected_file_reports_the_configured_ceiling() {
+        let both = files(&[
+            AudioFileFormat::OGG_VORBIS_160,
+            AudioFileFormat::OGG_VORBIS_320,
+        ]);
+        assert_eq!(quality_for(&both), Some(("vorbis", 320)));
+    }
+
+    #[test]
+    fn selection_falls_back_in_the_same_order_as_librespot() {
+        let mixed = files(&[AudioFileFormat::OGG_VORBIS_96, AudioFileFormat::MP3_256]);
+        assert_eq!(quality_for(&mixed), Some(("mp3", 256)));
+        assert_eq!(
+            quality_for(&files(&[AudioFileFormat::MP3_96])),
+            Some(("mp3", 96))
+        );
+        assert_eq!(quality_for(&files(&[])), None);
+    }
+
+    #[test]
+    fn formats_outside_the_ceiling_are_not_reported() {
+        assert_eq!(quality_for(&files(&[AudioFileFormat::FLAC_FLAC])), None);
     }
 }
