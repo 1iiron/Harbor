@@ -106,3 +106,32 @@ export function isSafeProviderSubtitleUrl(rawUrl: string): boolean {
     return false;
   }
 }
+
+/**
+ * A subtitle served by the same origin as a user-installed local-network addon
+ * (loopback, link-local, or a LAN address). Only the addon's own origin is
+ * trusted, and only while the addon base itself is non-public, so a public
+ * addon can never point Harbor at loopback/LAN services.
+ */
+export function isLocalAddonSubtitleUrl(rawUrl: string, addonBase: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    if (
+      (url.protocol !== "https:" && url.protocol !== "http:") ||
+      url.username ||
+      url.password
+    ) {
+      return false;
+    }
+    const base = new URL(addonBase);
+    if (
+      (base.protocol !== "https:" && base.protocol !== "http:") ||
+      isPublicNetworkHost(base.hostname)
+    ) {
+      return false;
+    }
+    return url.origin === base.origin;
+  } catch {
+    return false;
+  }
+}
