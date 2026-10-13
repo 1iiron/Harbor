@@ -1343,6 +1343,7 @@ pub fn run() {
             dj_deck::dj_deck_open,
             dj_deck::dj_deck_close,
             music::music_engine_stop,
+            music::music_engine_state,
             music::music_home_rows,
             music::music_browse_connector,
             music::music_album_tracks,

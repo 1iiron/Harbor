@@ -15,7 +15,7 @@ mod tokens;
 
 pub use device_auth::{DevicePoll, DevicePrompt};
 
-use super::{MusicConnection, MusicConnectionField};
+use super::{MusicConnection, MusicConnectionField, MusicTrack};
 use librespot_core::authentication::Credentials;
 use librespot_core::session::Session;
 use parking_lot::RwLock;
@@ -67,6 +67,15 @@ pub struct SpotifyStatus {
     pub premium: bool,
     pub account_type: Option<String>,
     pub error: Option<String>,
+}
+
+/// What the local librespot player holds right now; the position is the last one it reported.
+#[derive(Debug, Clone)]
+pub struct SpotifyPlaybackState {
+    pub live: bool,
+    pub paused: bool,
+    pub track: Option<MusicTrack>,
+    pub position_seconds: Option<f64>,
 }
 
 pub struct SpotifyState {
@@ -249,6 +258,29 @@ impl SpotifyState {
 
     pub async fn status(&self) -> Result<SpotifyStatus, String> {
         Ok(self.snapshot())
+    }
+
+    /// The local player's current hold on a track, so a reloaded interface can rejoin it
+    /// instead of restoring a checkpoint that has not known about playback since the page went
+    /// away. Only local playback is reported; a remote Connect device keeps its own progress.
+    pub async fn playback_state(&self) -> SpotifyPlaybackState {
+        let paused = self.paused.load(Ordering::SeqCst);
+        let slot = self.runtime.lock().await;
+        let Some(runtime) = slot.as_ref() else {
+            return SpotifyPlaybackState {
+                live: false,
+                paused: true,
+                track: None,
+                position_seconds: None,
+            };
+        };
+        let snapshot = player::snapshot(&runtime.audio);
+        SpotifyPlaybackState {
+            live: snapshot.track.is_some(),
+            paused,
+            track: snapshot.track,
+            position_seconds: snapshot.position_seconds,
+        }
     }
 
     pub(super) fn connection(&self) -> MusicConnection {

@@ -14,7 +14,8 @@ import {
   sendDeckCommand,
   serveDeckCommands,
 } from "./deck-sync";
-import { createDeckAdoption } from "./deck-primary";
+import { createDeckAdoption, nativePlaybackAdoption } from "./deck-primary";
+import { engineSnapshot } from "./decks";
 import { insertIntoQueue, markManuallyQueued, queueInsertIndex } from "./queue-insert";
 import { queueTrackKey } from "./queue-order";
 import { adoptRequestedIdentity } from "./queue-source";
@@ -417,6 +418,7 @@ export function initializeMusic(): Promise<void> {
         likedTracks: bootstrap.likedTracks,
         recents: dedupeMusicTracks(bootstrap.recents),
       });
+      void adoptNativePlayback();
     })
     .catch((error) => {
       initialization = null;
@@ -449,6 +451,50 @@ const deckAdoption = createDeckAdoption({
     nextMusic(true);
   },
 });
+
+/**
+ * A reload leaves the native engine playing while this module starts from the checkpoint.
+ * The checkpoint only knows where the song was saved, so without adopting the live engine the
+ * progress bar freezes at that position, the first Play restarts the track from the beginning,
+ * and the controls do nothing afterwards. A live engine is the source of truth.
+ */
+async function adoptNativePlayback(): Promise<void> {
+  if (isDeckWindow()) return;
+  const profile = activeProfile;
+  const request = playRequest;
+  const snapshot = await engineSnapshot();
+  if (playRequest !== request || activeProfile !== profile) return;
+  const adopted = nativePlaybackAdoption(snapshot, state);
+  if (!adopted) return;
+  await ensureNativeEvents().catch(() => {});
+  if (playRequest !== request || activeProfile !== profile) return;
+  enginePrimed = true;
+  observedPause = adopted.phase === "paused";
+  resumeAt = null;
+  if (adopted.deck === 1) {
+    // Deck B has no event loop; the polling watch is the only way its progress keeps moving.
+    deckAdoption.adopt({
+      deck: 1,
+      track: adopted.track,
+      trackId: adopted.track.id,
+      connectorId: adopted.track.connectorId ?? null,
+      live: true,
+      paused: adopted.phase === "paused",
+      position: adopted.currentTime,
+      duration: adopted.duration,
+    });
+  }
+  publish({
+    current: adopted.track,
+    queue: adopted.queue,
+    queueIndex: adopted.queueIndex,
+    currentTime: adopted.currentTime,
+    duration: adopted.duration,
+    phase: adopted.phase,
+    error: null,
+  });
+  updateMediaSession(adopted.track);
+}
 
 function handlePlaybackEvent(payload: MpvEvent): void {
   if (

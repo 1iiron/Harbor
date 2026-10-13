@@ -87,10 +87,11 @@ fn spawn_events(
                 }
                 PlayerEvent::Playing {
                     play_request_id,
+                    track_id,
                     position_ms,
                     ..
                 } => {
-                    if !record_position(&current, play_request_id, position_ms) {
+                    if !record_position(&current, play_request_id, &track_id, position_ms) {
                         continue;
                     }
                     let _ = app.emit(
@@ -105,10 +106,11 @@ fn spawn_events(
                 }
                 PlayerEvent::Paused {
                     play_request_id,
+                    track_id,
                     position_ms,
                     ..
                 } => {
-                    if !record_position(&current, play_request_id, position_ms) {
+                    if !record_position(&current, play_request_id, &track_id, position_ms) {
                         continue;
                     }
                     let _ = app.emit(
@@ -122,20 +124,23 @@ fn spawn_events(
                 }
                 PlayerEvent::PositionChanged {
                     play_request_id,
+                    track_id,
                     position_ms,
                     ..
                 }
                 | PlayerEvent::PositionCorrection {
                     play_request_id,
+                    track_id,
                     position_ms,
                     ..
                 }
                 | PlayerEvent::Seeked {
                     play_request_id,
+                    track_id,
                     position_ms,
                     ..
                 } => {
-                    if !record_position(&current, play_request_id, position_ms) {
+                    if !record_position(&current, play_request_id, &track_id, position_ms) {
                         continue;
                     }
                     let _ = app.emit(
@@ -208,23 +213,27 @@ fn bind_request(
     request_id: u64,
     track_id: &SpotifyUri,
 ) -> bool {
-    let Ok(track_uri) = track_id.to_uri() else {
-        return false;
-    };
     let mut slot = current.write();
     let Some(context) = slot.as_mut() else {
         return false;
     };
-    if context.track.source_id.as_deref() != Some(track_uri.as_str()) {
+    if !carries(context, track_id) {
         return false;
     }
     context.request_id = Some(request_id);
     true
 }
 
+fn carries(context: &PlaybackContext, track_id: &SpotifyUri) -> bool {
+    track_id
+        .to_uri()
+        .is_ok_and(|uri| context.track.source_id.as_deref() == Some(uri.as_str()))
+}
+
 fn record_position(
     current: &Arc<RwLock<Option<PlaybackContext>>>,
     request_id: u64,
+    track_id: &SpotifyUri,
     position_ms: u32,
 ) -> bool {
     let mut slot = current.write();
@@ -232,13 +241,39 @@ fn record_position(
         return false;
     };
     if context.request_id != Some(request_id) {
-        return false;
+        // Replaying a track that is already loaded skips librespot's Loading event, so the
+        // request would never bind and every position update for it would be dropped. The
+        // first event naming the same track binds it instead.
+        if !carries(context, track_id) {
+            return false;
+        }
+        context.request_id = Some(request_id);
     }
     let position = position_ms as f64 / 1000.0;
     context.listened_seconds +=
         super::super::engine::listened_increment(context.previous_position, position);
     context.previous_position = Some(position);
     true
+}
+
+/// What the player is holding right now, so a reloaded interface can rejoin it.
+pub struct PlaybackSnapshot {
+    pub track: Option<MusicTrack>,
+    pub position_seconds: Option<f64>,
+}
+
+pub fn snapshot(runtime: &SpotifyPlayer) -> PlaybackSnapshot {
+    let slot = runtime.current.read();
+    match slot.as_ref() {
+        Some(context) => PlaybackSnapshot {
+            track: Some(context.track.clone()),
+            position_seconds: context.previous_position,
+        },
+        None => PlaybackSnapshot {
+            track: None,
+            position_seconds: None,
+        },
+    }
 }
 
 fn finish_context(
@@ -290,8 +325,9 @@ mod tests {
     #[test]
     fn spotify_scrobble_tracking_ignores_seek_jumps() {
         let current = context(300);
-        record_position(&current, 1, 10_000);
-        record_position(&current, 1, 120_000);
+        let uri = SpotifyUri::from_uri("spotify:track:test").expect("uri");
+        record_position(&current, 1, &uri, 10_000);
+        record_position(&current, 1, &uri, 120_000);
         let listened = current.read().as_ref().unwrap().listened_seconds;
         assert_eq!(listened, 0.0);
         let context = finish_context(&current, 1).expect("matching request");
@@ -299,6 +335,27 @@ mod tests {
             context.listened_seconds,
             context.track.duration_seconds as f64,
         ));
+    }
+
+    #[test]
+    fn a_replay_of_the_loaded_track_binds_without_a_loading_event() {
+        let current = context(300);
+        current.write().as_mut().unwrap().request_id = None;
+        let uri = SpotifyUri::from_uri("spotify:track:test").expect("uri");
+        assert!(record_position(&current, 7, &uri, 12_000));
+        let slot = current.read();
+        let context = slot.as_ref().unwrap();
+        assert_eq!(context.request_id, Some(7));
+        assert_eq!(context.previous_position, Some(12.0));
+    }
+
+    #[test]
+    fn events_for_another_track_never_bind_the_current_context() {
+        let current = context(300);
+        current.write().as_mut().unwrap().request_id = None;
+        let other = SpotifyUri::from_uri("spotify:track:other").expect("uri");
+        assert!(!record_position(&current, 7, &other, 12_000));
+        assert_eq!(current.read().as_ref().unwrap().request_id, None);
     }
 
     #[test]
