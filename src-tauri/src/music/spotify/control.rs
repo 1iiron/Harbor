@@ -136,6 +136,7 @@ impl SpotifyState {
         let slot = self.runtime.lock().await;
         if let Some(runtime) = slot.as_ref() {
             runtime.audio.player.stop();
+            runtime.audio.meter.reset();
             *runtime.audio.current.write() = None;
         }
         self.paused.store(true, Ordering::SeqCst);

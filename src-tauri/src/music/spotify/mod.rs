@@ -8,6 +8,7 @@ mod device_auth;
 pub mod devices;
 mod keystore;
 pub(super) mod library;
+mod meter;
 mod parse;
 mod player;
 mod session;
@@ -16,6 +17,7 @@ mod tokens;
 pub use device_auth::{DevicePoll, DevicePrompt};
 
 use super::{MusicConnection, MusicConnectionField, MusicTrack};
+use super::engine::{MusicMeterChannel, MusicMeterSnapshot};
 use librespot_core::authentication::Credentials;
 use librespot_core::session::Session;
 use parking_lot::RwLock;
@@ -281,6 +283,41 @@ impl SpotifyState {
             track: snapshot.track,
             position_seconds: snapshot.position_seconds,
         }
+    }
+
+    /// Measured on the decoded samples instead of the mpv chain, so the dock visualizer,
+    /// signal panel and Miku keep working while Spotify is the active engine.
+    pub async fn set_meter_enabled(&self, enabled: bool) {
+        let slot = self.runtime.lock().await;
+        if let Some(runtime) = slot.as_ref() {
+            runtime.audio.meter.set_enabled(enabled);
+        }
+    }
+
+    pub async fn meter_snapshot(&self) -> Option<MusicMeterSnapshot> {
+        let paused = self.paused.load(Ordering::SeqCst);
+        let slot = self.runtime.lock().await;
+        let runtime = slot.as_ref()?;
+        let track = player::snapshot(&runtime.audio).track?;
+        let reading = runtime.audio.meter.reading();
+        Some(MusicMeterSnapshot {
+            track_id: track.id,
+            connector_id: track.connector_id,
+            active: runtime.audio.meter.running() && !paused && reading.seen,
+            channels: reading
+                .channels
+                .into_iter()
+                .map(|channel| MusicMeterChannel {
+                    rms_db: channel.rms_db,
+                    peak_db: channel.peak_db,
+                })
+                .collect(),
+            spectrum_db: reading.spectrum,
+            output_sample_rate_hz: Some(librespot_playback::SAMPLE_RATE),
+            output_channels: Some("stereo".to_string()),
+            output_device: None,
+            output_backend: Some("spotify".to_string()),
+        })
     }
 
     pub(super) fn connection(&self) -> MusicConnection {

@@ -33,7 +33,7 @@ export function MusicDockVisualizer({
   const trackId = track?.id ?? null;
   const connectorId = track?.connectorId ?? null;
   // Videos play through HTML5 on a cross-origin stream; the native tap never sees that audio.
-  const live = enabled && !!trackId && connectorId !== "spotify" && track?.mediaKind !== "video";
+  const live = enabled && !!trackId && track?.mediaKind !== "video";
 
   useEffect(() => {
     let levels = musicDockSpectrum(undefined, false);

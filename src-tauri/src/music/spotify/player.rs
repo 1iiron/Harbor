@@ -1,4 +1,5 @@
 use super::super::MusicTrack;
+use super::meter::{MeteredSink, SpotifyMeter};
 use librespot_core::session::Session;
 use librespot_core::SpotifyUri;
 use librespot_playback::audio_backend;
@@ -24,6 +25,7 @@ pub struct SpotifyPlayer {
     pub player: Arc<Player>,
     pub mixer: Arc<dyn Mixer>,
     pub current: Arc<RwLock<Option<PlaybackContext>>>,
+    pub meter: Arc<SpotifyMeter>,
 }
 
 pub fn start(app: AppHandle, session: Session) -> Result<SpotifyPlayer, String> {
@@ -39,8 +41,15 @@ pub fn start(app: AppHandle, session: Session) -> Result<SpotifyPlayer, String> 
         position_update_interval: Some(Duration::from_millis(250)),
         ..Default::default()
     };
-    let player = Player::new(config, session, mixer.get_soft_volume(), move || {
-        sink_builder(None, AudioFormat::F32)
+    let meter = Arc::new(SpotifyMeter::new());
+    let player = Player::new(config, session, mixer.get_soft_volume(), {
+        let meter = meter.clone();
+        move || {
+            Box::new(MeteredSink::new(
+                sink_builder(None, AudioFormat::F32),
+                meter.clone(),
+            ))
+        }
     });
     let current = Arc::new(RwLock::new(None));
     spawn_events(app, player.clone(), current.clone());
@@ -48,6 +57,7 @@ pub fn start(app: AppHandle, session: Session) -> Result<SpotifyPlayer, String> 
         player,
         mixer,
         current,
+        meter,
     })
 }
 
@@ -58,6 +68,7 @@ pub fn play(runtime: &SpotifyPlayer, track: MusicTrack) -> Result<(), String> {
         .ok_or_else(|| "Spotify track is missing its URI".to_string())?;
     let uri = SpotifyUri::from_uri(source_id)
         .map_err(|error| format!("Invalid Spotify track URI: {error}"))?;
+    runtime.meter.reset();
     *runtime.current.write() = Some(PlaybackContext {
         listened_seconds: 0.0,
         previous_position: None,

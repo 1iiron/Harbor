@@ -70,7 +70,6 @@ export function MusicMikuVisualizer({ track, playing, concealed = false, stream 
   useEffect(() => { playingRef.current = playing; refresh.current?.(); }, [playing]);
   const trackId = track.id, connectorId = track.connectorId ?? null;
   const video = track.mediaKind === "video";
-  const supported = connectorId !== "spotify" && !video;
   const identity = useRef({ trackId, connectorId });
   identity.current = { trackId, connectorId };
   useEffect(() => { refresh.current?.(); }, [trackId, connectorId]);
@@ -235,7 +234,7 @@ export function MusicMikuVisualizer({ track, playing, concealed = false, stream 
       reconcileTrack();
       setState("ambient", String(!document.hidden && !motion.matches && !!host.offsetWidth));
       videoPlaying = video && playingRef.current && !document.hidden && !motion.matches && !!host.offsetWidth;
-      if (!playingRef.current || (!supported && !video) || document.hidden || motion.matches || !host.offsetWidth) {
+      if (!playingRef.current || document.hidden || motion.matches || !host.offsetWidth) {
         if (release && !playingRef.current) groove.suspend();
         release?.(); release = undefined; target = 0; audibleAt = 0;
         if (motion.matches || document.hidden || !host.offsetWidth) {
@@ -272,7 +271,7 @@ export function MusicMikuVisualizer({ track, playing, concealed = false, stream 
       expression.reset(); eyes = expression.advance(0, false);
       danceState = dance.advance(0, { beat: 0, locked: false, excitement: 0 }, false, false); paint();
     };
-  }, [supported, video, stream, active]);
+  }, [video, stream, active]);
   if (!active) return <div className="music-miku-perch" data-concealed={concealed || undefined} aria-hidden="true">
     <div className="music-miku-reveal"><MikuArtwork /></div>
   </div>;
