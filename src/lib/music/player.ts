@@ -165,6 +165,12 @@ function warmBeforeEnd(): void {
   const key = `${state.current.connectorId ?? ""}:${state.current.id}`;
   if (nearEndKey === key) return;
   nearEndKey = key;
+  if (state.current.connectorId === "spotify") {
+    // librespot plays a preloaded track without a load gap; stream URLs are warmed below.
+    const next = musicWarmTargets(state.queue, state.queueIndex, 1)[0];
+    if (next && queueTrackKey(next) !== queueTrackKey(state.current))
+      void invoke("music_spotify_preload", { track: next }).catch(() => {});
+  }
   warmNeighbours();
 }
 

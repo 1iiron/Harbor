@@ -44,6 +44,19 @@ pub async fn music_play_track(
     Ok(())
 }
 
+/// Warm the next Spotify track while the current one is still playing. The request is a
+/// no-op unless local Spotify playback owns the output.
+#[tauri::command]
+pub async fn music_spotify_preload(
+    state: tauri::State<'_, MusicState>,
+    track: MusicTrack,
+) -> Result<bool, String> {
+    if state.active_engine() != ACTIVE_SPOTIFY {
+        return Ok(false);
+    }
+    state.spotify.preload(track).await
+}
+
 #[tauri::command]
 pub async fn music_engine_pause(
     state: tauri::State<'_, MusicState>,

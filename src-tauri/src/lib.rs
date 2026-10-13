@@ -1305,6 +1305,7 @@ pub fn run() {
             music::music_import_m3u,
             music::music_export_m3u,
             music::music_play_track,
+            music::music_spotify_preload,
             music::music_engine_pause,
             music::music_paused_for_video,
             music::music_resume_after_video,
