@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::{Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use discord_rich_presence::activity::{
     Activity, ActivityType, Assets, Button, Party, StatusDisplayType, Timestamps,
@@ -11,6 +11,9 @@ use tauri::{AppHandle, Manager};
 
 const APP_ID: &str = "1510339683215736892";
 const SMALL_IMAGE_KEY: &str = "harbor_logo";
+/// Discord rate-limits activity updates; a short gap merges a burst of changes without
+/// making a normal change feel delayed.
+const MIN_SEND_GAP: Duration = Duration::from_millis(400);
 
 #[derive(Default, Clone)]
 struct Desired {
@@ -38,6 +41,9 @@ pub struct DiscordState {
     desired: Mutex<Desired>,
     enabled: AtomicBool,
     generation: AtomicU64,
+    /// Wakes the presence loop as soon as a change arrives instead of waiting for its tick.
+    wake: Condvar,
+    wake_lock: Mutex<()>,
 }
 
 impl DiscordState {
@@ -46,7 +52,13 @@ impl DiscordState {
             desired: Mutex::new(Desired::default()),
             enabled: AtomicBool::new(false),
             generation: AtomicU64::new(0),
+            wake: Condvar::new(),
+            wake_lock: Mutex::new(()),
         }
+    }
+
+    fn signal(&self) {
+        self.wake.notify_all();
     }
 }
 
@@ -139,6 +151,7 @@ pub fn discord_set_presence(state: tauri::State<'_, DiscordState>, p: PresenceIn
         d.buttons = safe_buttons(p.buttons);
     }
     state.generation.fetch_add(1, Ordering::SeqCst);
+    state.signal();
 }
 
 #[tauri::command]
@@ -148,12 +161,14 @@ pub fn discord_clear(state: tauri::State<'_, DiscordState>) {
         *d = Desired::default();
     }
     state.generation.fetch_add(1, Ordering::SeqCst);
+    state.signal();
 }
 
 #[tauri::command]
 pub fn discord_set_enabled(state: tauri::State<'_, DiscordState>, on: bool) {
     state.enabled.store(on, Ordering::SeqCst);
     state.generation.fetch_add(1, Ordering::SeqCst);
+    state.signal();
 }
 
 pub fn shutdown(app: &AppHandle) {
@@ -162,6 +177,7 @@ pub fn shutdown(app: &AppHandle) {
     if let Ok(mut d) = state.desired.lock() {
         *d = Desired::default();
     };
+    state.signal();
 }
 
 pub fn run_loop(app: AppHandle) {
@@ -172,10 +188,16 @@ pub fn run_loop(app: AppHandle) {
     let mut client: Option<DiscordIpcClient> = None;
     let mut last_gen: u64 = u64::MAX;
     let mut backoff_ms: u64 = 1000;
+    let mut last_sent_at: Option<Instant> = None;
 
     loop {
-        std::thread::sleep(Duration::from_secs(1));
         let state = app.state::<DiscordState>();
+        // A presence change wakes the loop immediately; the timeout keeps connection retries
+        // and the paused-hide grace period moving when nothing else changes.
+        {
+            let guard = state.wake_lock.lock().unwrap();
+            let _ = state.wake.wait_timeout(guard, Duration::from_secs(1));
+        }
 
         if !state.enabled.load(Ordering::SeqCst) {
             if let Some(c) = client.as_mut() {
@@ -201,6 +223,13 @@ pub fn run_loop(app: AppHandle) {
         if gen == last_gen {
             continue;
         }
+        // Coalesce a burst of changes (fast skipping) without delaying a normal one; the
+        // desired state is read after the gap, so the newest change is what gets sent.
+        let since = last_sent_at.map_or(MIN_SEND_GAP, |at| at.elapsed());
+        if since < MIN_SEND_GAP {
+            std::thread::sleep(MIN_SEND_GAP - since);
+        }
+        let gen = state.generation.load(Ordering::SeqCst);
         let desired = state.desired.lock().unwrap().clone();
         let Some(c) = client.as_mut() else { continue };
 
@@ -277,6 +306,7 @@ pub fn run_loop(app: AppHandle) {
 
         if result.is_ok() {
             last_gen = gen;
+            last_sent_at = Some(Instant::now());
             backoff_ms = 1000;
         } else {
             let _ = c.reconnect();

@@ -154,8 +154,10 @@ function computeBase(): Base {
     const nowSec = Math.floor(Date.now() / 1000);
     const remaining = music.durationSec - music.positionSec;
     const live = !music.paused && music.durationSec > 0 && remaining > 0;
-    const credit = music.album ? `${music.artist} · ${music.album}` : music.artist;
-    const state = music.paused ? `Paused · ${music.artist}` : credit;
+    // Discord renders details, state and the large-image text as three lines, so each line
+    // carries one credit: the song, the artist, then the album. Repeating the album and
+    // artist in two of them reads as a duplicate.
+    const state = music.paused ? `Paused · ${music.artist}` : music.artist;
     const buttons = music.trackUrl
       ? [{ label: "Listen in Harbor", url: music.trackUrl }, ...STATIC_BUTTONS]
       : STATIC_BUTTONS;
@@ -166,7 +168,7 @@ function computeBase(): Base {
         state,
         stateUrl: music.artistUrl ?? music.trackUrl,
         posterUrl: (config.showPoster && music.artwork) || HARBOR_LOGO,
-        largeText: music.album ? `${music.album} by ${music.artist}` : music.artist,
+        largeText: music.album,
         largeUrl: music.albumUrl ?? music.trackUrl,
         smallUrl: STATIC_BUTTONS[0].url,
         startTs: live && config.showTimestamp ? nowSec - Math.floor(music.positionSec) : undefined,
@@ -294,6 +296,15 @@ function schedule(): void {
   }, 800);
 }
 
+/** A discrete change (a new song) must not sit behind the debounce. */
+function flushNow(): void {
+  if (flushTimer != null) {
+    window.clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  flush();
+}
+
 // An async AniList cover lookup landing after the first send must re-flush so
 // the poster shows without waiting for the next page turn.
 onMangaCoverResolved(schedule);
@@ -383,7 +394,9 @@ export function setMusicPresence(m: MusicPresence | null): void {
   if (!isPaused) musicPausedAt = null;
   else if (!wasPaused || changedTrack) musicPausedAt = Date.now();
   armMusicHideTimer();
-  schedule();
+  // A track change is a discrete moment; the debounce would leave Discord a step behind.
+  if (changedTrack) flushNow();
+  else schedule();
 }
 
 export function setReadingPresence(r: MangaReadingState): void {
