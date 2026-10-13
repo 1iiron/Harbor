@@ -1365,6 +1365,16 @@ function MusicViewContent({ active }: { active: boolean }) {
                     ])}><MusicQuickListenIcon /></button>
                   </HoverTooltip>}
                   {tab === "forYou" && <MusicSurpriseButton genres={tastes} homeRows={data.homeRows} spotifyConnected={connections.some(connection => connection.id === "spotify" && connection.status === "connected")} onChooseTastes={() => openDiscovery("tastes")} />}
+                  <HoverTooltip label={t("music.audio.title")} align="end">
+                    <button
+                      type="button"
+                      className="music-quick-entry"
+                      aria-label={t("music.audio.title")}
+                      onClick={() => openConnections("__audio")}
+                    >
+                      <MusicGlyph name="audio-settings" size={20} aria-hidden="true" />
+                    </button>
+                  </HoverTooltip>
                   {tab === "forYou" && (
                     <CatalogCustomizeBar
                       editMode={pageRows.editMode}
