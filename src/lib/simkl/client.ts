@@ -59,6 +59,23 @@ async function doFetch(path: string, opts: SimklRequestOptions): Promise<Respons
 
 const RETRY_STATUSES = new Set([429, 500, 502, 503]);
 
+/**
+ * Whether Simkl itself refuses this token, asked with a read that cannot change
+ * anything. Only a rejection here signs the listener out.
+ */
+async function tokenIsRejected(token: string | undefined, assertOwner: () => void): Promise<boolean> {
+  if (!token) return true;
+  try {
+    const check = await doFetch("/users/settings", { token, method: "POST" });
+    assertOwner();
+    return check.status === 401 || check.status === 403;
+  } catch {
+    // An account change rethrows through assertOwner; anything else is inconclusive.
+    assertOwner();
+    return false;
+  }
+}
+
 async function sendRequest<T>(
   path: string,
   opts: SimklRequestOptions,
@@ -96,7 +113,10 @@ async function sendRequest<T>(
   }
 
   if (res.status === 401 && usesSession) {
-    setSession(null);
+    // Simkl answers 401 for more than a dead token, and signing the listener out costs
+    // a manual re-authorization, so ask a cheap authenticated read with the very same
+    // token before ending the session. Anything inconclusive keeps the connection.
+    if (await tokenIsRejected(opts.token, assertOwner)) setSession(null);
     throw new SimklApiError(401, "unauthorized");
   }
 
