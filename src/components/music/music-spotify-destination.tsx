@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle, Plus } from "@/components/icons/music-icons";
 import { MusicActionGlyph, useMusicActionReceipt } from "./music-action-feedback";
+import { MusicPlaylistCover } from "./music-playlist-cover";
 import { MusicPlaylistDuplicateConfirm } from "./music-playlist-duplicate-confirm";
 import { useT } from "@/lib/i18n";
 import { connectSource } from "@/lib/music/catalog";
@@ -204,9 +205,18 @@ export function MusicSpotifyDestination({
               aria-busy={busy && target === playlist.id}
               data-music-action-state={saved === playlist.id ? "done" : busy && target === playlist.id ? "busy" : "idle"}
               onClick={() => void add(playlist.id)}
-              className="music-action-button flex min-h-11 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-start text-sm text-ink hover:bg-raised disabled:opacity-40"
+              className="music-action-button music-playlist-destination-cell"
             >
-              <span className="truncate">{playlist.name}</span>
+              <MusicPlaylistCover artwork={playlist.artwork} seed={playlist.id} glyphSize={20} className="music-playlist-destination-cover" />
+              <span className="music-playlist-destination-copy">
+                <span className="truncate">{playlist.name}</span>
+                <small className="truncate">
+                  {playlist.subtitle ||
+                    (playlist.trackCount != null
+                      ? t("music.card.trackCount", { count: playlist.trackCount })
+                      : "")}
+                </small>
+              </span>
               <MusicActionGlyph state={saved === playlist.id ? "done" : busy && target === playlist.id ? "busy" : "idle"} idle={null} size={17} identity={uri ?? undefined} />
             </button>
           </li>

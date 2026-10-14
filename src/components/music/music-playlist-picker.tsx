@@ -11,6 +11,7 @@ import {
 } from "react";
 import { Loader2, Plus, X } from "@/components/icons/music-icons";
 import { MusicActionGlyph } from "./music-action-feedback";
+import { MusicPlaylistCover } from "./music-playlist-cover";
 import { MusicPlaylistDuplicateConfirm } from "./music-playlist-duplicate-confirm";
 import { ModalShell, useModalExit } from "@/components/modal-shell";
 import { useT } from "@/lib/i18n";
@@ -146,7 +147,7 @@ function PickerModal({ track, onDismiss }: { track: MusicTrack; onDismiss: () =>
   };
 
   return (
-    <ModalShell closing={closing} onDismiss={close} width={420} labelledBy={titleId}>
+    <ModalShell closing={closing} onDismiss={close} width={820} labelledBy={titleId}>
       <div ref={root} className="music-playlist-picker" onKeyDown={event => {
         if (event.key !== "Tab") return;
         const targets = [...root.current!.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')].filter(node => node.getClientRects().length);
@@ -223,15 +224,26 @@ function PickerModal({ track, onDismiss }: { track: MusicTrack; onDismiss: () =>
                       aria-busy={busy && target === playlist.id}
                       data-music-action-state={saved === playlist.id ? "done" : busy && target === playlist.id ? "busy" : "idle"}
                       onClick={() => void save(playlist.id)}
-                      className="music-action-button flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-[14px] text-ink transition-colors hover:bg-elevated disabled:opacity-60"
+                      className="music-action-button music-playlist-destination-cell"
                     >
-                      <span className="truncate">{playlist.name}</span>
+                      <MusicPlaylistCover
+                        artwork={playlist.tracks.map((entry) => entry.artwork)}
+                        seed={playlist.id}
+                        glyphSize={20}
+                        className="music-playlist-destination-cover"
+                      />
+                      <span className="music-playlist-destination-copy">
+                        <span className="truncate">{playlist.name}</span>
+                        <small className="truncate">
+                          {t("music.card.trackCount", { count: playlist.tracks.length })}
+                        </small>
+                      </span>
                       <MusicActionGlyph state={saved === playlist.id ? "done" : busy && target === playlist.id ? "busy" : "idle"} idle={null} size={16} />
                     </button>
                   </li>
                 ))}
                 {filtered.length === 0 && (
-                  <li className="px-3 py-2 text-[13px] text-ink-muted">
+                  <li className="music-playlist-destination-empty">
                     {t(query.trim() ? "music.playlist.noMatches" : "music.playlist.none")}
                   </li>
                 )}
