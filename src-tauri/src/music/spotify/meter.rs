@@ -10,8 +10,10 @@ use librespot_playback::decoder::AudioPacket;
 use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
 use realfft::num_complex::Complex;
 use realfft::RealFftPlanner;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// The same octave bands the mpv meter measures.
 const BANDS: [f64; 8] = [60.0, 120.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0];
@@ -21,12 +23,24 @@ const WINDOW_FRAMES: usize = SAMPLE_RATE as usize / 20;
 const FFT_SIZE: usize = 2048;
 const MIN_DB: f64 = -120.0;
 const MAX_DB: f64 = 24.0;
+/// librespot hands the output sink decoded audio well before it is audible: its rodio
+/// backend keeps up to 26 chunks queued and the output device adds its own latency,
+/// while the mpv meter re-times its spectrum to the playback clock. Measured against a
+/// system-audio capture in Harbor, the newest window describes sound that reaches the
+/// speakers ~120-150 ms later. The dock visualizer and Miku need a lead of roughly one
+/// rendering pipeline (50 ms window read back on a ~50 ms poll, plus the bar transition)
+/// for their own reaction to land on the beat, so a window waits only for the excess.
+const PRESENTATION_DELAY: Duration = Duration::from_millis(40);
+/// Enough history for the delay plus a slow poll; older windows are superseded.
+const DELAYED_LIMIT: usize = 24;
 
+#[derive(Clone)]
 pub struct MeterChannel {
     pub rms_db: f64,
     pub peak_db: f64,
 }
 
+#[derive(Clone)]
 pub struct MeterReading {
     pub seen: bool,
     pub channels: Vec<MeterChannel>,
@@ -127,25 +141,64 @@ impl Analysis {
         self.seen = true;
         self.window.clear();
     }
+
+    /// The window just processed, as the meter publishes it.
+    fn snapshot(&self) -> MeterReading {
+        MeterReading {
+            seen: self.seen,
+            channels: (0..CHANNELS)
+                .map(|channel| MeterChannel {
+                    rms_db: self.rms[channel],
+                    peak_db: self.peak[channel],
+                })
+                .collect(),
+            spectrum: self.spectrum.to_vec(),
+        }
+    }
+}
+
+impl MeterReading {
+    fn empty() -> Self {
+        Self {
+            seen: false,
+            channels: Vec::new(),
+            spectrum: Vec::new(),
+        }
+    }
 }
 
 pub struct SpotifyMeter {
     enabled: AtomicBool,
     running: AtomicBool,
     analysis: Mutex<Analysis>,
+    /// Measured windows waiting for the audio they describe to be audible.
+    delayed: Mutex<VecDeque<(Instant, MeterReading)>>,
+    /// The reading last handed out, so a poll between windows keeps its level.
+    current: Mutex<Option<MeterReading>>,
+    delay: Duration,
 }
 
 impl SpotifyMeter {
     pub fn new() -> Self {
+        Self::with_delay(PRESENTATION_DELAY)
+    }
+
+    fn with_delay(delay: Duration) -> Self {
         Self {
             enabled: AtomicBool::new(false),
             running: AtomicBool::new(false),
             analysis: Mutex::new(Analysis::new()),
+            delayed: Mutex::new(VecDeque::new()),
+            current: Mutex::new(None),
+            delay,
         }
     }
 
     pub fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::SeqCst);
+        if !enabled {
+            self.reset();
+        }
     }
 
     pub fn set_running(&self, running: bool) {
@@ -161,30 +214,36 @@ impl SpotifyMeter {
         if let Ok(mut analysis) = self.analysis.lock() {
             analysis.reset();
         }
+        if let Ok(mut delayed) = self.delayed.lock() {
+            delayed.clear();
+        }
+        if let Ok(mut current) = self.current.lock() {
+            *current = None;
+        }
     }
 
     pub fn reading(&self) -> MeterReading {
-        let empty = MeterReading {
-            seen: false,
-            channels: Vec::new(),
-            spectrum: Vec::new(),
-        };
-        let Ok(analysis) = self.analysis.lock() else {
-            return empty;
-        };
-        if !analysis.seen {
-            return empty;
+        let now = Instant::now();
+        let mut ready: Option<MeterReading> = None;
+        if let Ok(mut delayed) = self.delayed.lock() {
+            while let Some((at, _)) = delayed.front() {
+                if now.duration_since(*at) < self.delay {
+                    break;
+                }
+                ready = delayed.pop_front().map(|(_, reading)| reading);
+            }
         }
-        MeterReading {
-            seen: true,
-            channels: (0..CHANNELS)
-                .map(|channel| MeterChannel {
-                    rms_db: analysis.rms[channel],
-                    peak_db: analysis.peak[channel],
-                })
-                .collect(),
-            spectrum: analysis.spectrum.to_vec(),
+        if let Some(reading) = ready {
+            if let Ok(mut current) = self.current.lock() {
+                *current = Some(reading.clone());
+            }
+            return reading;
         }
+        self.current
+            .lock()
+            .ok()
+            .and_then(|current| current.clone())
+            .unwrap_or_else(MeterReading::empty)
     }
 
     fn ingest(&self, samples: &[f64]) {
@@ -198,6 +257,15 @@ impl SpotifyMeter {
             analysis.window.push(*sample as f32);
             if analysis.window.len() >= WINDOW_FRAMES * CHANNELS {
                 analysis.process();
+                let reading = analysis.snapshot();
+                if let Ok(mut delayed) = self.delayed.lock() {
+                    // The delay is read on the audio thread; a lock taken out of order
+                    // here cannot deadlock with reading(), which never holds this one.
+                    delayed.push_back((Instant::now(), reading));
+                    while delayed.len() > DELAYED_LIMIT {
+                        delayed.pop_front();
+                    }
+                }
             }
         }
     }
@@ -252,9 +320,14 @@ mod tests {
         samples
     }
 
+    /// Tests exercise the analysis, not the presentation delay.
+    fn immediate() -> SpotifyMeter {
+        SpotifyMeter::with_delay(Duration::ZERO)
+    }
+
     #[test]
     fn a_tone_lands_in_its_band_with_a_measured_level() {
-        let meter = SpotifyMeter::new();
+        let meter = immediate();
         meter.set_enabled(true);
         meter.ingest(&tone(1000.0, 0.12));
         let reading = meter.reading();
@@ -279,14 +352,14 @@ mod tests {
 
     #[test]
     fn a_disabled_meter_never_measures() {
-        let meter = SpotifyMeter::new();
+        let meter = immediate();
         meter.ingest(&tone(1000.0, 0.12));
         assert!(!meter.reading().seen);
     }
 
     #[test]
     fn reset_forgets_the_previous_track() {
-        let meter = SpotifyMeter::new();
+        let meter = immediate();
         meter.set_enabled(true);
         meter.ingest(&tone(1000.0, 0.12));
         assert!(meter.reading().seen);
@@ -296,12 +369,38 @@ mod tests {
 
     #[test]
     fn silence_reads_as_the_floor() {
-        let meter = SpotifyMeter::new();
+        let meter = immediate();
         meter.set_enabled(true);
         meter.ingest(&vec![0.0; WINDOW_FRAMES * CHANNELS * 2]);
         let reading = meter.reading();
         assert!(reading.seen);
         assert_eq!(reading.channels[0].rms_db, MIN_DB);
         assert_eq!(reading.channels[0].peak_db, MIN_DB);
+    }
+
+    /// The published window must describe audio that has had time to reach the
+    /// speakers, so a fresh measurement is withheld until the delay elapses.
+    #[test]
+    fn a_measurement_waits_for_the_presentation_delay() {
+        let meter = SpotifyMeter::with_delay(Duration::from_millis(60));
+        meter.set_enabled(true);
+        meter.ingest(&tone(1000.0, 0.12));
+        assert!(!meter.reading().seen, "a fresh window is not audible yet");
+        std::thread::sleep(Duration::from_millis(80));
+        let reading = meter.reading();
+        assert!(reading.seen);
+        assert_eq!(reading.channels.len(), CHANNELS);
+        // A poll that lands between windows keeps the level it already had.
+        assert!(meter.reading().seen);
+    }
+
+    #[test]
+    fn disabling_the_meter_drops_the_delayed_windows() {
+        let meter = SpotifyMeter::with_delay(Duration::from_millis(60));
+        meter.set_enabled(true);
+        meter.ingest(&tone(1000.0, 0.12));
+        meter.set_enabled(false);
+        std::thread::sleep(Duration::from_millis(80));
+        assert!(!meter.reading().seen);
     }
 }

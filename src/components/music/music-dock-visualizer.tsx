@@ -45,7 +45,9 @@ export function MusicDockVisualizer({
         const bar = bars.current[i];
         if (!bar) continue;
         const previous = Number(bar.style.getPropertyValue("--v")) || 0;
-        bar.style.setProperty("--response", levels[i] > previous ? "45ms" : "180ms");
+        // The meter is clock-aligned now, so the bars answer the beat instead of a
+        // half-second decay: short rises, and a rest that ends before the next kick.
+        bar.style.setProperty("--response", levels[i] > previous ? "35ms" : "110ms");
         bar.style.setProperty("--v", levels[i].toFixed(3));
       }
       host.dataset.resting = levels.every((value) => value === 0) ? "true" : "false";

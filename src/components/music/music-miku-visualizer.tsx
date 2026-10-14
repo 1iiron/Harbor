@@ -175,7 +175,9 @@ export function MusicMikuVisualizer({ track, playing, concealed = false, stream 
       const dt = Math.min(250, elapsed);
       previous = now;
       if (now - sampledAt > MIKU_TIMING.meterGrace) target = 0;
-      energy += (target - energy) * Math.min(1, dt / (target > energy ? 75 : 210));
+      // Short attacks keep the nod on the beat now that the meter is clock-aligned;
+      // long rests turned every kick into a slow rise.
+      energy += (target - energy) * Math.min(1, dt / (target > energy ? 60 : 140));
       const driving = !!release && target > 0.04;
       const pulse = groove.advance(elapsed, driving, now);
       if (video) {

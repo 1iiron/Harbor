@@ -30,6 +30,23 @@ use tauri::AppHandle;
 use tokio::sync::Mutex;
 
 const NOT_INITIALIZED: &str = "Spotify storage is not initialized";
+/// Strongest level the analyzers report, matching the mpv meter's clamp.
+const MAX_METER_DB: f64 = 24.0;
+/// How far the volume compensation may lift a measurement, so a nearly silent slider
+/// cannot turn into signal.
+const MAX_COMPENSATION_DB: f64 = 60.0;
+
+/// Decibels to add back to a measurement that already went through the soft volume.
+fn meter_level_offset_db(attenuation: f64) -> f64 {
+    if !attenuation.is_finite() || attenuation <= 0.0 || attenuation >= 1.0 {
+        return 0.0;
+    }
+    (-20.0 * attenuation.log10()).min(MAX_COMPENSATION_DB)
+}
+
+fn lift_level(db: f64, offset: f64) -> f64 {
+    (db + offset).min(MAX_METER_DB)
+}
 
 struct SpotifyRuntime {
     session: Session,
@@ -300,6 +317,11 @@ impl SpotifyState {
         let runtime = slot.as_ref()?;
         let track = player::snapshot(&runtime.audio).track?;
         let reading = runtime.audio.meter.reading();
+        // librespot attenuates the decoded samples inside the player, before the sink the
+        // meter wraps, so a reading would track the volume slider instead of the music.
+        // The mpv chain measures ahead of mpv's own volume for the same reason, so undo
+        // the attenuation and let every source's visualizer ignore the listening level.
+        let offset = meter_level_offset_db(runtime.audio.mixer.get_soft_volume().attenuation_factor());
         Some(MusicMeterSnapshot {
             track_id: track.id,
             connector_id: track.connector_id,
@@ -308,11 +330,15 @@ impl SpotifyState {
                 .channels
                 .into_iter()
                 .map(|channel| MusicMeterChannel {
-                    rms_db: channel.rms_db,
-                    peak_db: channel.peak_db,
+                    rms_db: lift_level(channel.rms_db, offset),
+                    peak_db: lift_level(channel.peak_db, offset),
                 })
                 .collect(),
-            spectrum_db: reading.spectrum,
+            spectrum_db: reading
+                .spectrum
+                .into_iter()
+                .map(|db| lift_level(db, offset))
+                .collect(),
             output_sample_rate_hz: Some(librespot_playback::SAMPLE_RATE),
             output_channels: Some("stereo".to_string()),
             output_device: None,
@@ -442,6 +468,19 @@ fn text(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_volume_offset_undoes_attenuation_without_boosting_or_clipping() {
+        assert!((meter_level_offset_db(0.5) - 6.02).abs() < 0.01);
+        assert!((meter_level_offset_db(0.25) - 12.04).abs() < 0.01);
+        assert_eq!(meter_level_offset_db(1.0), 0.0, "a unity slider needs no lift");
+        assert_eq!(meter_level_offset_db(1.5), 0.0, "an amplified slider is not trimmed");
+        assert_eq!(meter_level_offset_db(0.0), 0.0, "a silent slider stays silent");
+        assert_eq!(meter_level_offset_db(f64::NAN), 0.0);
+        assert_eq!(meter_level_offset_db(1e-9), MAX_COMPENSATION_DB);
+        assert_eq!(lift_level(-80.0, 12.0), -68.0);
+        assert_eq!(lift_level(20.0, 12.0), MAX_METER_DB);
+    }
 
     #[test]
     fn a_disconnected_state_never_claims_premium() {
