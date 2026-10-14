@@ -24,6 +24,94 @@ type Handlers = {
   onOpen?: (item: MusicCatalogItem, index: number) => void;
 };
 
+type Copy = (key: string, vars?: Record<string, string | number>) => string;
+
+/**
+ * Harbor's generic item entries: the same list wherever one catalog item
+ * appears, so a card menu never drifts from a row menu.
+ */
+export function musicItemMenuItems({
+  t,
+  item,
+  pinned = false,
+  onPlay,
+  onOpen,
+  onTogglePin,
+  onGoToArtist,
+}: {
+  t: Copy;
+  item: MusicCatalogItem;
+  pinned?: boolean;
+  onPlay?: () => void;
+  onOpen?: () => void;
+  onTogglePin?: () => void;
+  onGoToArtist?: () => void;
+}): MusicTrackMenuItem[] {
+  const items: MusicTrackMenuItem[] = [];
+  if (onPlay)
+    items.push({ id: "play", label: t("music.play"), icon: <Play size={14} />, run: onPlay });
+  if (onOpen)
+    items.push({
+      id: "open",
+      label: t("music.card.openItem", { title: coverCardTitle(item) }),
+      icon: <ChevronRight size={14} className="dir-icon" />,
+      run: onOpen,
+    });
+  if (onTogglePin)
+    items.push({
+      id: "pin",
+      label: t(pinned ? "music.playlist.unpin" : "music.playlist.pin"),
+      icon: pinned ? <PinOff size={14} /> : <Pin size={14} />,
+      run: onTogglePin,
+    });
+  if (onGoToArtist)
+    items.push({
+      id: "artist",
+      label: t("music.card.goToArtist"),
+      icon: <UserRound size={14} />,
+      run: onGoToArtist,
+    });
+  if (item.artwork) {
+    const art = Array.isArray(item.artwork) ? item.artwork[0] : item.artwork;
+    const name = coverCardTitle(item);
+    const by = "artist" in item ? (item.artist ?? "") : "";
+    items.push({
+      id: "artwork",
+      label: t("music.artwork.save"),
+      icon: <ImageDown size={14} />,
+      run: async () => {
+        await saveArtwork(art, name, by);
+      },
+    });
+  }
+  return items;
+}
+
+/** A generated mix, saved songs or any context tile: play it or open its page. */
+export function musicPlayOpenMenuItems({
+  t,
+  name,
+  onPlay,
+  onOpen,
+}: {
+  t: Copy;
+  name: string;
+  onPlay?: () => void;
+  onOpen?: () => void;
+}): MusicTrackMenuItem[] {
+  const items: MusicTrackMenuItem[] = [];
+  if (onPlay)
+    items.push({ id: "play", label: t("music.play"), icon: <Play size={14} />, run: onPlay });
+  if (onOpen)
+    items.push({
+      id: "open",
+      label: t("music.card.openItem", { title: name }),
+      icon: <ChevronRight size={14} className="dir-icon" />,
+      run: onOpen,
+    });
+  return items;
+}
+
 export function useMusicItemMenu(handlers: Handlers) {
   const t = useT();
   const { goToArtist } = useMusicNavigate();
@@ -55,64 +143,27 @@ export function useMusicItemMenu(handlers: Handlers) {
   if (track) {
     items = trackItems;
   } else if (item) {
-    const built: MusicTrackMenuItem[] = [];
-    if (handlers.onPlay) {
-      built.push({
-        id: "play",
-        label: t("music.play"),
-        icon: <Play size={14} />,
-        run: () => handlers.onPlay?.(item, index),
-      });
-    }
-    if (handlers.onOpen) {
-      built.push({
-        id: "open",
-        label: t("music.card.openItem", { title: coverCardTitle(item) }),
-        icon: <ChevronRight size={14} className="dir-icon" />,
-        run: () => handlers.onOpen?.(item, index),
-      });
-    }
-    if (localPlaylist) {
-      built.push({
-        id: "pin",
-        label: t(pinned ? "music.playlist.unpin" : "music.playlist.pin"),
-        icon: pinned ? <PinOff size={14} /> : <Pin size={14} />,
-        run: () => {
-          if (pinned) {
-            unpinMusicPlaylist(localPlaylist.id);
-            return;
+    items = musicItemMenuItems({
+      t,
+      item,
+      pinned,
+      onPlay: handlers.onPlay ? () => handlers.onPlay?.(item, index) : undefined,
+      onOpen: handlers.onOpen ? () => handlers.onOpen?.(item, index) : undefined,
+      onTogglePin: localPlaylist
+        ? () => {
+            if (pinned) {
+              unpinMusicPlaylist(localPlaylist.id);
+              return;
+            }
+            pinMusicPlaylist({
+              id: localPlaylist.id,
+              name: localPlaylist.name,
+              artwork: localPlaylist.artwork,
+            });
           }
-          pinMusicPlaylist({
-            id: localPlaylist.id,
-            name: localPlaylist.name,
-            artwork: localPlaylist.artwork,
-          });
-        },
-      });
-    }
-    if (item.kind === "album") {
-      const artist = item.artist;
-      built.push({
-        id: "artist",
-        label: t("music.card.goToArtist"),
-        icon: <UserRound size={14} />,
-        run: () => goToArtist(artist),
-      });
-    }
-    if (item.artwork) {
-      const art = Array.isArray(item.artwork) ? item.artwork[0] : item.artwork;
-      const name = coverCardTitle(item);
-      const by = "artist" in item ? (item.artist ?? "") : "";
-      built.push({
-        id: "artwork",
-        label: t("music.artwork.save"),
-        icon: <ImageDown size={14} />,
-        run: async () => {
-          await saveArtwork(art, name, by);
-        },
-      });
-    }
-    items = built;
+        : undefined,
+      onGoToArtist: item.kind === "album" ? () => goToArtist(item.artist) : undefined,
+    });
   }
 
   const open = (item: MusicCatalogItem, index: number, event: MouseEvent<HTMLElement>) => {
