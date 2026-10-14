@@ -44,7 +44,8 @@ export function AnchoredMenu({
         : anchorRef.current?.getBoundingClientRect();
       if (!r) return;
       const maxWidth = Math.max(0, window.innerWidth - EDGE * 2);
-      const naturalWidth = menuRef.current?.scrollWidth ?? 0;
+      // offsetWidth: layout width, so the opening scale animation cannot shrink it.
+      const naturalWidth = menuRef.current?.offsetWidth ?? 0;
       const w = Math.min(
         maxWidth,
         fitContent ? Math.max(naturalWidth, width ?? 0) : Math.max(r.width, width ?? 0),
@@ -72,6 +73,17 @@ export function AnchoredMenu({
       raf = null;
       place();
     });
+    // A content-width menu must follow its own content: labels that arrive
+    // later, or a scrollbar, would otherwise leave the longest item clipped.
+    const follow = () => {
+      if (!fitContent || raf != null) return;
+      raf = requestAnimationFrame(() => {
+        raf = null;
+        place();
+      });
+    };
+    const observer = fitContent && menuRef.current ? new ResizeObserver(follow) : null;
+    if (observer) observer.observe(menuRef.current!);
     const onScroll = () => {
       if (position) {
         onClose();
@@ -96,6 +108,7 @@ export function AnchoredMenu({
     window.addEventListener("keydown", onKey);
     return () => {
       if (raf != null) cancelAnimationFrame(raf);
+      observer?.disconnect();
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("keydown", onKey);
@@ -115,7 +128,8 @@ export function AnchoredMenu({
         style={{
           top: pos?.top ?? 0,
           left: pos?.left ?? 0,
-          width: pos?.width ?? (fitContent ? "max-content" : undefined),
+          width: fitContent ? "max-content" : pos?.width,
+          maxWidth: fitContent ? `calc(100vw - ${EDGE * 2}px)` : undefined,
           maxHeight: pos?.maxHeight,
           visibility: pos ? undefined : "hidden",
         }}
