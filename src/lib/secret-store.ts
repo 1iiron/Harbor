@@ -16,6 +16,28 @@ let store: Record<string, string> = {};
 let rustAvailable = false;
 let loaded = false;
 let persistTimer: number | null = null;
+let persistChain: Promise<void> = Promise.resolve();
+
+/**
+ * Session and credential keys change rarely and losing one costs the listener a
+ * re-login — a rotated refresh token, for instance, is invalid server-side as soon as
+ * it is handed out. They skip the debounce a sudden quit can cut short; everything
+ * else still batches.
+ */
+const IMMEDIATE_KEY_PREFIXES = [
+  "harbor.lastfm.v1",
+  "harbor.sports.api-sports.v1",
+  "harbor.simkl.session.v1",
+  "harbor.trakt.session.v1",
+  "harbor.mal.session.v1",
+  "harbor.anilist.session.v1",
+  "harbor.media-server.token.v1",
+  "harbor.plex-auth.device.v1",
+];
+
+function isImmediateKey(key: string): boolean {
+  return IMMEDIATE_KEY_PREFIXES.some((prefix) => key === prefix || key.startsWith(`${prefix}.`));
+}
 
 export function isSecretKey(key: string): boolean {
   return SECRET_PREFIXES.some((p) => key === p || key.startsWith(`${p}.`));
@@ -43,11 +65,17 @@ async function persist(): Promise<void> {
   }
 }
 
+/** Writes in order, so an old snapshot can never land after a newer one. */
+function persistSoon(): Promise<void> {
+  persistChain = persistChain.then(persist, persist);
+  return persistChain;
+}
+
 function schedulePersist(): void {
   if (persistTimer != null) return;
   persistTimer = window.setTimeout(() => {
     persistTimer = null;
-    void persist();
+    void persistSoon();
   }, 200);
 }
 
@@ -57,7 +85,7 @@ export async function flushSecrets(): Promise<void> {
     window.clearTimeout(persistTimer);
     persistTimer = null;
   }
-  await persist();
+  await persistSoon();
 }
 
 export async function loadSecrets(): Promise<void> {
@@ -91,7 +119,7 @@ export async function loadSecrets(): Promise<void> {
   }
 
   if (migrated) {
-    await persist();
+    await persistSoon();
     try {
       for (const key of Object.keys(store)) {
         if (isSecretKey(key)) localStorage.removeItem(key);
@@ -140,7 +168,8 @@ export function setSecret(key: string, value: string | null): void {
   if (rustAvailable) {
     if (value == null) delete store[key];
     else store[key] = value;
-    schedulePersist();
+    if (isImmediateKey(key)) void persistSoon();
+    else schedulePersist();
     try {
       localStorage.removeItem(key);
     } catch {
