@@ -100,6 +100,7 @@ const music: Record<string, string> = {
   "music.playlist.moveUp": "Move {title} up",
   "music.playlist.moveDown": "Move {title} down",
   "music.playlist.rename": "Rename",
+  "music.playlist.edit": "Edit playlist",
   "music.speed.title": "Speed and pitch",
   "dj.title": "DJ deck",
   "dj.minimize": "Minimise",

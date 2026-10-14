@@ -144,6 +144,30 @@ fn playlist_access(
     })
 }
 
+/// The id, token and current API body for a playlist this account may change.
+async fn writable_playlist(
+    spotify: &SpotifyState,
+    playlist_id: &str,
+) -> Result<(String, String, reqwest::Client, Value), String> {
+    let id = spotify_id(playlist_id, "playlist")?;
+    let token = spotify.web_token().await?;
+    let granted = scopes(spotify);
+    if !has_scope(&granted, PRIVATE_SCOPE) && !has_scope(&granted, PUBLIC_SCOPE) {
+        return Err(WRITE_PERMISSION.to_string());
+    }
+    let body = api::get(spotify.http(), &token, &format!("/playlists/{id}"), &[]).await?;
+    let account = profile_id(spotify, &token).await?;
+    let access = playlist_access(&body, &account, &granted)
+        .ok_or_else(|| "Spotify playlist is unavailable".to_string())?;
+    if !access.can_read {
+        return Err("Only playlists you own or collaborate on can be changed".to_string());
+    }
+    if !access.editable {
+        return Err(WRITE_PERMISSION.to_string());
+    }
+    Ok((id, token, spotify.http().clone(), body))
+}
+
 #[tauri::command]
 pub async fn music_spotify_library_page(
     state: tauri::State<'_, MusicState>,
@@ -336,11 +360,60 @@ pub async fn music_spotify_remove_from_playlist(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn music_spotify_rename_playlist(
+    state: tauri::State<'_, MusicState>,
+    playlist_id: String,
+    name: String,
+) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 100 {
+        return Err("Playlist name must be between 1 and 100 characters".to_string());
+    }
+    let (id, token, http, _) = writable_playlist(&state.spotify, &playlist_id).await?;
+    api::put(
+        &http,
+        &token,
+        &format!("/playlists/{id}"),
+        &json!({ "name": name }),
+    )
+    .await?;
+    Ok(())
+}
+
+const PLAYLIST_COVER_LIMIT: usize = 256 * 1024;
+
+#[tauri::command]
+pub async fn music_spotify_set_playlist_cover(
+    state: tauri::State<'_, MusicState>,
+    playlist_id: String,
+    image_base64: String,
+) -> Result<(), String> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(image_base64.as_bytes())
+        .map_err(|_| "Playlist cover must be a base64 image".to_string())?;
+    if bytes.len() > PLAYLIST_COVER_LIMIT {
+        return Err("Spotify playlist covers must be under 256 KB".to_string());
+    }
+    if !bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Err("Spotify playlist covers must be JPEG images".to_string());
+    }
+    let (id, token, http, _) = writable_playlist(&state.spotify, &playlist_id).await?;
+    api::put_image(
+        &http,
+        &token,
+        &format!("/playlists/{id}/images"),
+        &image_base64,
+    )
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     const ID: &str = "4iV5W9uYEdYUVa79Axb7Rh";
-
     #[test]
     fn library_cursor_must_advance_on_the_known_spotify_endpoint() {
         let body = json!({"next":"https://api.spotify.com/v1/me/tracks?offset=50&limit=50"});

@@ -13,8 +13,10 @@ import {
   LoaderCircle,
   Plus,
   RefreshCw,
+  SlidersHorizontal,
 } from "@/components/icons/music-icons";
 import { MusicTrackMenu, type MusicTrackMenuItem } from "./music-track-menu";
+import { MusicPlaylistEditDialog } from "./music-playlist-edit-dialog";
 import { useT } from "@/lib/i18n";
 import { useSectionBack } from "@/lib/section-back";
 import { connectSource } from "@/lib/music/catalog";
@@ -62,6 +64,7 @@ export function MusicSpotifyLibrary({
   const [contextPlaylist, setContextPlaylist] = useState<SpotifyLibraryPlaylist | null>(null);
   const [contextPosition, setContextPosition] = useState<{ x: number; y: number } | null>(null);
   const contextAnchor = useRef<HTMLElement | null>(null);
+  const [editPlaylist, setEditPlaylist] = useState<SpotifyLibraryPlaylist | null>(null);
   const generation = useRef(0);
   const pages = useRef(new Map<string, SpotifyLibraryPage>());
   const cacheIdentity = useRef("");
@@ -299,6 +302,16 @@ export function MusicSpotifyLibrary({
               if (button instanceof HTMLButtonElement) openPlaylist(contextPlaylist, button);
             },
           },
+          ...(contextPlaylist.editable
+            ? [
+                {
+                  id: "edit-playlist",
+                  label: t("music.playlist.edit"),
+                  icon: <SlidersHorizontal size={14} />,
+                  run: () => setEditPlaylist(contextPlaylist),
+                },
+              ]
+            : []),
           {
             id: "import-playlist",
             label: t("music.spotifyLibrary.import"),
@@ -601,6 +614,21 @@ export function MusicSpotifyLibrary({
             items={contextItems}
             position={contextPosition}
           />
+          {editPlaylist && (
+            <MusicPlaylistEditDialog
+              key={editPlaylist.id}
+              target={{
+                id: editPlaylist.id,
+                name: editPlaylist.name,
+                artwork: editPlaylist.artwork,
+                spotify: true,
+              }}
+              onClose={() => setEditPlaylist(null)}
+              onSaved={(name) =>
+                setEditPlaylist((current) => (current ? { ...current, name } : current))
+              }
+            />
+          )}
         </>
       )}
     </section>

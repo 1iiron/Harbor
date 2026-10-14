@@ -55,6 +55,19 @@ export async function removeTrackFromSpotifyPlaylist(
   window.dispatchEvent(new Event("harbor:spotify-library-changed"));
 }
 
+export async function renameSpotifyPlaylist(playlistId: string, name: string): Promise<void> {
+  await invoke("music_spotify_rename_playlist", { playlistId, name: name.trim() });
+  window.dispatchEvent(new Event("harbor:spotify-library-changed"));
+}
+
+export async function setSpotifyPlaylistCover(
+  playlistId: string,
+  imageBase64: string,
+): Promise<void> {
+  await invoke("music_spotify_set_playlist_cover", { playlistId, imageBase64 });
+  window.dispatchEvent(new Event("harbor:spotify-library-changed"));
+}
+
 export async function spotifyPlaylistContainsTrack(
   playlistId: string,
   track: MusicTrack,

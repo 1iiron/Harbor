@@ -1277,6 +1277,8 @@ pub fn run() {
             music::music_spotify_create_playlist,
             music::music_spotify_add_to_playlist,
             music::music_spotify_remove_from_playlist,
+            music::music_spotify_rename_playlist,
+            music::music_spotify_set_playlist_cover,
             music::music_lastfm_auth,
             music::music_lastfm_complete_auth,
             music::music_lastfm_status,

@@ -19,6 +19,7 @@ import {
   PlaylistRename,
   Plus,
   Search,
+  SlidersHorizontal,
   Trash2,
   X,
 } from "@/components/icons/music-icons";
@@ -29,6 +30,7 @@ import { MusicLocalCollection } from "./music-local-collection";
 import { MusicSpotifyLibrary } from "./music-spotify-library";
 import { MusicTrackMenu, type MusicTrackMenuItem } from "./music-track-menu";
 import { useMusicItemMenu } from "./music-item-menu";
+import { MusicPlaylistEditDialog } from "./music-playlist-edit-dialog";
 import { useMusicConnections } from "./music-connections";
 import { MusicPlaylistGridSkeleton } from "@/components/music/music-skeletons";
 import { MusicServiceLogo } from "./music-service-logo";
@@ -107,6 +109,7 @@ export function MusicLibrary({
   const [contextPosition, setContextPosition] = useState<{ x: number; y: number } | null>(null);
   const contextAnchor = useRef<HTMLElement | null>(null);
   const [renameTarget, setRenameTarget] = useState<MusicPlaylist | null>(null);
+  const [editTarget, setEditTarget] = useState<MusicPlaylist | null>(null);
   const closeContextMenu = useCallback(() => {
     setContextEntry(null);
     setContextPosition(null);
@@ -321,6 +324,12 @@ export function MusicLibrary({
       run: () => onCollection(contextEntry),
     });
     if (playlist) {
+      contextItems.push({
+        id: "edit-playlist",
+        label: t("music.playlist.edit"),
+        icon: <SlidersHorizontal size={14} />,
+        run: () => setEditTarget(playlist),
+      });
       contextItems.push({
         id: "rename-playlist",
         label: t("music.playlist.rename"),
@@ -570,6 +579,18 @@ export function MusicLibrary({
           playlist={renameTarget}
           onClose={closeRename}
           onRenamed={updateRenamedPlaylist}
+        />
+      )}
+      {editTarget && (
+        <MusicPlaylistEditDialog
+          key={editTarget.id}
+          target={{
+            id: editTarget.id,
+            name: editTarget.name,
+            artwork: editTarget.tracks.map((track) => track.artwork),
+          }}
+          onClose={() => setEditTarget(null)}
+          onSaved={(name) => updateRenamedPlaylist({ ...editTarget, name })}
         />
       )}
     </div>
