@@ -68,6 +68,24 @@ export async function setSpotifyPlaylistCover(
   window.dispatchEvent(new Event("harbor:spotify-library-changed"));
 }
 
+/**
+ * Finds one playlist in the account's list, walking the pages while it stays
+ * unfound. Bounded so a deep library cannot turn one lookup into endless calls.
+ */
+export async function loadSpotifyPlaylist(
+  playlistId: string,
+): Promise<SpotifyLibraryPlaylist | null> {
+  let offset = 0;
+  for (let page = 0; page < 10; page += 1) {
+    const result = await loadSpotifyLibraryPage("playlists", offset);
+    const found = result.playlists.find((playlist) => playlist.id === playlistId);
+    if (found) return found;
+    if (result.nextOffset === null) return null;
+    offset = result.nextOffset;
+  }
+  return null;
+}
+
 export async function spotifyPlaylistContainsTrack(
   playlistId: string,
   track: MusicTrack,

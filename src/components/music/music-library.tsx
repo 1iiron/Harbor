@@ -11,16 +11,12 @@ import {
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   ChevronRight,
-  FileDown,
   FileUp,
   FolderOpen,
   LoaderCircle,
   Play,
-  PlaylistRename,
   Plus,
   Search,
-  SlidersHorizontal,
-  Trash2,
   X,
 } from "@/components/icons/music-icons";
 import { HoverTooltip } from "@/components/hover-tooltip";
@@ -31,6 +27,13 @@ import { MusicSpotifyLibrary } from "./music-spotify-library";
 import { MusicTrackMenu, type MusicTrackMenuItem } from "./music-track-menu";
 import { useMusicItemMenu } from "./music-item-menu";
 import { MusicPlaylistEditDialog } from "./music-playlist-edit-dialog";
+import {
+  pinMusicPlaylist,
+  renamePinnedMusicPlaylist,
+  unpinMusicPlaylist,
+  useMusicPlaylistPinned,
+} from "@/lib/music/pinned-playlists";
+import { harborPlaylistMenuItems } from "./music-playlist-menu-items";
 import { useMusicConnections } from "./music-connections";
 import { MusicPlaylistGridSkeleton } from "@/components/music/music-skeletons";
 import { MusicServiceLogo } from "./music-service-logo";
@@ -77,6 +80,8 @@ export function MusicLibrary({
   active = true,
   initialView,
   initialSpotifyKind,
+  initialSpotifyPlaylistId,
+  onSpotifyFocused,
 }: {
   onOpen: (item: MusicCatalogItem, siblings: MusicCatalogItem[]) => void;
   onCollection: (entry: MusicCollectionEntry) => void;
@@ -84,6 +89,8 @@ export function MusicLibrary({
   active?: boolean;
   initialView?: string;
   initialSpotifyKind?: "playlists" | "liked";
+  initialSpotifyPlaylistId?: string;
+  onSpotifyFocused?: () => void;
 }) {
   const t = useT();
   const { openConnections } = useMusicConnections();
@@ -110,6 +117,8 @@ export function MusicLibrary({
   const contextAnchor = useRef<HTMLElement | null>(null);
   const [renameTarget, setRenameTarget] = useState<MusicPlaylist | null>(null);
   const [editTarget, setEditTarget] = useState<MusicPlaylist | null>(null);
+  const contextPlaylistId = contextEntry?.kind === "playlist" ? (contextEntry.playlist?.id ?? "") : "";
+  const contextPlaylistPinned = useMusicPlaylistPinned(contextPlaylistId);
   const closeContextMenu = useCallback(() => {
     setContextEntry(null);
     setContextPosition(null);
@@ -274,6 +283,7 @@ export function MusicLibrary({
     try {
       await deleteMusicPlaylist(playlist.id);
       setPlaylists((current) => current.filter((item) => item.id !== playlist.id));
+      unpinMusicPlaylist(playlist.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -324,37 +334,35 @@ export function MusicLibrary({
       run: () => onCollection(contextEntry),
     });
     if (playlist) {
-      contextItems.push({
-        id: "edit-playlist",
-        label: t("music.playlist.edit"),
-        icon: <SlidersHorizontal size={14} />,
-        run: () => setEditTarget(playlist),
-      });
-      contextItems.push({
-        id: "rename-playlist",
-        label: t("music.playlist.rename"),
-        icon: <PlaylistRename size={14} />,
-        run: () => setRenameTarget(playlist),
-      });
-      if (playlist.tracks.length) {
-        contextItems.push({
-          id: "export-playlist",
-          label: t("music.m3u.export"),
-          icon: <FileDown size={14} />,
-          run: () => exportPlaylist(playlist),
-        });
-      }
-      contextItems.push({
-        id: "delete-playlist",
-        label: t("music.playlist.delete"),
-        icon: <Trash2 size={14} />,
-        run: () => removePlaylist(playlist),
-      });
+      contextItems.push(
+        ...harborPlaylistMenuItems({
+          t,
+          name: playlist.name,
+          pinned: contextPlaylistPinned,
+          onEdit: () => setEditTarget(playlist),
+          onRename: () => setRenameTarget(playlist),
+          onTogglePin: () => {
+            if (contextPlaylistPinned) {
+              unpinMusicPlaylist(playlist.id);
+              return;
+            }
+            pinMusicPlaylist({
+              id: playlist.id,
+              name: playlist.name,
+              artwork: playlist.tracks.map((track) => track.artwork).filter(Boolean),
+            });
+          },
+          onExport: playlist.tracks.length ? () => exportPlaylist(playlist) : undefined,
+          onDelete: () => removePlaylist(playlist),
+        }),
+      );
     }
   }
 
   const updateRenamedPlaylist = useCallback((playlist: MusicPlaylist) => {
     setPlaylists((current) => current.map((item) => item.id === playlist.id ? playlist : item));
+    // The pinned shelf keeps a copy of the name; keep it in step.
+    renamePinnedMusicPlaylist(playlist.id, playlist.name);
   }, []);
 
   const grid = filter === "all" || filter === "playlists";
@@ -557,6 +565,8 @@ export function MusicLibrary({
         <MusicSpotifyLibrary
           active={active}
           initialKind={initialSpotifyKind}
+          initialPlaylistId={initialSpotifyPlaylistId}
+          onFocused={onSpotifyFocused}
           onImported={(playlist) =>
             setPlaylists((current) => [
               playlist,

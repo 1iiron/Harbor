@@ -11,6 +11,12 @@ import {
 import { useT } from "@/lib/i18n";
 import { enqueueMusic, toggleMusicLiked } from "@/lib/music/player";
 import { saveArtwork } from "@/lib/music/artwork-save";
+import {
+  pinMusicPlaylist,
+  unpinMusicPlaylist,
+  useMusicPlaylistPinned,
+} from "@/lib/music/pinned-playlists";
+import { Pin, PinOff } from "lucide-react";
 import type { MusicCatalogItem } from "@/lib/music/types";
 
 type Handlers = {
@@ -32,6 +38,11 @@ export function useMusicItemMenu(handlers: Handlers) {
   const item = target?.item ?? null;
   const index = target?.index ?? 0;
   const track = item?.kind === "track" ? item : null;
+  // Only Harbor's own playlists have a playlist page to pin; catalog playlists
+  // live in whichever service they came from.
+  const localPlaylist =
+    item?.kind === "playlist" && item.connectorId === "local" ? item : null;
+  const pinned = useMusicPlaylistPinned(localPlaylist?.id ?? "");
   const trackItems = useMusicTrackMenuItems(track, {
     onPlay: handlers.onPlay && track ? () => handlers.onPlay?.(track, index) : undefined,
     onToggleLike: track ? () => toggleMusicLiked(track) : undefined,
@@ -59,6 +70,24 @@ export function useMusicItemMenu(handlers: Handlers) {
         label: t("music.card.openItem", { title: coverCardTitle(item) }),
         icon: <ChevronRight size={14} className="dir-icon" />,
         run: () => handlers.onOpen?.(item, index),
+      });
+    }
+    if (localPlaylist) {
+      built.push({
+        id: "pin",
+        label: t(pinned ? "music.playlist.unpin" : "music.playlist.pin"),
+        icon: pinned ? <PinOff size={14} /> : <Pin size={14} />,
+        run: () => {
+          if (pinned) {
+            unpinMusicPlaylist(localPlaylist.id);
+            return;
+          }
+          pinMusicPlaylist({
+            id: localPlaylist.id,
+            name: localPlaylist.name,
+            artwork: localPlaylist.artwork,
+          });
+        },
       });
     }
     if (item.kind === "album") {
