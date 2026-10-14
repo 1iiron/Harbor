@@ -13,6 +13,7 @@ import { Loader2, Plus, X } from "@/components/icons/music-icons";
 import { MusicActionGlyph } from "./music-action-feedback";
 import { MusicPlaylistCover } from "./music-playlist-cover";
 import { MusicPlaylistDuplicateConfirm } from "./music-playlist-duplicate-confirm";
+import { useScrollPreserved } from "./use-scroll-preserved";
 import { ModalShell, useModalExit } from "@/components/modal-shell";
 import { useT } from "@/lib/i18n";
 import {
@@ -67,15 +68,16 @@ function PickerModal({ track, onDismiss }: { track: MusicTrack; onDismiss: () =>
   const [target, setTarget] = useState<string | null>(null);
   const [duplicateTarget, setDuplicateTarget] = useState<MusicPlaylist | null>(null);
   const mounted = useRef(false);
-  const finishTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const titleId = useId();
   const filtered = playlists.filter(playlist => matchesPlaylistSearch(playlist.name, query));
   const [destination, setDestination] = useState<"harbor" | "spotify">("harbor");
   const { openConnections } = useMusicConnections();
+  const listScroll = useScrollPreserved(list);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +97,6 @@ function PickerModal({ track, onDismiss }: { track: MusicTrack; onDismiss: () =>
     return () => {
       cancelled = true;
       mounted.current = false;
-      if (finishTimer.current) clearTimeout(finishTimer.current);
       if (origin?.isConnected) origin.focus({ preventScroll: true });
     };
   }, []);
@@ -119,7 +120,6 @@ function PickerModal({ track, onDismiss }: { track: MusicTrack; onDismiss: () =>
       if (!mounted.current) return;
       setDuplicateTarget(null);
       setSaved(playlistId);
-      finishTimer.current = setTimeout(close, 600);
     } catch (cause) {
       if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -138,7 +138,6 @@ function PickerModal({ track, onDismiss }: { track: MusicTrack; onDismiss: () =>
       await addTrackToMusicPlaylist(playlist.id, track);
       if (!mounted.current) return;
       setSaved(playlist.id);
-      finishTimer.current = setTimeout(close, 600);
     } catch (cause) {
       if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -215,7 +214,7 @@ function PickerModal({ track, onDismiss }: { track: MusicTrack; onDismiss: () =>
                 {t("common.loading")}
               </span>
             ) : (
-              <ul className="music-playlist-destination-list">
+              <ul ref={list} className="music-playlist-destination-list" onScroll={listScroll.onScroll}>
                 {filtered.map((playlist) => (
                   <li key={playlist.id}>
                     <button

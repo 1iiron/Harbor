@@ -3,6 +3,7 @@ import { LoaderCircle, Plus } from "@/components/icons/music-icons";
 import { MusicActionGlyph, useMusicActionReceipt } from "./music-action-feedback";
 import { MusicPlaylistCover } from "./music-playlist-cover";
 import { MusicPlaylistDuplicateConfirm } from "./music-playlist-duplicate-confirm";
+import { useScrollPreserved } from "./use-scroll-preserved";
 import { useT } from "@/lib/i18n";
 import { connectSource } from "@/lib/music/catalog";
 import {
@@ -45,6 +46,8 @@ export function MusicSpotifyDestination({
   const [duplicateTarget, setDuplicateTarget] = useState<string | null>(null);
   const created = useMusicActionReceipt(`${account?.account}:${uri}`);
   const [name, setName] = useState("");
+  const list = useRef<HTMLUListElement>(null);
+  const listScroll = useScrollPreserved(list);
   const generation = useRef(0);
   const finishTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -196,7 +199,7 @@ export function MusicSpotifyDestination({
         />
       )}
       <span role="status" className="sr-only">{saved ? t("music.similar.saved") : ""}</span>
-      <ul className="music-playlist-destination-list">
+      <ul ref={list} className="music-playlist-destination-list" onScroll={listScroll.onScroll}>
         {page?.playlists.filter(playlist => matchesPlaylistSearch(playlist.name, query)).map((playlist) => (
           <li key={playlist.id}>
             <button

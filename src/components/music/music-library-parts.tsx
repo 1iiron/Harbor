@@ -148,9 +148,10 @@ export function LibraryTrackList({
       <div ref={resultsRef} style={{ position: "relative" }}>
       <div inert={filtering} style={{ visibility: slowFilter && filtering ? "hidden" : undefined }}>
       {tracks.length ? (
-        tracks.length > 100
-          ? <MusicVirtualTrackList keys={keys} compact={view === "compact"} renderRow={renderRow} />
-          : <div>{tracks.map((_, index) => renderRow(index))}</div>
+        // One renderer for every length. Swapping between the plain list and the
+        // virtual one when a page crosses 100 rows remounts the list and resets
+        // the scroll position to the top.
+        <MusicVirtualTrackList keys={keys} compact={view === "compact"} renderRow={renderRow} />
       ) : (
         <p className="music-library-empty">{emptyCopy ?? t("music.library.saveEmpty")}</p>
       )}
