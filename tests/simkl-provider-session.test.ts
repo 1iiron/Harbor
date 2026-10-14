@@ -48,6 +48,13 @@ function fixture() {
     "./pending-sync": { armOnlineFlush: () => () => {}, flushPendingWatches: async () => {} },
     "./record-watched": {},
     "./scrobble": {},
+    // The provider re-reads the session when the persisted secret store lands.
+    "@/lib/secret-store": {
+      subscribeSecretsReady: (fn: () => void) => {
+        subscribers.add(fn);
+        return () => subscribers.delete(fn);
+      },
+    },
   };
   const code = ts.transpileModule(readFileSync("src/lib/simkl/provider.tsx", "utf8"), {
     compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS },
