@@ -283,6 +283,59 @@ pub async fn music_spotify_add_to_playlist(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn music_spotify_remove_from_playlist(
+    state: tauri::State<'_, MusicState>,
+    playlist_id: String,
+    track_uri: String,
+) -> Result<(), String> {
+    let id = spotify_id(&playlist_id, "playlist")?;
+    if !track_uri.starts_with("spotify:track:") {
+        return Err("Only Spotify tracks can be removed from a Spotify playlist".to_string());
+    }
+    spotify_id(&track_uri, "track")?;
+    let spotify = &state.spotify;
+    let token = spotify.web_token().await?;
+    let granted = scopes(spotify);
+    if !has_scope(&granted, PRIVATE_SCOPE) && !has_scope(&granted, PUBLIC_SCOPE) {
+        return Err(WRITE_PERMISSION.to_string());
+    }
+    let body = api::get(spotify.http(), &token, &format!("/playlists/{id}"), &[]).await?;
+    let account = profile_id(spotify, &token).await?;
+    let access = playlist_access(&body, &account, &granted)
+        .ok_or_else(|| "Spotify playlist is unavailable".to_string())?;
+    if !access.can_read {
+        return Err("Only playlists you own or collaborate on can be changed".to_string());
+    }
+    if !access.editable {
+        return Err(WRITE_PERMISSION.to_string());
+    }
+    let snapshot_id = body
+        .get("snapshot_id")
+        .and_then(Value::as_str)
+        .filter(|snapshot| !snapshot.is_empty())
+        .ok_or_else(|| "Spotify did not return the playlist snapshot".to_string())?;
+    let result = api::delete(
+        spotify.http(),
+        &token,
+        &format!("/playlists/{id}/items"),
+        &json!({
+            "items": [{ "uri": track_uri }],
+            "snapshot_id": snapshot_id,
+        }),
+    )
+    .await?;
+    if result
+        .get("snapshot_id")
+        .and_then(Value::as_str)
+        .filter(|snapshot| !snapshot.is_empty())
+        .is_none()
+    {
+        return Err("Spotify did not confirm the change. Check the playlist on Spotify before trying again.".to_string());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

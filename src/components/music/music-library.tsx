@@ -1,10 +1,34 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
-import { FileUp, FolderOpen, LoaderCircle, Plus, Search, X } from "@/components/icons/music-icons";
+import {
+  type FormEvent,
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import {
+  ChevronRight,
+  FileDown,
+  FileUp,
+  FolderOpen,
+  LoaderCircle,
+  Play,
+  PlaylistRename,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from "@/components/icons/music-icons";
 import { HoverTooltip } from "@/components/hover-tooltip";
 import { Dropdown } from "@/components/dropdown";
+import { ModalShell, useModalExit } from "@/components/modal-shell";
 import { MusicLocalCollection } from "./music-local-collection";
 import { MusicSpotifyLibrary } from "./music-spotify-library";
+import { MusicTrackMenu, type MusicTrackMenuItem } from "./music-track-menu";
+import { useMusicItemMenu } from "./music-item-menu";
 import { useMusicConnections } from "./music-connections";
 import { MusicPlaylistGridSkeleton } from "@/components/music/music-skeletons";
 import { MusicServiceLogo } from "./music-service-logo";
@@ -14,8 +38,11 @@ import { useT } from "@/lib/i18n";
 import {
   addTracksToMusicPlaylist,
   createMusicPlaylist,
+  deleteMusicPlaylist,
+  exportMusicM3u,
   importMusicM3u,
   listMusicPlaylists,
+  renameMusicPlaylist,
 } from "@/lib/music/library";
 import { localCollection } from "@/lib/music/catalog";
 import {
@@ -28,6 +55,12 @@ import {
   type MusicCollectionSort,
 } from "@/lib/music/library-collections";
 import { useMusicPlayback } from "@/lib/music/use-music-playback";
+import { useMusicCatalogPlayback } from "./use-music-catalog-playback";
+import { useMusicSourcePicker } from "./music-source-picker";
+import {
+  recordMusicLibraryPlayback,
+  recordMusicPlaylistPlayback,
+} from "@/lib/music/playback-origin";
 import type { MusicCatalogItem, MusicPlaylist } from "@/lib/music/types";
 import "./music-library.css";
 
@@ -53,6 +86,8 @@ export function MusicLibrary({
   const t = useT();
   const { openConnections } = useMusicConnections();
   const player = useMusicPlayback();
+  const catalogPlayback = useMusicCatalogPlayback();
+  const { openSourcePicker } = useMusicSourcePicker();
   const [playlists, setPlaylists] = useState<MusicPlaylist[]>([]);
   const [shelf, setShelf] = useState<MusicCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,6 +103,21 @@ export function MusicLibrary({
   const [sort, setSort] = useState<MusicCollectionSort>("recent");
   const [creating, setCreating] = useState(false);
   const [playlistName, setPlaylistName] = useState("");
+  const [contextEntry, setContextEntry] = useState<MusicCollectionEntry | null>(null);
+  const [contextPosition, setContextPosition] = useState<{ x: number; y: number } | null>(null);
+  const contextAnchor = useRef<HTMLElement | null>(null);
+  const [renameTarget, setRenameTarget] = useState<MusicPlaylist | null>(null);
+  const closeContextMenu = useCallback(() => {
+    setContextEntry(null);
+    setContextPosition(null);
+  }, []);
+  const closeRename = useCallback(() => setRenameTarget(null), []);
+  const itemMenu = useMusicItemMenu({
+    onPlay: (item) => {
+      void catalogPlayback.play(item, [item]);
+    },
+    onOpen: (item) => onOpen(item, [item]),
+  });
 
   useEffect(() => {
     if (initialView && (FILTERS as string[]).includes(initialView))
@@ -174,6 +224,129 @@ export function MusicLibrary({
       .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setWorking(false));
   };
+
+  const playCollection = (entry: MusicCollectionEntry) => {
+    const playlist = entry.kind === "playlist" ? entry.playlist : undefined;
+    const tracks =
+      playlist?.tracks ??
+      (entry.kind === "liked"
+        ? player.likedTracks
+        : entry.kind === "recent"
+          ? player.recents
+          : []);
+    const first = tracks[0];
+    if (!first) return;
+    if (playlist) recordMusicPlaylistPlayback(playlist, tracks);
+    else if (entry.kind === "liked" || entry.kind === "recent")
+      recordMusicLibraryPlayback(entry.kind, entry.name, tracks);
+    openSourcePicker(first, tracks);
+  };
+
+  const exportPlaylist = async (playlist: MusicPlaylist) => {
+    if (working) return;
+    setWorking(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const path = await save({
+        defaultPath: playlistFilename(playlist.name),
+        filters: [{ name: t("music.m3u.playlist"), extensions: ["m3u"] }],
+      });
+      if (typeof path !== "string") return;
+      await exportMusicM3u(playlist.id, path);
+      setNotice(
+        t("music.m3u.exportedNotice", { count: playlist.tracks.length, name: playlist.name }),
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const removePlaylist = async (playlist: MusicPlaylist) => {
+    if (working || !window.confirm(t("music.playlist.deleteConfirm"))) return;
+    setWorking(true);
+    setError(null);
+    try {
+      await deleteMusicPlaylist(playlist.id);
+      setPlaylists((current) => current.filter((item) => item.id !== playlist.id));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const openEntryMenu = (entry: MusicCollectionEntry, event: MouseEvent<HTMLButtonElement>) => {
+    if (entry.item) {
+      closeContextMenu();
+      itemMenu.close();
+      itemMenu.open(entry.item, 0, event);
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    itemMenu.close();
+    contextAnchor.current = event.currentTarget;
+    setContextPosition(
+      event.clientX !== 0 || event.clientY !== 0
+        ? { x: event.clientX, y: event.clientY }
+        : null,
+    );
+    setContextEntry(entry);
+  };
+
+  const contextItems: MusicTrackMenuItem[] = [];
+  if (contextEntry) {
+    const playlist = contextEntry.kind === "playlist" ? contextEntry.playlist : undefined;
+    const tracks = playlist?.tracks ??
+      (contextEntry.kind === "liked"
+        ? player.likedTracks
+        : contextEntry.kind === "recent"
+          ? player.recents
+          : []);
+    if (tracks.length) {
+      contextItems.push({
+        id: "play-collection",
+        label: t("music.play"),
+        icon: <Play size={14} />,
+        run: () => playCollection(contextEntry),
+      });
+    }
+    contextItems.push({
+      id: "open-collection",
+      label: t("music.card.openItem", { title: contextEntry.name }),
+      icon: <ChevronRight size={14} className="dir-icon" />,
+      run: () => onCollection(contextEntry),
+    });
+    if (playlist) {
+      contextItems.push({
+        id: "rename-playlist",
+        label: t("music.playlist.rename"),
+        icon: <PlaylistRename size={14} />,
+        run: () => setRenameTarget(playlist),
+      });
+      if (playlist.tracks.length) {
+        contextItems.push({
+          id: "export-playlist",
+          label: t("music.m3u.export"),
+          icon: <FileDown size={14} />,
+          run: () => exportPlaylist(playlist),
+        });
+      }
+      contextItems.push({
+        id: "delete-playlist",
+        label: t("music.playlist.delete"),
+        icon: <Trash2 size={14} />,
+        run: () => removePlaylist(playlist),
+      });
+    }
+  }
+
+  const updateRenamedPlaylist = useCallback((playlist: MusicPlaylist) => {
+    setPlaylists((current) => current.map((item) => item.id === playlist.id ? playlist : item));
+  }, []);
 
   const grid = filter === "all" || filter === "playlists";
   const filterLabel = (value: LibraryFilter) =>
@@ -326,12 +499,14 @@ export function MusicLibrary({
         </form>
       )}
 
-      {(error || notice) && (
+      {(error || catalogPlayback.error || notice) && (
         <p
-          className={`music-library-notice ${error ? "text-danger" : "text-ink-muted"}`}
-          role={error ? "alert" : "status"}
+          className={`music-library-notice ${
+            error || catalogPlayback.error ? "text-danger" : "text-ink-muted"
+          }`}
+          role={error || catalogPlayback.error ? "alert" : "status"}
         >
-          {error ?? notice}
+          {error ?? catalogPlayback.error ?? notice}
         </p>
       )}
       {readError && grid && (
@@ -356,6 +531,7 @@ export function MusicLibrary({
             emptyCopy={t(query ? "music.searchEmpty" : "music.playlist.first")}
             emptyState={!query && !readError ? <MusicLibraryEmptyState onConnect={() => openConnections("local")} onTastes={onTastes} /> : undefined}
             onOpen={(entry) => (entry.item ? onOpen(entry.item, shelf) : onCollection(entry))}
+            onContextMenu={openEntryMenu}
           />
         ))}
       {LOCAL.includes(filter) && (
@@ -380,6 +556,22 @@ export function MusicLibrary({
           }
         />
       )}
+      {itemMenu.menu}
+      <MusicTrackMenu
+        anchorRef={contextAnchor}
+        open={contextEntry !== null}
+        onClose={closeContextMenu}
+        items={contextItems}
+        position={contextPosition}
+      />
+      {renameTarget && (
+        <MusicPlaylistRenameDialog
+          key={renameTarget.id}
+          playlist={renameTarget}
+          onClose={closeRename}
+          onRenamed={updateRenamedPlaylist}
+        />
+      )}
     </div>
   );
 }
@@ -387,4 +579,85 @@ export function MusicLibrary({
 function nameFromM3uPath(path: string, fallback: string): string {
   const file = path.split(/[\\/]/).pop() ?? fallback;
   return file.replace(/\.m3u8?$/i, "").trim() || fallback;
+}
+
+function playlistFilename(name: string): string {
+  const safe = name
+    .replace(/[<>:"/\\|?*]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${safe || "playlist"}.m3u`;
+}
+
+function MusicPlaylistRenameDialog({
+  playlist,
+  onClose,
+  onRenamed,
+}: {
+  playlist: MusicPlaylist;
+  onClose: () => void;
+  onRenamed: (playlist: MusicPlaylist) => void;
+}) {
+  const t = useT();
+  const titleId = useId();
+  const [name, setName] = useState(playlist.name);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+  const { closing, close } = useModalExit(onClose);
+
+  const rename = async (event: FormEvent) => {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || working) return;
+    if (trimmed === playlist.name) {
+      close();
+      return;
+    }
+    setWorking(true);
+    setError("");
+    try {
+      onRenamed(await renameMusicPlaylist(playlist.id, trimmed));
+      close();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <ModalShell closing={closing} onDismiss={close} width={420} labelledBy={titleId}>
+      <form className="flex flex-col gap-4 p-5" onSubmit={(event) => void rename(event)}>
+        <h2 id={titleId} className="text-lg font-semibold text-ink">
+          {t("music.playlist.rename")}
+        </h2>
+        <input
+          autoFocus
+          value={name}
+          maxLength={100}
+          disabled={working}
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              close();
+            }
+          }}
+          aria-label={t("music.playlist.nameLabel")}
+          className="min-h-11 w-full rounded-md bg-elevated px-3 py-2 text-[15px] text-ink outline-none placeholder:text-ink-subtle focus-visible:outline-2 focus-visible:outline-accent"
+        />
+        {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="music-library-text" disabled={working} onClick={close}>
+            {t("common.cancel")}
+          </button>
+          <button type="submit" className="music-library-button" disabled={!name.trim() || working}>
+            {working ? <LoaderCircle size={17} className="animate-spin motion-reduce:animate-none" /> : null}
+            {t("common.save")}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
 }

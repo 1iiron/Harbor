@@ -45,6 +45,39 @@ export async function addTrackToSpotifyPlaylist(
   window.dispatchEvent(new Event("harbor:spotify-library-changed"));
 }
 
+export async function removeTrackFromSpotifyPlaylist(
+  playlistId: string,
+  track: MusicTrack,
+): Promise<void> {
+  const trackUri = spotifyTrackUri(track);
+  if (!trackUri) throw new Error("Only Spotify tracks can be removed from a Spotify playlist");
+  await invoke("music_spotify_remove_from_playlist", { playlistId, trackUri });
+  window.dispatchEvent(new Event("harbor:spotify-library-changed"));
+}
+
+export async function spotifyPlaylistContainsTrack(
+  playlistId: string,
+  track: MusicTrack,
+): Promise<boolean> {
+  const uri = spotifyTrackUri(track);
+  if (!uri) return false;
+
+  let offset = 0;
+  for (;;) {
+    const page = await loadSpotifyLibraryPage("playlist", offset, playlistId);
+    if (page.tracks.some((item) => spotifyTrackUri(item) === uri)) return true;
+    if (page.nextOffset === null) return false;
+    if (
+      !Number.isSafeInteger(page.nextOffset) ||
+      page.nextOffset <= offset ||
+      page.nextOffset > 100_000
+    ) {
+      throw new Error("Spotify returned invalid playlist pagination");
+    }
+    offset = page.nextOffset;
+  }
+}
+
 export async function importSpotifyCollection({
   kind,
   playlistId,

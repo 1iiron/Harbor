@@ -9,7 +9,7 @@ import {
   type MusicTrackMenuItem,
 } from "@/components/music/music-track-menu";
 import { useT } from "@/lib/i18n";
-import { enqueueMusic } from "@/lib/music/player";
+import { enqueueMusic, toggleMusicLiked } from "@/lib/music/player";
 import { saveArtwork } from "@/lib/music/artwork-save";
 import type { MusicCatalogItem } from "@/lib/music/types";
 
@@ -23,13 +23,18 @@ export function useMusicItemMenu(handlers: Handlers) {
   const { goToArtist } = useMusicNavigate();
   const { openPlaylistPicker } = useMusicPlaylistPicker();
   const anchor = useRef<HTMLElement | null>(null);
-  const [target, setTarget] = useState<{ item: MusicCatalogItem; index: number } | null>(null);
+  const [target, setTarget] = useState<{
+    item: MusicCatalogItem;
+    index: number;
+    position: { x: number; y: number } | null;
+  } | null>(null);
 
   const item = target?.item ?? null;
   const index = target?.index ?? 0;
   const track = item?.kind === "track" ? item : null;
   const trackItems = useMusicTrackMenuItems(track, {
     onPlay: handlers.onPlay && track ? () => handlers.onPlay?.(track, index) : undefined,
+    onToggleLike: track ? () => toggleMusicLiked(track) : undefined,
     onAddToQueue: track ? () => enqueueMusic(track) : undefined,
     onAddToPlaylist: track ? () => openPlaylistPicker(track) : undefined,
     onGoToArtist: track ? () => goToArtist(track.artist, track) : undefined,
@@ -84,12 +89,24 @@ export function useMusicItemMenu(handlers: Handlers) {
   const open = (item: MusicCatalogItem, index: number, event: MouseEvent<HTMLElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    anchor.current = event.currentTarget;
-    setTarget({ item, index });
+    const target = event.target instanceof Element
+      ? event.target.closest<HTMLElement>("button, [href], [tabindex]:not([tabindex='-1'])")
+      : null;
+    anchor.current = target && event.currentTarget.contains(target) ? target : event.currentTarget;
+    setTarget({
+      item,
+      index,
+      position:
+        event.type === "contextmenu" && (event.clientX !== 0 || event.clientY !== 0)
+          ? { x: event.clientX, y: event.clientY }
+          : null,
+    });
   };
+  const close = () => setTarget(null);
 
   return {
     open,
+    close,
     openFor: (item: MusicCatalogItem, index = 0) => (event: MouseEvent<HTMLElement>) =>
       open(item, index, event),
     isOpen: target !== null,
@@ -97,8 +114,9 @@ export function useMusicItemMenu(handlers: Handlers) {
       <MusicTrackMenu
         anchorRef={anchor}
         open={target !== null && items.length > 0}
-        onClose={() => setTarget(null)}
+        onClose={close}
         items={items}
+        position={target?.position}
       />
     ),
   };

@@ -348,6 +348,8 @@ const music: Record<string, string> = {
   "music.spotify.premium": "Premium",
   "music.playlist.alreadyAdded": "Already in playlist",
   "music.playlist.add": "Add to selected playlist",
+  "music.playlist.duplicateWarning": "{title} is already in {name}. Add another copy?",
+  "music.playlist.addDuplicate": "Add another copy",
   "music.playlist.remove": "Remove from playlist",
   "music.playlist.namePlaceholder": "Name a new playlist",
   "music.playlist.nameLabel": "New playlist name",
