@@ -1,5 +1,5 @@
 import { activeProfileIsPrimary } from "@/lib/active-profile-id";
-import { readSharedSecret, writeSharedSecret } from "@/lib/secret-store";
+import { readSharedSecret, subscribeSecretsReady, writeSharedSecret } from "@/lib/secret-store";
 import { clearPendingStops } from "./pending-sync";
 import { REFRESH_THRESHOLD_SEC } from "./config";
 import type { TraktSession } from "./types";
@@ -72,6 +72,11 @@ export function resetForProfile(): void {
   cached = null;
   for (const fn of subscribers) fn();
 }
+
+// A reader that mounted before the persisted store landed cached a null session, and
+// nothing cleared it: the account stayed signed out for the whole run while its calls
+// went out without a token. The store announcing itself must re-arm this module.
+subscribeSecretsReady(resetForProfile);
 
 export function getSession(): TraktSession | null {
   ensureLoaded();
