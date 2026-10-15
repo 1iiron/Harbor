@@ -5,19 +5,32 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
-// A session that is written but never flushed is a session the listener loses: a
-// rotated refresh token is invalid server-side the moment it is issued. These pin the
-// rule that session and credential keys skip the debounce window.
+// Sessions follow the account, not the profile: a connection made once serves every
+// profile on the device, and losing one to a debounce window costs a manual re-login
+// (a rotated refresh token is invalid server-side as soon as it is issued).
 const file = fileURLToPath(new URL("../src/lib/secret-store.ts", import.meta.url));
+const ROSTER = JSON.stringify({
+  activeId: "p_second",
+  profiles: [
+    { id: "p_main", isPrimary: true },
+    { id: "p_second" },
+  ],
+});
 
-function harness() {
+function harness({ store: initial = {}, roster = ROSTER } = {}) {
   const writes = [];
   const timers = [];
+  const state = { ...initial };
   const mocks = {
     "@tauri-apps/api/core": {
       invoke: async (command, args) => {
-        if (command === "secrets_read") return null;
-        if (command === "secrets_write") writes.push(JSON.parse(args.content));
+        if (command === "secrets_read") return JSON.stringify(state);
+        if (command === "secrets_write") {
+          const parsed = JSON.parse(args.content);
+          writes.push(parsed);
+          for (const key of Object.keys(state)) delete state[key];
+          Object.assign(state, parsed);
+        }
         return null;
       },
     },
@@ -37,7 +50,7 @@ function harness() {
   globalThis.localStorage = {
     length: 0,
     key: () => null,
-    getItem: () => null,
+    getItem: (key) => (key === "harbor.profiles.v1" ? roster : null),
     setItem: () => {},
     removeItem: () => {},
   };
@@ -48,6 +61,20 @@ function harness() {
   const module = { exports: {} };
   const require = (name) => {
     if (mocks[name]) return mocks[name];
+    // The store only imports the profile roster for session adoption.
+    if (name === "./active-profile-id") {
+      const rosterIds = (() => {
+        try {
+          const parsed = JSON.parse(roster);
+          return [parsed.activeId, ...parsed.profiles.filter((p) => p.isPrimary).map((p) => p.id), ...parsed.profiles.map((p) => p.id)];
+        } catch {
+          return [];
+        }
+      })();
+      return {
+        profilesForSessionAdoption: () => [...new Set(rosterIds.filter(Boolean))],
+      };
+    }
     throw new Error(`Unexpected import: ${name}`);
   };
   new Function("require", "module", "exports", compiled)(require, module, module.exports);
@@ -55,6 +82,7 @@ function harness() {
     api: module.exports,
     writes,
     timers,
+    state,
     restore: () => {
       globalThis.window = originalWindow;
       globalThis.localStorage = originalStorage;
@@ -66,21 +94,21 @@ test("session keys persist immediately instead of waiting for the debounce", asy
   const h = harness();
   try {
     await h.api.loadSecrets();
-    h.api.setSecret("harbor.trakt.session.v1.p1", JSON.stringify({ refreshToken: "r" }));
+    h.api.setSecret("harbor.trakt.session.v1", JSON.stringify({ refreshToken: "r" }));
     await h.api.flushSecrets();
     assert.equal(h.timers.length, 0, "a session write must not wait for a timer");
     assert.ok(h.writes.length >= 1, "the session write landed without a timer");
-    assert.deepEqual(h.writes[0], { "harbor.trakt.session.v1.p1": '{"refreshToken":"r"}' });
-    h.api.setSecret("harbor.simkl.session.v1.p1", JSON.stringify({ accessToken: "a" }));
+    assert.deepEqual(h.writes[0], { "harbor.trakt.session.v1": '{"refreshToken":"r"}' });
+    h.api.setSecret("harbor.simkl.session.v1", JSON.stringify({ accessToken: "a" }));
     await h.api.flushSecrets();
     assert.deepEqual(h.writes[h.writes.length - 1], {
-      "harbor.trakt.session.v1.p1": '{"refreshToken":"r"}',
-      "harbor.simkl.session.v1.p1": '{"accessToken":"a"}',
+      "harbor.trakt.session.v1": '{"refreshToken":"r"}',
+      "harbor.simkl.session.v1": '{"accessToken":"a"}',
     });
-    h.api.setSecret("harbor.trakt.session.v1.p1", null);
+    h.api.setSecret("harbor.trakt.session.v1", null);
     await h.api.flushSecrets();
     assert.deepEqual(h.writes[h.writes.length - 1], {
-      "harbor.simkl.session.v1.p1": '{"accessToken":"a"}',
+      "harbor.simkl.session.v1": '{"accessToken":"a"}',
     });
   } finally {
     h.restore();
@@ -99,6 +127,65 @@ test("keys outside the session set still batch behind the debounce", async () =>
     await h.api.flushSecrets();
     assert.ok(h.writes.length >= 1);
     assert.deepEqual(h.writes[h.writes.length - 1], { "harbor.theme.choice": "dark" });
+  } finally {
+    h.restore();
+  }
+});
+
+test("a session stored by another profile is adopted into the shared key", async () => {
+  const h = harness({
+    store: { "harbor.trakt.session.v1.p_main": '{"refreshToken":"from-main"}' },
+  });
+  try {
+    await h.api.loadSecrets();
+    const found = h.api.readSharedSecret("harbor.trakt.session.v1");
+    assert.equal(found, '{"refreshToken":"from-main"}');
+    await h.api.flushSecrets();
+    const secrets = h.api.getAllSecrets();
+    assert.equal(secrets["harbor.trakt.session.v1"], '{"refreshToken":"from-main"}');
+    assert.equal(secrets["harbor.trakt.session.v1.p_main"], undefined, "the old copy moves, never duplicates");
+    assert.equal(h.timers.length, 0, "adoption is not a debounced write");
+  } finally {
+    h.restore();
+  }
+});
+
+test("the active profile's own session is preferred over the main profile's", async () => {
+  const h = harness({
+    store: {
+      "harbor.trakt.session.v1.p_second": '{"refreshToken":"from-second"}',
+      "harbor.trakt.session.v1.p_main": '{"refreshToken":"from-main"}',
+    },
+  });
+  try {
+    await h.api.loadSecrets();
+    assert.equal(h.api.readSharedSecret("harbor.trakt.session.v1"), '{"refreshToken":"from-second"}');
+    await h.api.flushSecrets();
+    const secrets = h.api.getAllSecrets();
+    assert.equal(secrets["harbor.trakt.session.v1.p_main"], '{"refreshToken":"from-main"}', "the untouched copy stays");
+  } finally {
+    h.restore();
+  }
+});
+
+test("a disconnect clears the per-profile copies so nothing resurrects it", async () => {
+  const h = harness({
+    store: {
+      "harbor.simkl.session.v1": '{"accessToken":"shared"}',
+      "harbor.simkl.session.v1.p_main": '{"accessToken":"copy"}',
+      "harbor.simkl.session.v1.p_second": '{"accessToken":"copy"}',
+    },
+  });
+  try {
+    await h.api.loadSecrets();
+    h.api.writeSharedSecret("harbor.simkl.session.v1", null);
+    await h.api.flushSecrets();
+    const secrets = h.api.getAllSecrets();
+    assert.deepEqual(
+      Object.keys(secrets).filter((key) => key.startsWith("harbor.simkl.session")),
+      [],
+    );
+    assert.equal(h.api.readSharedSecret("harbor.simkl.session.v1"), null);
   } finally {
     h.restore();
   }

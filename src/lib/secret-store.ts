@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { profilesForSessionAdoption } from "./active-profile-id";
 
 const SECRET_PREFIXES = [
   "harbor.lastfm.v1",
@@ -162,6 +163,32 @@ export function getSecret(key: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Tracker sessions follow the account, not the profile: a connection made once serves
+ * every profile on this device, so it lives under one shared key. Older builds stored a
+ * session per profile — the first copy found (the active profile, then the main one) is
+ * adopted, and a disconnect clears the rest so nothing resurrects it.
+ */
+export function readSharedSecret(base: string): string | null {
+  const shared = getSecret(base);
+  if (shared) return shared;
+  for (const id of profilesForSessionAdoption()) {
+    const found = getSecret(`${base}.${id}`);
+    if (!found) continue;
+    setSecret(`${base}.${id}`, null);
+    setSecret(base, found);
+    return found;
+  }
+  return null;
+}
+
+/** Writes the shared session; a disconnect also removes every per-profile copy. */
+export function writeSharedSecret(base: string, value: string | null): void {
+  setSecret(base, value);
+  if (value !== null) return;
+  for (const id of profilesForSessionAdoption()) setSecret(`${base}.${id}`, null);
 }
 
 export function setSecret(key: string, value: string | null): void {

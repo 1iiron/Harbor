@@ -1,14 +1,10 @@
-import { activeProfileId, activeProfileIsPrimary } from "@/lib/active-profile-id";
-import { getSecret, setSecret } from "@/lib/secret-store";
+import { activeProfileIsPrimary } from "@/lib/active-profile-id";
+import { readSharedSecret, writeSharedSecret } from "@/lib/secret-store";
 import { clearPendingStops } from "./pending-sync";
 import { REFRESH_THRESHOLD_SEC } from "./config";
 import type { TraktSession } from "./types";
 
 const BASE_KEY = "harbor.trakt.session.v1";
-
-function keyFor(): string {
-  return `${BASE_KEY}.${activeProfileId()}`;
-}
 
 const subscribers = new Set<() => void>();
 let cached: TraktSession | null = null;
@@ -16,16 +12,7 @@ let loaded = false;
 
 function read(): TraktSession | null {
   try {
-    const key = keyFor();
-    let raw = getSecret(key);
-    if (!raw) {
-      const legacy = getSecret(BASE_KEY);
-      if (legacy && activeProfileIsPrimary()) {
-        setSecret(key, legacy);
-        setSecret(BASE_KEY, null);
-        raw = legacy;
-      }
-    }
+    const raw = readSharedSecret(BASE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as TraktSession;
       if (
@@ -68,8 +55,7 @@ function read(): TraktSession | null {
 
 function write(session: TraktSession | null): void {
   try {
-    if (session) setSecret(keyFor(), JSON.stringify(session));
-    else setSecret(keyFor(), null);
+    writeSharedSecret(BASE_KEY, session ? JSON.stringify(session) : null);
   } catch {
     return;
   }

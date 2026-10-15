@@ -1,12 +1,7 @@
-import { activeProfileId, activeProfileIsPrimary } from "@/lib/active-profile-id";
-import { getSecret, setSecret } from "@/lib/secret-store";
+import { readSharedSecret, writeSharedSecret } from "@/lib/secret-store";
 import type { AnilistSession } from "./types";
 
 const BASE_KEY = "harbor.anilist.session.v1";
-
-function keyFor(): string {
-  return `${BASE_KEY}.${activeProfileId()}`;
-}
 
 const subscribers = new Set<() => void>();
 let cached: AnilistSession | null = null;
@@ -14,16 +9,7 @@ let loaded = false;
 
 function read(): AnilistSession | null {
   try {
-    const key = keyFor();
-    let raw = getSecret(key);
-    if (!raw) {
-      const legacy = getSecret(BASE_KEY);
-      if (legacy && activeProfileIsPrimary()) {
-        setSecret(key, legacy);
-        setSecret(BASE_KEY, null);
-        raw = legacy;
-      }
-    }
+    const raw = readSharedSecret(BASE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AnilistSession;
     if (
@@ -43,8 +29,7 @@ function read(): AnilistSession | null {
 
 function write(session: AnilistSession | null): void {
   try {
-    if (session) setSecret(keyFor(), JSON.stringify(session));
-    else setSecret(keyFor(), null);
+    writeSharedSecret(BASE_KEY, session ? JSON.stringify(session) : null);
   } catch {
     return;
   }
