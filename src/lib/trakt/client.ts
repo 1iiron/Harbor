@@ -30,6 +30,15 @@ function baseHeaders(): HeadersInit {
   };
 }
 
+/**
+ * The Harbor token proxy is not Trakt: it only accepts `Content-Type` (anything else
+ * fails its CORS preflight, which silently killed every refresh while the device-token
+ * login, which sends just this header, kept working).
+ */
+function proxyHeaders(): HeadersInit {
+  return { "Content-Type": "application/json" };
+}
+
 async function refreshAccessToken(): Promise<TraktSession | null> {
   const current = getSession();
   if (!current) return null;
@@ -37,7 +46,7 @@ async function refreshAccessToken(): Promise<TraktSession | null> {
   try {
     res = await fetch(TRAKT_TOKEN_PROXY, {
       method: "POST",
-      headers: baseHeaders(),
+      headers: proxyHeaders(),
       body: JSON.stringify({
         refresh_token: current.refreshToken,
         grant_type: "refresh_token",

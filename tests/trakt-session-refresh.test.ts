@@ -144,6 +144,29 @@ test("a session replaced mid-refresh is never cleared by the old answer", async 
   }
 });
 
+test("the token proxy is called without Trakt API headers its preflight refuses", async () => {
+  // Sending trakt-api-version/trakt-api-key here made the browser block the refresh with
+  // a CORS preflight failure while the device-token login kept working, so a token could
+  // never be renewed.
+  const h = harness([
+    json({}, 401),
+    json({ access_token: "access-9", refresh_token: "refresh-9", created_at: 9, expires_in: 604800 }),
+    json({ ok: true }),
+  ]);
+  try {
+    assert.deepEqual(await h.load("client.ts").traktRequest("/sync/watchlist"), { ok: true });
+    const proxy = h.calls[1];
+    assert.equal(proxy.url, "https://harbor.test/api/trakt/token");
+    assert.deepEqual(Object.keys(proxy.init.headers).sort(), ["Content-Type"]);
+    const api = h.calls[2];
+    assert.equal(api.init.headers["trakt-api-key"], "test-client");
+    assert.equal(api.init.headers["trakt-api-version"], "2");
+    assert.equal(api.init.headers.Authorization, "Bearer access-9");
+  } finally {
+    h.restore();
+  }
+});
+
 test("a working refresh replaces the stored tokens without signing out", async () => {
   const h = harness([
     json({}, 401),
