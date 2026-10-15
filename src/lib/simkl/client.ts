@@ -64,7 +64,10 @@ const RETRY_STATUSES = new Set([429, 500, 502, 503]);
  * anything. Only a rejection here signs the listener out.
  */
 async function tokenIsRejected(token: string | undefined, assertOwner: () => void): Promise<boolean> {
-  if (!token) return true;
+  // A call that carried no token proves nothing: Simkl answers 401 `user_token_failed`
+  // for anonymous requests too, and a session the app had not read yet must not be
+  // thrown away because one startup call arrived before it.
+  if (!token) return false;
   try {
     const check = await doFetch("/users/settings", { token, method: "POST" });
     assertOwner();
@@ -177,6 +180,12 @@ export function simklRequest<T>(path: string, opts: SimklRequestOptions = {}): P
   const usesSession = !opts.token && opts.authed !== false;
   const session = usesSession ? getSession() : null;
   const request = { ...opts, token: opts.token || session?.accessToken };
+  // A session call without a token has nothing to ask with: Simkl would answer 401
+  // `user_token_failed`, and a burst of those while the store is still loading looked
+  // like a dead token. Fail locally, unambiguously, and leave the session alone.
+  if (usesSession && !request.token) {
+    return Promise.reject(new SimklApiError(0, "no connected Simkl session"));
+  }
   const assertOwner = () => {
     if (usesSession && (activeProfileId() !== profile || getSession() !== session)) {
       throw new DOMException("SIMKL request cancelled after account change", "AbortError");

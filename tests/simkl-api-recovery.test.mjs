@@ -324,6 +324,32 @@ test("public and explicit-token requests do not borrow or clear the connected se
   assert.equal(h.state.clears, 0);
 });
 
+test("a session call without a token fails locally instead of asking Simkl", async () => {
+  const h = harness([]);
+  h.state.session = null;
+  await assert.rejects(h.load("client.ts").simklRequest("/sync/activities"), { status: 0 });
+  assert.equal(h.calls.length, 0, "no anonymous call is sent to Simkl");
+  assert.equal(h.state.clears, 0);
+});
+
+test("calls made before the session is readable cannot disconnect the account", async () => {
+  // The store loads after the first render, so startup traffic used to run anonymously,
+  // collect 401 user_token_failed answers and delete the session that was about to load.
+  const h = harness([json({ recovered: true })]);
+  const api = h.load("client.ts");
+  h.state.session = null;
+  const early = await Promise.allSettled([
+    api.simklRequest("/sync/activities"),
+    api.simklRequest("/sync/all-items/all/watching"),
+  ]);
+  assert.ok(early.every((result) => result.status === "rejected" && result.reason.status === 0));
+  h.state.session = { accessToken: "restored-token", username: "listener" };
+  assert.equal(h.calls.length, 0, "nothing was sent while the session was unreadable");
+  assert.equal(h.state.clears, 0);
+  assert.deepEqual(await api.simklRequest("/sync/activities"), { recovered: true });
+  assert.equal(h.calls[0].init.headers.Authorization, "Bearer restored-token");
+});
+
 test("ordinary 401, 412 and 204 behavior is preserved", async () => {
   // The request is refused and so is the verification read, so the token really is dead.
   const unauthorized = harness([json({}, 401), json({}, 401)]);
