@@ -62,6 +62,13 @@ if (-not (Test-Path -LiteralPath 'src-tauri/resources/capstan/capstan.jar')) {
   $env:HARBOR_CAPSTAN_SRC = $noLayer
 }
 
+# No staged game engine means this build ships tab-only games, which the payload script would
+# otherwise refuse. Mirror the capstan fallback.
+if (-not (Test-Path -LiteralPath 'src-tauri/resources/pokemon-engine/Harbor.PokemonEngine.exe') -and -not $env:HARBOR_POKEMON_OPTIONAL) {
+  Write-Host 'No game engine staged; shipping tab-only games (HARBOR_POKEMON_OPTIONAL=1).' -ForegroundColor Yellow
+  $env:HARBOR_POKEMON_OPTIONAL = '1'
+}
+
 if (-not $SkipApp) {
   if ((Test-Path -LiteralPath $appExe) -and -not $RebuildApp) {
     Step "App build skipped (found $appExe; pass -RebuildApp to force)"
