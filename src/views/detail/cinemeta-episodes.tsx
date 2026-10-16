@@ -1,3 +1,4 @@
+import { getViewedSeason, setViewedSeason } from "@/lib/season-view-pref";
 import { Check, ChevronDown } from "lucide-react";
 import { Play } from "@/components/icons/play-filled";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -89,7 +90,7 @@ export function CinemetaEpisodes({
   );
 
   const [active, setActive] = useState<number>(() =>
-    resumeDefaultSeason(meta.id, seasonStats, combinedWatched, resumeSeason),
+    getViewedSeason(meta.id, seasonStats) ?? resumeDefaultSeason(meta.id, seasonStats, combinedWatched, resumeSeason),
   );
   const userPickedRef = useRef(false);
 
@@ -99,7 +100,7 @@ export function CinemetaEpisodes({
 
   useEffect(() => {
     if (userPickedRef.current) return;
-    setActive(resumeDefaultSeason(meta.id, seasonStats, combinedWatched, resumeSeason));
+    setActive(getViewedSeason(meta.id, seasonStats) ?? resumeDefaultSeason(meta.id, seasonStats, combinedWatched, resumeSeason));
   }, [meta.id, seasonStats, combinedWatched, resumeSeason]);
 
   const activeEps = grouped.find((g) => g.seasonNumber === active)?.episodes ?? [];
@@ -178,6 +179,7 @@ export function CinemetaEpisodes({
               active={active}
               onChange={(n) => {
                 userPickedRef.current = true;
+                setViewedSeason(meta.id, n);
                 setActive(n);
               }}
             />
