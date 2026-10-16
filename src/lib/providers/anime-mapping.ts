@@ -119,11 +119,17 @@ export async function externalToKitsu(source: string, id: number): Promise<numbe
 }
 
 let xmlInflight: Promise<AnidbMapCache> | null = null;
+let xmlMemory: AnidbMapCache | null = null;
+let xmlRetryAfter = 0;
 
 export async function loadAnidbMaps(): Promise<AnidbMapCache> {
-  const cached = readJson<AnidbMapCache | null>(ANIDB_TVDB_KEY, null);
-  if (cached && cached.byTvdb && Date.now() - cached.t < XML_TTL_MS) return cached;
   if (xmlInflight) return xmlInflight;
+  const cached = xmlMemory ?? readJson<AnidbMapCache | null>(ANIDB_TVDB_KEY, null);
+  xmlMemory = cached;
+  if (cached && cached.byTvdb && Date.now() - cached.t < XML_TTL_MS) return cached;
+  if (Date.now() < xmlRetryAfter) return cached ?? { tvdb: {}, imdb: {}, t: 0 };
+  // Avoid repeated downloads/parsing when storage is full or the provider fails.
+  xmlRetryAfter = Date.now() + 60_000;
   xmlInflight = (async () => {
     try {
       const r = await fetch(ANIME_LIST_URL);
@@ -177,6 +183,7 @@ export async function loadAnidbMaps(): Promise<AnidbMapCache> {
         }
       }
       const out: AnidbMapCache = { tvdb, imdb, byTvdb, byImdb, t: Date.now() };
+      xmlMemory = out;
       writeJson(ANIDB_TVDB_KEY, out);
       return out;
     } catch {
