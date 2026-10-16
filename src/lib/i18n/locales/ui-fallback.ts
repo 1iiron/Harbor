@@ -104,8 +104,8 @@ const uiFallback: Record<string, string> = {
     "Couldn't save the recovery backup. Free some storage and try again.",
   "Return to beta did not finish. Your recovery files have been kept. Try again from Experimental builds.":
     "Return to beta did not finish. Your recovery files have been kept. Try again from Experimental builds.",
-  "Harbor Setup did not finish updating Harbor. Check for updates to try again.":
-    "Harbor Setup did not finish updating Harbor. Check for updates to try again.",
+  "Harbor Shipyard did not finish updating Harbor. Check for updates to try again.":
+    "Harbor Shipyard did not finish updating Harbor. Check for updates to try again.",
   "Couldn't save the update channel. Free some storage and try again.":
     "Couldn't save the update channel. Free some storage and try again.",
   "Leave experimental builds before changing your normal update channel.":

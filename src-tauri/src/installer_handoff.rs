@@ -9,8 +9,8 @@ use tokio::io::AsyncWriteExt;
 
 const MARKER: &str = "harbor-install.json";
 const STAGE_PREFIX: &str = "harbor-update-";
-const SETUP_NAME: &str = "harbor-setup.exe";
-const LOG_NAME: &str = "harbor-setup.log";
+const SETUP_NAME: &str = "harbor-shipyard.exe";
+const LOG_NAME: &str = "harbor-shipyard.log";
 const GRACE_MS: u64 = 2_000;
 const POLL_MS: u64 = 100;
 const FLUSH_STEPS: u32 = 16;
@@ -369,18 +369,18 @@ fn spawn_setup(
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|e| format!("could not start Harbor Setup: {}", e))?;
+        .map_err(|e| format!("could not start Harbor Shipyard: {}", e))?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(GRACE_MS);
     while std::time::Instant::now() < deadline {
         match child.try_wait() {
             Ok(Some(status)) => {
                 return Err(format!(
-                    "Harbor Setup stopped straight away with exit code {}",
+                    "Harbor Shipyard stopped straight away with exit code {}",
                     status.code().unwrap_or(-1)
                 ))
             }
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(POLL_MS)),
-            Err(e) => return Err(format!("could not watch Harbor Setup: {}", e)),
+            Err(e) => return Err(format!("could not watch Harbor Shipyard: {}", e)),
         }
     }
     Ok(())

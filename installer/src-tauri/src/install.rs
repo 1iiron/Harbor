@@ -709,7 +709,7 @@ fn write_install_marker(dest: &Path, version: &str) -> Result<(), String> {
         "payloadVersion": payload_version_number(version),
         "version": version,
         "installedAt": installed_at,
-        "installer": "harbor-setup",
+        "installer": "harbor-shipyard",
     });
     let text = serde_json::to_string_pretty(&body).map_err(|e| e.to_string())?;
     fs::write(dest.join(MARKER), text).map_err(|e| e.to_string())

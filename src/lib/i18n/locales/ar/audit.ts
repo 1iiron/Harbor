@@ -118,8 +118,8 @@ const audit: Record<string, string> = {
   Dismiss: "تجاهل",
   "Download installer": "تنزيل برنامج التثبيت",
   "Install and reopen": "التثبيت وإعادة الفتح",
-  "Harbor is closing. Harbor Setup will finish and reopen it.":
-    "جارٍ إغلاق Harbor. سيكمل Harbor Setup التثبيت ثم يعيد فتحه.",
+  "Harbor is closing. Harbor Shipyard will finish and reopen it.":
+    "جارٍ إغلاق Harbor. سيكمل Harbor Shipyard التثبيت ثم يعيد فتحه.",
 
   "Broadcast networks": "شبكات البث",
   News: "الأخبار",

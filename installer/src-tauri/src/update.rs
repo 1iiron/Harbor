@@ -160,7 +160,7 @@ fn run(args: Args) -> i32 {
     let mut log = Log::open(args.log.as_deref());
     let shipped = install::shipped_version();
     log.line(&format!(
-        "harbor-setup {} update mode ({}) from {} to {}",
+        "harbor-shipyard {} update mode ({}) from {} to {}",
         shipped,
         if args.passive { "passive" } else { "interactive" },
         args.from_version.as_deref().unwrap_or("?"),

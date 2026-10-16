@@ -808,7 +808,7 @@ async function detectFailedHandoff(pending: {
     version: pending.version ?? null,
     experimentalVersion: pending.experimentalVersion ?? null,
     handoff: plan,
-    error: t("Harbor Setup did not finish updating Harbor. Check for updates to try again."),
+    error: t("Harbor Shipyard did not finish updating Harbor. Check for updates to try again."),
     channel: pending.channel ?? selectedUpdateChannel(),
     panelOpen: true,
   });

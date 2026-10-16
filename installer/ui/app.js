@@ -173,7 +173,7 @@ function mount(nextIndex) {
     try {
       cleanup();
     } catch (err) {
-      console.error('[harbor-installer] cleanup threw', err);
+      console.error('[harbor-shipyard] cleanup threw', err);
     }
   }
   cleanup = null;
@@ -198,7 +198,7 @@ function mount(nextIndex) {
   try {
     result = screen.render(el.screen, ctx);
   } catch (err) {
-    console.error('[harbor-installer] render threw in screen "' + screen.id + '"', err);
+    console.error('[harbor-shipyard] render threw in screen "' + screen.id + '"', err);
   } finally {
     rendering = false;
   }
@@ -230,7 +230,7 @@ el.close.addEventListener('click', () => {
 
 SCREENS.forEach((screen, i) => {
   if (typeof screen.id !== 'string' || typeof screen.title !== 'string' || typeof screen.render !== 'function') {
-    console.error('[harbor-installer] screen at index ' + i + ' does not satisfy the module contract');
+    console.error('[harbor-shipyard] screen at index ' + i + ' does not satisfy the module contract');
   }
 });
 

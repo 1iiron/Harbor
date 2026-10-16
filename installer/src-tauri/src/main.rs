@@ -29,5 +29,5 @@ fn main() {
             install::uninstall_facts,
         ])
         .run(tauri::generate_context!())
-        .expect("failed to start Harbor Setup");
+        .expect("failed to start Harbor Shipyard");
 }
