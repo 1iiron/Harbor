@@ -520,7 +520,7 @@ export function createHtml5Bridge(): PlayerBridge {
       }
       activeTraceId = src.traceId ?? null;
       markPlaybackTrace(activeTraceId, "bridge-load");
-      isLiveSrc = src.notWebReady === true;
+      isLiveSrc = src.isLive === true;
       pendingStart = src.startAtSec ?? null;
       if (hls) {
         try {
@@ -545,11 +545,10 @@ export function createHtml5Bridge(): PlayerBridge {
       const isHls =
         bare.endsWith(".m3u8") || lowerUrl.includes("m3u8") || lowerUrl.includes("/playlist/");
       const isTs =
-        bare.endsWith(".ts") ||
-        (src.notWebReady === true && !isHls && !/\.(mp4|webm|mov|mkv|mpd)$/.test(bare));
+        bare.endsWith(".ts") || (isLiveSrc && !isHls && !/\.(mp4|webm|mov|mkv|mpd)$/.test(bare));
       if (isHls && Hls.isSupported()) {
         hls = new Hls(
-          src.notWebReady === true || src.isLive === true
+          isLiveSrc
             ? {
                 enableWorker: true,
                 lowLatencyMode: false,
@@ -564,8 +563,8 @@ export function createHtml5Bridge(): PlayerBridge {
         hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, refreshSnapshot);
       } else if (isTs && mpegts.isSupported()) {
         tsPlayer = mpegts.createPlayer(
-          { type: "mpegts", url: src.url, isLive: true, cors: true },
-          { enableWorker: true, liveBufferLatencyChasing: true, lazyLoadMaxDuration: 4 },
+          { type: "mpegts", url: src.url, isLive: isLiveSrc, cors: true },
+          { enableWorker: true, liveBufferLatencyChasing: isLiveSrc, lazyLoadMaxDuration: 4 },
         );
         tsPlayer.attachMediaElement(video);
         tsPlayer.on(mpegts.Events.ERROR, refreshSnapshot);
