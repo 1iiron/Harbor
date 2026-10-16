@@ -15,6 +15,7 @@ export type Tab =
   | "history"
   | "local"
   | "media-servers"
+  | "torbox"
   | "lists"
   | "favorites"
   | "trakt"
