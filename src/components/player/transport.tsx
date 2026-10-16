@@ -29,6 +29,7 @@ import {
 import { renderControl, type ControlContext } from "./transport/control-renderer";
 import { SongIdToast } from "@/components/song-id-toast";
 import { useCastModalPlay } from "./use-cast-modal-play";
+import { ChapterMenu } from "./transport/chapter-menu";
 
 // This is the mouse-era transport. Big Picture suppresses it outright and
 // renders views/big-picture/player instead, so nothing here scales for ten feet.
@@ -176,6 +177,7 @@ export function Transport({
   const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
   const [anime4kMenuOpen, setAnime4kMenuOpen] = useState(false);
   const [castModalOpen, setCastModalOpen] = useState(false);
+  const [chapterMenuOpen, setChapterMenuOpen] = useState(false);
   const [chromeConfig, setChromeConfig] = useState<PlayerChromeConfig>(() =>
     readPlayerChromeConfig("default"),
   );
@@ -189,7 +191,12 @@ export function Transport({
   const [tight, setTight] = useState(false);
   useEffect(() => {
     onMenuOpenChange?.(
-      audioMenuOpen || subtitleMenuOpen || speedMenuOpen || aspectMenuOpen || anime4kMenuOpen,
+      audioMenuOpen ||
+        subtitleMenuOpen ||
+        speedMenuOpen ||
+        aspectMenuOpen ||
+        anime4kMenuOpen ||
+        chapterMenuOpen,
     );
   }, [
     audioMenuOpen,
@@ -197,6 +204,7 @@ export function Transport({
     speedMenuOpen,
     aspectMenuOpen,
     anime4kMenuOpen,
+    chapterMenuOpen,
     onMenuOpenChange,
   ]);
   useEffect(() => {
@@ -486,8 +494,23 @@ export function Transport({
                 <Fragment key={c.id}>{renderFadedControl(c.id)}</Fragment>
               ))}
               <div className={`flex-1 ${fadeClassName}`}>
-                <SeekBar durationSec={snap.durationSec} onSeek={onSeek} active={visible} />
+                <SeekBar
+                  durationSec={snap.durationSec}
+                  onSeek={onSeek}
+                  active={visible}
+                  chapters={snap.chapters}
+                />
               </div>
+              {snap.chapters.length > 0 && (
+                <div className={fadeClassName}>
+                  <ChapterMenu
+                    chapters={snap.chapters}
+                    positionSec={snap.positionSec}
+                    onSeek={onSeek}
+                    onOpenChange={setChapterMenuOpen}
+                  />
+                </div>
+              )}
               {controlsInSlot(chromeConfig, "seek-trailing").map((c) => (
                 <Fragment key={c.id}>{renderFadedControl(c.id)}</Fragment>
               ))}
