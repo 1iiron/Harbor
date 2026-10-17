@@ -8,19 +8,31 @@ export function metaTitleKey(meta: { id?: string }): string | null {
   if (!id) return null;
   if (/^tt\d+$/.test(id)) return `imdb:${id}`;
   if (id.startsWith("tmdb:")) {
-    const num = Number(id.split(":")[2]);
-    if (Number.isFinite(num)) return `tmdb:${num}`;
+    const [, kind, numText] = id.split(":");
+    const num = Number(numText);
+    if (Number.isFinite(num) && (kind === "movie" || kind === "tv")) {
+      return `tmdb:${kind}:${num}`;
+    }
   }
   return null;
 }
 
-// Trakt history is episode level (`imdb:tt123:1:2`); folding to `imdb:tt123`
-// makes a show count as watched once any episode has been, matching catalog rows.
+// Trakt history is episode level (`imdb:tt123:1:2`, `tmdb:456:1:2`); folding
+// makes a show count as watched once any episode has been, matching catalog
+// rows. tmdb ids are only unique within a media type, so the fold keeps movies
+// and shows apart instead of letting `tmdb:movie:3` and `tmdb:tv:3` collide.
 export function collapseWatchedKeys(watched: Set<string>): Set<string> {
   const out = new Set<string>();
   for (const key of watched) {
     const parts = key.split(":");
-    if (parts.length >= 2) out.add(`${parts[0]}:${parts[1]}`);
+    if (parts.length < 2) continue;
+    if (parts[0] === "tmdb") {
+      if (parts[1] === "movie" || parts[1] === "tv") out.add(`tmdb:${parts[1]}:${parts[2]}`);
+      else if (parts.length >= 4) out.add(`tmdb:tv:${parts[1]}`);
+      else out.add(`tmdb:movie:${parts[1]}`);
+      continue;
+    }
+    out.add(`${parts[0]}:${parts[1]}`);
   }
   return out;
 }
@@ -50,8 +62,15 @@ export function isTitleWatched(meta: TitleRef, lookup: WatchedLookup): boolean {
   const ids = watchedIdCandidates(meta);
   if (ids.some((id) => stremioWatched?.has(id))) return true;
   if (ids.some((id) => watchedFlags?.has(id) || movieWatched?.has(id))) return true;
-  const key = metaTitleKey(meta);
-  if (key && traktKeys?.has(key)) return true;
+  if (
+    traktKeys &&
+    ids.some((id) => {
+      const key = metaTitleKey({ id });
+      return key != null && traktKeys.has(key);
+    })
+  ) {
+    return true;
+  }
   if (localWatched) {
     if (ids.some((id) => localWatched.ids.has(id))) return true;
     const titleKey = watchTitleKey(meta.name);

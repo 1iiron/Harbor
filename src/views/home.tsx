@@ -914,6 +914,15 @@ export function Home({
         if (next) push(next);
         if (out.length >= 4) break;
       }
+      // A degraded rebuild can drop the remembered source rows while the pool is
+      // still valid; fall back to it so the hero never disappears this way.
+      if (out.length < 4) {
+        for (const m of heroPool) {
+          if (watched(m)) continue;
+          push(m);
+          if (out.length >= 4) break;
+        }
+      }
     } else {
       for (const m of heroPool) {
         if (watched(m)) continue;

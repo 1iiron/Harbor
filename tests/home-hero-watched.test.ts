@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 // @ts-expect-error Node test types are intentionally outside the browser-only tsconfig.
 import test from "node:test";
+import ts from "typescript";
 
 const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const home = read("src/views/home.tsx");
@@ -52,5 +53,61 @@ test("catalog rows and the hero share one watched predicate", () => {
     customRows,
     /function metaTitleKey/,
     "the row predicate must use the shared helper, not a private copy",
+  );
+});
+
+// Runs the real watched-title predicates with the tmdb bridge mocked out.
+function loadWatchedTitle(): Record<string, any> {
+  const source = read("src/lib/watched-title.ts");
+  const code = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const exports: Record<string, any> = {};
+  new Function("require", "exports", code)(
+    (id: string) => {
+      if (id === "@/lib/playback-history") {
+        return { watchTitleKey: (name?: string) => name?.trim().toLowerCase() ?? null };
+      }
+      if (id === "@/lib/providers/tmdb/tmdb-imdb-resolve") {
+        return { tmdbFromImdbCached: () => null, tmdbImdbCached: () => null };
+      }
+      throw new Error(`Unexpected dependency: ${id}`);
+    },
+    exports,
+  );
+  return exports;
+}
+
+test("a watched tmdb movie cannot hide a show with the same tmdb id", () => {
+  const { isTitleWatched, collapseWatchedKeys } = loadWatchedTitle();
+  const traktKeys = collapseWatchedKeys(new Set(["tmdb:603"]));
+  assert.equal(
+    isTitleWatched({ id: "tmdb:movie:603", name: "The Matrix" }, { traktKeys }),
+    true,
+    "the watched movie itself stays hidden",
+  );
+  assert.equal(
+    isTitleWatched({ id: "tmdb:tv:603", name: "Unrelated Show" }, { traktKeys }),
+    false,
+    "an unrelated show sharing the tmdb id must not be hidden",
+  );
+});
+
+test("a watched tmdb episode cannot hide a movie with the same tmdb id", () => {
+  const { isTitleWatched, collapseWatchedKeys } = loadWatchedTitle();
+  const traktKeys = collapseWatchedKeys(new Set(["tmdb:100:1:2"]));
+  assert.equal(isTitleWatched({ id: "tmdb:tv:100", name: "Show" }, { traktKeys }), true);
+  assert.equal(
+    isTitleWatched({ id: "tmdb:movie:100", name: "Unrelated Movie" }, { traktKeys }),
+    false,
+  );
+});
+
+test("imdb episode folds still mark their show as watched", () => {
+  const { isTitleWatched, collapseWatchedKeys } = loadWatchedTitle();
+  const traktKeys = collapseWatchedKeys(new Set(["imdb:tt0944947:1:1"]));
+  assert.equal(
+    isTitleWatched({ id: "tt0944947", name: "Game of Thrones" }, { traktKeys }),
+    true,
   );
 });
