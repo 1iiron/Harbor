@@ -71,9 +71,17 @@ export function usePlayerBridge(params: {
   // rest without a word. Presets that name a kernel the installed pack predates
   // would silently run short, so the gap is filled before the chain is built
   // rather than only when the settings panel happens to be open.
-  const [anime4kPack, setAnime4kPack] = useState<boolean | null>(
-    anime4kWanted && settings.playerAnime4kFolder ? null : true,
-  );
+  const anime4kNeeded = anime4kWanted && !!settings.playerAnime4kFolder;
+  const [anime4kPack, setAnime4kPack] = useState<boolean | null>(anime4kNeeded ? null : true);
+  // Enabling Anime4K after the player mounted still gets the pack checked; the
+  // initial state only probes when it was already wanted at mount.
+  const anime4kChecked = useRef(anime4kNeeded);
+  useEffect(() => {
+    if (anime4kNeeded && !anime4kChecked.current) {
+      anime4kChecked.current = true;
+      setAnime4kPack(null);
+    }
+  }, [anime4kNeeded]);
   useEffect(() => {
     if (anime4kPack !== null) return;
     let active = true;
@@ -84,7 +92,9 @@ export function usePlayerBridge(params: {
           setAnime4kPack(true);
           return;
         }
-        setAnime4kPack(false);
+        // Stay pending while the pack is topped up: starting the bridge first
+        // and flipping the flag when the repair lands would restart mpv
+        // mid-playback.
         void repairAnime4kPack().then(() => {
           if (active) setAnime4kPack(true);
         });

@@ -177,6 +177,17 @@ function scheduleSoon(): void {
   if (soonTimer != null) window.clearTimeout(soonTimer);
   soonTimer = window.setTimeout(() => {
     soonTimer = null;
+    if (flushing) {
+      // The in-flight flush's snapshot predates the newest watch, so its quick
+      // retry is consumed without covering it. Give the queued item the second
+      // chance as soon as that flush settles.
+      const current = flushing;
+      void current.then(
+        () => attemptFlush(),
+        () => attemptFlush(),
+      );
+      return;
+    }
     attemptFlush();
   }, RETRY_SOON_MS);
 }
