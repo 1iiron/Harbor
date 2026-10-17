@@ -1,3 +1,4 @@
+import { isLivePlaybackSrc } from "@/lib/player/live-src";
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { Meta } from "@/lib/cinemeta";
 import type { DebridStore } from "@/lib/debrid/types";
@@ -388,6 +389,7 @@ export function usePickHandler({
             ? `${meta.name} · E${absoluteEpisode}`
             : mediaSubtitle(meta, episode)
           : meta.releaseInfo,
+        isLive: isLivePlaybackSrc({ meta, streamRef: { addonId: stream.addonId } }),
         notWebReady: r.data.notWebReady,
         subtitles: r.data.subtitles,
         attempt: attempt ?? 0,
