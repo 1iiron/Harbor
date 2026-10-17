@@ -103,6 +103,7 @@ type ExternalSubtitleMetadata = {
   release?: string;
   provider?: string;
   providerDerived?: boolean;
+  localTrusted?: boolean;
   fps?: number;
   downloads?: number;
   author?: string;
@@ -287,6 +288,12 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
   let expectedMediaPath: string | null = null;
   let observedMediaPath: string | null = null;
   let mediaRevision = 0;
+  // A session adopted across player teardown never replays its initial audio
+  // device enumeration, so its first list event is a change, not a baseline.
+  let adoptedRetainedSession = false;
+  // Timestamp of the last user-issued seek, so an in-flight output reload does
+  // not re-seek (and rewind) after the viewer's own seek.
+  let lastUserSeekAt = 0;
   let suppressEndFileUntil = 0;
   let svpFilterFailed = false;
   let secondarySid: string | null = null;
@@ -359,6 +366,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
               mpvUrl,
               subtitle.trustedSource !== true,
             ),
+            allowLocalNetwork: subtitle.trustedSource === true,
           });
           mpvUrl = prepared.playableUrl;
           cleanup = prepared.cleanup;
@@ -382,6 +390,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         cues: preparedCues,
         originalUrl,
         format: preparedFormat,
+        ...(subtitle.trustedSource === true ? { localTrusted: true } : {}),
         prepared: cleanup != null,
         autoSelectionEligible: false,
       };
@@ -570,21 +579,46 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
   // device and force an `ao-reload`, which re-initializes the audio output onto
   // the current default device — the same re-init a stream restart performs.
   // Defer device-change recovery until mpv confirms resume. Focus/visibility
-  // alone must not queue a reset while paused: the device may still be healthy.
+  // alone must not force an immediate reset while paused: the device may still
+  // be healthy, so that recovery waits for the next resume instead.
   let audioDeviceReloadTimer: number | null = null;
+  // mpv fires `audio-device-list` on every WASAPI notification, including state
+  // churn on devices we are not using (e.g. SteelSeries Sonar virtual endpoints
+  // reacting to app activation). Only a change in the endpoint set itself means
+  // the output may need re-binding, and only once the change settles: an
+  // endpoint that drops and reappears within the debounce window has not changed
+  // the usable outputs, while a lasting change (unplug, connect, topology
+  // switch) still reloads so playback never keeps a dead output.
+  let lastAudioDeviceListSig: string | null = null;
+  let observedAudioDeviceListSig: string | null = null;
+  const audioDeviceListSig = (data: unknown): string | null => {
+    if (!Array.isArray(data)) return null;
+    const names = data
+      .map((d) => String((d as Record<string, unknown>)?.name ?? ""))
+      .filter(Boolean)
+      .sort();
+    return names.join("\n");
+  };
+  // A device change is deferred while paused (re-armed on resume), and a forced
+  // request (wake from sleep, screensaver dismissal) reloads even when the
+  // endpoint set did not change. The generation invalidates both when the media
+  // or session ends.
   let pendingAudioDeviceReload = false;
+  let forceAudioDeviceReload = false;
   let audioDeviceReloadGeneration = 0;
   const clearAudioDeviceReload = () => {
     if (audioDeviceReloadTimer != null) window.clearTimeout(audioDeviceReloadTimer);
     audioDeviceReloadTimer = null;
     pendingAudioDeviceReload = false;
+    forceAudioDeviceReload = false;
     audioDeviceReloadGeneration += 1;
   };
-  const scheduleAudioDeviceReload = (deviceChanged = true) => {
+  const scheduleAudioDeviceReload = (forced = false, deviceChanged = true) => {
     if (!isWindowsDesktop()) return;
     if (!mpvStarted) return;
     if (snap.status !== "playing" && snap.status !== "paused") return;
-    pendingAudioDeviceReload ||= deviceChanged;
+    if (forced) forceAudioDeviceReload = true;
+    pendingAudioDeviceReload ||= deviceChanged || forced;
     if (observedPaused === true || snap.status === "paused") return;
     if (audioDeviceReloadTimer != null) window.clearTimeout(audioDeviceReloadTimer);
     const generation = audioDeviceReloadGeneration;
@@ -593,27 +627,68 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
     audioDeviceReloadTimer = window.setTimeout(() => {
       audioDeviceReloadTimer = null;
       if (!canReload()) return;
+      const mustReload = forceAudioDeviceReload;
+      forceAudioDeviceReload = false;
       const deviceRequest = pendingAudioDeviceReload;
       pendingAudioDeviceReload = false;
       const deferDeviceRequest = () => {
         if (deviceRequest && isCurrentMedia()) pendingAudioDeviceReload = true;
       };
+      // A list change that has settled back to the signature we last acted on
+      // is churn, not a device change, and must not force the output reload.
+      if (!mustReload && observedAudioDeviceListSig === lastAudioDeviceListSig) return;
+      lastAudioDeviceListSig = observedAudioDeviceListSig;
+      // The reload outlives its media: playback can move to another episode (or
+      // fail) while an await is in flight, so the continuation bails unless the
+      // same load is still playing.
+      const reloadLoadId = mediaLoadId;
+      const reloadRevision = mediaRevision;
+      const reloadBeganAt = Date.now();
+      const stillCurrent = () =>
+        mpvStarted && reloadLoadId === mediaLoadId && reloadRevision === mediaRevision;
       void (async () => {
         // Remember the selected audio track so we can restore it after the
         // output reload deselects it (mpv drops the track on ao init failure).
         const prevAid = snap.audioTracks.find((t) => t.selected)?.id ?? null;
-        await applyAudioDevice(appliedAudioDevice ?? "auto", canReload).catch(() => {});
-        if (!canReload()) {
+        await applyAudioDevice(
+          appliedAudioDevice ?? "auto",
+          () => stillCurrent() && canReload(),
+        ).catch(() => {});
+        if (!stillCurrent() || !canReload()) {
           deferDeviceRequest();
           return;
         }
         await invoke("mpv_command", { cmd: ["ao-reload"] }).catch(() => {});
-        if (!canReload()) {
+        if (!stillCurrent() || !canReload()) {
           deferDeviceRequest();
           return;
         }
         if (prevAid) {
           await invoke("mpv_set_property", { name: "aid", value: prevAid }).catch(() => {});
+        }
+        // dynaudnorm keeps ~15s of audio buffered in its analysis window, and
+        // an output reload re-anchors playback to the head of that buffer —
+        // that far ahead of video — so mpv holds audio ("delaying audio start")
+        // while video plays on silently. A same-position exact seek restarts
+        // A/V in sync immediately. Skip it when the viewer seeks during the
+        // reload, or the resync would rewind the seek already in flight.
+        if (
+          stillCurrent() &&
+          snap.audioNormalize &&
+          !currentIsLive &&
+          lastUserSeekAt <= reloadBeganAt &&
+          (snap.status === "playing" || snap.status === "paused")
+        ) {
+          const pos = await invoke<number | null>("mpv_get_property", {
+            name: "time-pos",
+          }).catch(() => null);
+          if (
+            typeof pos === "number" &&
+            Number.isFinite(pos) &&
+            lastUserSeekAt <= reloadBeganAt
+          ) {
+            invoke("mpv_command", { cmd: ["seek", pos, "absolute+exact"] }).catch(() => {});
+          }
         }
       })();
     }, 300);
@@ -623,8 +698,8 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
   // speculative output reset while paused; real device changes still recover
   // through audio-device-list and are deferred until resume during a pause.
   const onVisibilityRestore = () => {
-    if (document.visibilityState !== "visible" || snap.status !== "playing") return;
-    scheduleAudioDeviceReload(false);
+    if (document.visibilityState !== "visible") return;
+    scheduleAudioDeviceReload(true);
   };
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", onVisibilityRestore);
@@ -636,9 +711,8 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
     lastWindowBlur = Date.now();
   };
   const onWindowFocusRestore = () => {
-    if (snap.status !== "playing") return;
     if (Date.now() - lastWindowBlur < FOCUS_RELOAD_MIN_ABSENT_MS) return;
-    scheduleAudioDeviceReload(false);
+    scheduleAudioDeviceReload(true);
   };
   if (typeof window !== "undefined") {
     window.addEventListener("blur", onWindowBlur);
@@ -655,6 +729,20 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         (prefix.includes("vapoursynth") && (level === "fatal" || level === "error"))
       ) {
         handleSvpFilterFailure();
+        return;
+      }
+      // Shader load and compile problems are reported by mpv's video output at
+      // warn/error, not by the property setter, so they are the only signal
+      // that a chain did not take effect.
+      if (
+        level !== "fatal" &&
+        level !== "error" &&
+        !/shader|glsl/i.test(prefix)
+      ) {
+        return;
+      }
+      if (/fail|error|cannot|unable|no such file|not found|unsupported/i.test(text)) {
+        console.warn(`[shaders] mpv ${level} (${prefix}): ${text}`);
       }
       return;
     }
@@ -687,7 +775,27 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       }
       if (name === "volume" && typeof data === "number") snap.volume = data / 100;
       if (name === "mute" && typeof data === "boolean") snap.muted = data;
-      if (name === "audio-device-list") scheduleAudioDeviceReload();
+      if (name === "audio-device-list") {
+        const sig = audioDeviceListSig(data);
+        if (sig == null) {
+          // No usable list payload; keep the legacy always-reload behavior.
+          scheduleAudioDeviceReload(true);
+        } else if (sig !== observedAudioDeviceListSig) {
+          observedAudioDeviceListSig = sig;
+          if (lastAudioDeviceListSig == null) {
+            // First enumeration after we started mpv is the baseline. A session
+            // adopted across player teardown never replays that enumeration, so
+            // its first event is a real change and must reload instead.
+            if (adoptedRetainedSession) {
+              scheduleAudioDeviceReload();
+            } else {
+              lastAudioDeviceListSig = sig;
+            }
+          } else if (sig !== lastAudioDeviceListSig) {
+            scheduleAudioDeviceReload();
+          }
+        }
+      }
       if (name === "track-list" && Array.isArray(data)) {
         const list = data as Array<Record<string, unknown>>;
         pendingTracks["track-list"] = list;
@@ -756,6 +864,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
             release: extMeta?.release,
             provider: extMeta?.provider,
             providerDerived: extMeta?.providerDerived,
+            localTrusted: extMeta?.localTrusted,
             fps: extMeta?.fps,
             downloads: extMeta?.downloads,
             author: extMeta?.author,
@@ -795,6 +904,10 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       }
       if (name === "dwidth" && typeof data === "number") snap.videoWidth = data;
       if (name === "dheight" && typeof data === "number") snap.videoHeight = data;
+      // Native decoded size, needed to reason about how much upscaling headroom
+      // the window actually offers. `dwidth` is the post-scale display width.
+      if (name === "width" && typeof data === "number") snap.videoSourceWidth = data;
+      if (name === "height" && typeof data === "number") snap.videoSourceHeight = data;
       if (name === "video-params/gamma" && typeof data === "string" && data) snap.hdrGamma = data;
       if (name === "demuxer-cache-duration" && typeof data === "number") snap.bufferedSec = data;
       if (name === "paused-for-cache" && typeof data === "boolean") snap.buffering = data;
@@ -907,6 +1020,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         retainedMpv.isLive === nextIsLive
       ) {
         mpvStarted = true;
+        adoptedRetainedSession = true;
         currentIsLive = nextIsLive;
         currentStartupProfile = nextStartupProfile;
         retainedMpv = null;
@@ -1021,6 +1135,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         preparedSubtitleCleanups.clearBefore(activeLoadId);
         markPlaybackTrace(activeTraceId, "loadfile-accepted");
         mpvStarted = true;
+        adoptedRetainedSession = false;
         currentIsLive = nextIsLive;
         currentStartupProfile = nextStartupProfile;
         void addSeedSubtitles(src.subtitles, activeLoadId);
@@ -1046,6 +1161,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       invoke("mpv_set_property", { name: "pause", value: true }).catch(() => {});
     },
     seek(sec, precision: PlayerSeekPrecision = "exact") {
+      lastUserSeekAt = Date.now();
       snap.subText = "";
       snap.subStartSec = 0;
       snap.secondarySubText = "";
@@ -1254,6 +1370,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
             encoding: metadata?.encoding,
             release: metadata?.release,
             filename: metadata?.rawFilename,
+            allowLocalNetwork: metadata?.localTrusted === true,
             requestHeaders: subtitleTrackDownloadHeaders(
               metadata?.downloadAuth,
               url,
@@ -1311,6 +1428,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
           release: metadata?.release,
           provider: metadata?.provider,
           providerDerived: metadata?.providerDerived,
+          localTrusted: metadata?.localTrusted,
           fps: metadata?.fps,
           downloads: metadata?.downloads,
           author: metadata?.author,

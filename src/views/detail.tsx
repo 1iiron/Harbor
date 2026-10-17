@@ -18,9 +18,10 @@ import {
 import { isTextInLanguage } from "@/lib/providers/anime-episode-build";
 import { peekAnimeArt, saveAnimeArt } from "@/lib/providers/anime-art-cache";
 import { imdbToKitsu, tmdbTvToKitsu } from "@/lib/providers/anime-mapping";
-import { kitsuAnime, kitsuMainTvSeries } from "@/lib/providers/kitsu";
+import { kitsuAnime, kitsuMainTvSeries, parseKitsuId } from "@/lib/providers/kitsu";
+import { resolveDetailAnimeEntry } from "./detail/resolve-anime-entry";
 import { isOrphanAnimeCandidate } from "@/lib/anime-detect";
-import { recordAnimeCwId } from "@/lib/anime-cw-ids";
+import { getAnimeCanonicalId, recordAnimeCwId } from "@/lib/anime-cw-ids";
 import { stripFranchiseSuffix } from "@/lib/providers/jikan";
 import { peekCachedLogo, resolveLogo } from "@/lib/logo";
 import { pickLocalizedText } from "@/lib/localized-text";
@@ -177,6 +178,7 @@ import { useAnimeCharacters } from "./detail/use-anime-characters";
 import { TraktComments } from "./detail/trakt-comments";
 import { LetterboxdPanel } from "./detail/letterboxd-panel";
 import { RateButton } from "@/components/ratings/rate-button";
+import { detailImdbRating, fetchDetailImdbRating } from "@/lib/detail-imdb-rating";
 import { ratingTarget } from "@/lib/ratings/types";
 import { LetterboxdReviews } from "./detail/letterboxd-reviews";
 import { AnilistComments } from "./detail/anilist-comments";
@@ -589,10 +591,19 @@ export function DetailView({
         ? detail.imdbId
         : null;
     if (tmdbTv == null && !imdb) return;
+    // Prefer a previously recorded canonical mapping over another provider
+    // lookup, but validate it before loading details: a special may share the
+    // series' external IDs. Played-cour hints can point at the last watched
+    // cour, so they are not used for detail detection.
+    const recorded =
+      getAnimeCanonicalId(meta.id) ??
+      (imdb != null && imdb !== meta.id ? getAnimeCanonicalId(imdb) : null);
+    const recordedKitsu = recorded != null ? parseKitsuId(recorded) : null;
     let cancelled = false;
     setDetectingAnime(true);
     (async () => {
-      let k = tmdbTv != null && Number.isFinite(tmdbTv) ? await tmdbTvToKitsu(tmdbTv) : null;
+      let k = recordedKitsu != null && recordedKitsu !== failedKitsu.current ? recordedKitsu : null;
+      if (k == null && tmdbTv != null && Number.isFinite(tmdbTv)) k = await tmdbTvToKitsu(tmdbTv);
       if (k == null && imdb) k = await imdbToKitsu(imdb);
       // Orphan ids (standalone TMDB/IMDb entries with no cross-db mapping --
       // e.g. Bleach TYBW tt14986406): fall back to Kitsu title search and
@@ -630,9 +641,12 @@ export function DetailView({
           }
         }
       }
+      if (k != null) k = await resolveDetailAnimeEntry(k, meta, detail);
       if (cancelled) return;
       if (k != null && k !== failedKitsu.current) {
-        const verdict = await kitsuYearVerdict(k, meta.releaseInfo, detail?.year);
+        const verdict = k === recordedKitsu
+          ? "ok"
+          : await kitsuYearVerdict(k, meta.releaseInfo, detail?.year);
         if (cancelled) return;
         if (verdict === "ok") setDetectedKitsu(k);
         else if (verdict === "reject") {
@@ -660,6 +674,10 @@ export function DetailView({
     detectedKitsu,
     addonNative,
     meta.id,
+    meta.type,
+    meta.name,
+    meta.animeFormat,
+    detail?.title,
     detail?.imdbId,
     detail?.year,
     detail?.genres,
@@ -672,7 +690,9 @@ export function DetailView({
 
   useEffect(() => {
     if (!animeCanonicalId) return;
-    if (meta.id.startsWith("tt")) recordAnimeCwId(meta.id, animeCanonicalId);
+    if (meta.id.startsWith("tt") || meta.id.startsWith("tmdb:tv:")) {
+      recordAnimeCwId(meta.id, animeCanonicalId);
+    }
     const imdb = detail?.imdbId;
     if (imdb?.startsWith("tt") && imdb !== meta.id) recordAnimeCwId(imdb, animeCanonicalId);
   }, [animeCanonicalId, meta.id, detail?.imdbId]);
@@ -984,19 +1004,42 @@ export function DetailView({
 
   useEffect(() => {
     setCinemetaRating(null);
-    if (meta.id.startsWith("tt")) return;
-    const imdb = detail?.imdbId;
+    if (isAnime || !settings.showImdbDetail) return;
+    const imdb = meta.id.startsWith("tt") ? meta.id : detail?.imdbId;
     if (!imdb || !imdb.startsWith("tt")) return;
+    if (
+      detailImdbRating({
+        id: meta.id,
+        inline: meta.imdbRating,
+        fullId: cinemetaFull?.id,
+        full: cinemetaFull?.imdbRating,
+        detailId: detail?.imdbId,
+        detail: detail?.rating,
+        detailSource: detail?.ratingSource,
+      })
+    )
+      return;
     let cancelled = false;
-    fetchCinemetaMeta(narrowMediaType(meta.type), imdb)
-      .then((full) => {
-        if (!cancelled && full?.imdbRating) setCinemetaRating(full.imdbRating);
+    fetchDetailImdbRating(imdb, narrowMediaType(meta.type), fetchCinemetaMeta)
+      .then((value) => {
+        if (!cancelled && value) setCinemetaRating(value);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [meta.id, meta.type, detail?.imdbId]);
+  }, [
+    meta.id,
+    meta.type,
+    meta.imdbRating,
+    detail?.imdbId,
+    detail?.rating,
+    detail?.ratingSource,
+    cinemetaFull?.id,
+    cinemetaFull?.imdbRating,
+    isAnime,
+    settings.showImdbDetail,
+  ]);
 
   useEffect(() => {
     if (!settings.omdbKey || !detail) return;
@@ -1087,11 +1130,18 @@ export function DetailView({
     pinnedLogo || seasonArt?.logo || stableLogo || (isAnime && !loading ? meta.logo : undefined);
   const year = detail?.year ?? meta.releaseInfo ?? cinemetaFull?.releaseInfo;
   const releaseYearNum = parseAwardYear(year);
-  const imdbRatingValue =
-    harborImdbRating ??
-    scores?.imdbRating ??
-    cinemetaRating ??
-    (meta.id.startsWith("tt") ? meta.imdbRating : undefined);
+  const imdbRatingValue = detailImdbRating({
+    id: meta.id,
+    inline: meta.imdbRating,
+    fullId: cinemetaFull?.id,
+    full: cinemetaFull?.imdbRating,
+    detailId: detail?.imdbId,
+    detail: detail?.rating,
+    detailSource: detail?.ratingSource,
+    cinemeta: cinemetaRating,
+    omdb: scores?.imdbRating,
+    harbor: harborImdbRating,
+  });
   const malRating = useMalRating(
     isAnime
       ? { ...meta, id: animeCanonicalId ?? meta.id, imdbRating: detail?.rating ?? meta.imdbRating }
@@ -2129,6 +2179,7 @@ export function DetailView({
             <FadeInUp>
               <CinemetaEpisodes
                 meta={playMeta}
+                imdbId={detail?.imdbId ?? (meta.id.startsWith("tt") ? meta.id : null)}
                 videos={cinemetaFull.videos}
                 stremioWatched={stremioWatched}
                 resumeSeason={lastPlay?.season}

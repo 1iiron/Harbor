@@ -86,6 +86,7 @@ mod harbor_lan;
 mod hdr_overlay;
 #[cfg(desktop)]
 mod installer_handoff;
+mod install_features;
 #[cfg(desktop)]
 mod media_controls;
 #[cfg(target_os = "windows")]
@@ -1215,6 +1216,9 @@ pub fn run() {
             installer_handoff::handoff_launch,
             installer_handoff::handoff_confirm,
             installer_handoff::handoff_save_backup,
+    installer_handoff::modify_probe,
+    installer_handoff::modify_open,
+    install_features::install_features,
             power::power_inhibit,
             harbor_set_webview_memory_low,
             harbor_set_webview_visible,
@@ -1382,6 +1386,7 @@ pub fn run() {
             mpv::mpv_command,
             mpv::mpv_set_property,
             mpv::mpv_get_property,
+            mpv::mpv_vo_passes,
             mpv::mpv_audio_devices,
             mpv::mpv_set_geometry,
             mpv::mpv_force_below,

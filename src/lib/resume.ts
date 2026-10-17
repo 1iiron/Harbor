@@ -18,10 +18,16 @@ function entryKey(id: string, season?: number, episode?: number): string {
   return id;
 }
 
+const parsedResume = new Map<string, { raw: string | null; entries: Record<string, Entry> }>();
+
 function readAll(key = readKey()): Record<string, Entry> {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as Record<string, Entry>) : {};
+    const cached = parsedResume.get(key);
+    if (cached && cached.raw === raw) return cached.entries;
+    const entries = raw ? (JSON.parse(raw) as Record<string, Entry>) : {};
+    parsedResume.set(key, { raw, entries });
+    return entries;
   } catch {
     return {};
   }
@@ -29,8 +35,11 @@ function readAll(key = readKey()): Record<string, Entry> {
 
 function writeAll(all: Record<string, Entry>, key: string): void {
   try {
-    localStorage.setItem(key, JSON.stringify(all));
+    const raw = JSON.stringify(all);
+    localStorage.setItem(key, raw);
+    parsedResume.set(key, { raw, entries: all });
   } catch {
+    parsedResume.delete(key);
     /* noop */
   }
 }

@@ -7,7 +7,7 @@ import {
   aniZipByTmdbTv,
   type AniZipMapping,
 } from "@/lib/providers/anizip";
-import { kitsuAnime, kitsuMainTvSeries, kitsuRelated, parseKitsuId } from "@/lib/providers/kitsu";
+import { kitsuAnime, kitsuMainTvSeries, kitsuRelated, parseKitsuId, type KitsuEpisode } from "@/lib/providers/kitsu";
 import { selectSiblingWindows, type AnimeListWindow } from "@/lib/streams/anime-identity-core";
 import { mappingStore } from "./mapping-store";
 
@@ -29,8 +29,8 @@ const ARM = "https://relations.yuna.moe/api/ids";
 const ANIME_LIST_URL =
   "https://raw.githubusercontent.com/Anime-Lists/anime-lists/master/anime-list-master.xml";
 
-const ARM_KITSU_KEY = "harbor.armkitsucache.v2";
-const ANIDB_TVDB_KEY = "harbor.anidbtvdbcache";
+const ARM_KITSU_KEY = "harbor.armkitsucache.v3";
+const ANIDB_TVDB_KEY = "harbor.anidbtvdbcache.v2";
 const ARM_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const XML_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -119,11 +119,17 @@ export async function externalToKitsu(source: string, id: number): Promise<numbe
 }
 
 let xmlInflight: Promise<AnidbMapCache> | null = null;
+let xmlMemory: AnidbMapCache | null = null;
+let xmlRetryAfter = 0;
 
 export async function loadAnidbMaps(): Promise<AnidbMapCache> {
-  const cached = readJson<AnidbMapCache | null>(ANIDB_TVDB_KEY, null);
-  if (cached && cached.byTvdb && Date.now() - cached.t < XML_TTL_MS) return cached;
   if (xmlInflight) return xmlInflight;
+  const cached = xmlMemory ?? readJson<AnidbMapCache | null>(ANIDB_TVDB_KEY, null);
+  xmlMemory = cached;
+  if (cached && cached.byTvdb && Date.now() - cached.t < XML_TTL_MS) return cached;
+  if (Date.now() < xmlRetryAfter) return cached ?? { tvdb: {}, imdb: {}, t: 0 };
+  // Avoid repeated downloads/parsing when storage is full or the provider fails.
+  xmlRetryAfter = Date.now() + 60_000;
   xmlInflight = (async () => {
     try {
       const r = await fetch(ANIME_LIST_URL);
@@ -177,6 +183,7 @@ export async function loadAnidbMaps(): Promise<AnidbMapCache> {
         }
       }
       const out: AnidbMapCache = { tvdb, imdb, byTvdb, byImdb, t: Date.now() };
+      xmlMemory = out;
       writeJson(ANIDB_TVDB_KEY, out);
       return out;
     } catch {
@@ -215,6 +222,40 @@ export async function kitsuToImdb(kitsuId: number): Promise<string | null> {
   if (!arm?.anidb) return null;
   const maps = await loadAnidbMaps();
   return maps.imdb[String(arm.anidb)] ?? null;
+}
+
+/**
+ * Attach the anime-lists season window to episodes AniZip does not cover.
+ *
+ * New seasons often get an AniZip mapping (ids only) before its episode
+ * records exist, and the Kitsu addon labels every cour "season 1" — so a
+ * sequel cour's identity-less rows carry seasonNumber 1 and fall back to the
+ * franchise's season 1 during the TVDB merge (wrong air dates, stills,
+ * overviews and ratings). The window's season/offset gives those rows their
+ * real provider coordinates; rows AniZip already covered keep their own.
+ */
+export async function applyAnidbSeasonWindow(
+  episodes: KitsuEpisode[],
+  kitsuId: number,
+): Promise<void> {
+  if (episodes.every((ep) => ep.imdbSeason != null)) return;
+  const anidb = await kitsuToAnidb(kitsuId).catch(() => null);
+  if (anidb == null) return;
+  const maps = await loadAnidbMaps().catch(() => null);
+  if (!maps) return;
+  const tvdbId = maps.tvdb[String(anidb)];
+  const win =
+    tvdbId != null
+      ? maps.byTvdb?.[String(tvdbId)]?.find((w) => w.anidbId === anidb)
+      : undefined;
+  if (!win || typeof win.season !== "number") return;
+  const imdbId = maps.imdb[String(anidb)] ?? null;
+  for (const ep of episodes) {
+    if (ep.imdbSeason != null || ep.number == null) continue;
+    ep.imdbSeason = win.season;
+    ep.imdbEpisode = ep.number + win.offset;
+    if (imdbId && !ep.imdbId) ep.imdbId = imdbId;
+  }
 }
 
 export async function kitsuToAnidb(kitsuId: number): Promise<number | null> {

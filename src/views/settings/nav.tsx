@@ -7172,6 +7172,13 @@ const SETTINGS_OPTIONS: SettingsOption[] = [
     keywords: ["edge to edge hero", "taller hero", "stretch banner", "bigger featured"],
   },
   {
+    label: "Hide watched titles in the featured hero",
+    section: "library",
+    tab: "home",
+    anchorTitle: "Home hero",
+    keywords: ["hide watched hero", "skip watched featured", "hero watched titles"],
+  },
+  {
     label: "Full quality hero image",
     section: "library",
     tab: "home",
@@ -8609,9 +8616,9 @@ const SETTINGS_OPTIONS: SettingsOption[] = [
   },
   {
     label: "Anime Title Language",
-    section: "trackers",
-    tab: "simkl",
-    anchorTitle: "Connected",
+    section: "language",
+    tab: "app",
+    anchorTitle: "Titles and descriptions",
     keywords: [
       "anime title",
       "title language",

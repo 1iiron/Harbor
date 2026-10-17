@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useSportsEnabled } from "@/lib/sports/enabled";
 import { usePluginCataloguesAvailable } from "@/lib/streams/plugins/available";
+import { useInstallFeatures } from "@/lib/features/install";
 import { SportsNavIcon } from "@/components/icons/sports-nav-icon";
 import { Popcorn, Puzzle } from "lucide-react";
 import { NavGlyph } from "@/components/icons/nav-glyph";
@@ -310,11 +311,15 @@ export const GAMES_IN_NAV = true;
 export function useAvailableNavItems(): NavItem[] {
   const sportsEnabled = useSportsEnabled();
   const pluginCatalogs = usePluginCataloguesAvailable();
+  const features = useInstallFeatures();
   return NAV_ITEMS.filter(
     (item) =>
       (item.id !== "sports" || sportsEnabled) &&
-      (item.id !== "plugins" || pluginCatalogs) &&
-      (item.id !== "games" || GAMES_IN_NAV),
+      (item.id !== "plugins" || (pluginCatalogs && features.plugins)) &&
+      (item.id !== "games" || (GAMES_IN_NAV && features.games)) &&
+      (item.id !== "music" || features.music) &&
+      (item.id !== "ebook" || features.ebook) &&
+      (item.id !== "manga" || features.manga),
   );
 }
 

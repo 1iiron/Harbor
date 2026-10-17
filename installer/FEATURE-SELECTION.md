@@ -192,10 +192,13 @@ silently re-add removed components.
 - **Download size does not shrink.** One embedded zip means the setup exe
   stays the same size; only disk usage changes. Per-feature payloads are out
   of scope.
-- **Changing your mind** (v1): re-run `harbor-shipyard.exe`, which detects the
-  install and repairs with the toggles seeded from the marker; enabling or
-  disabling then applies. A Settings "Modify installation" action that
-  relaunches setup directly is a follow-up.
+- **Changing your mind**: Settings → Updates & backup → **Modify installation**
+  opens Harbor Setup with the toggles seeded from the marker; enabling or
+  disabling then applies through Repair. The row reuses a setup left in the
+  temp folder by a previous update when its `.sig` still verifies, and asks
+  before downloading the full installer when none is usable. Harbor closes
+  first with the same graceful flush an update uses. Re-running
+  `harbor-shipyard.exe` by hand always works too.
 - **Deep links to disabled tabs** resolve to the current view; no error UI.
 - **Repair on a damaged install with disabled features** only verifies what
   should exist; it must not flag disabled components as missing.
