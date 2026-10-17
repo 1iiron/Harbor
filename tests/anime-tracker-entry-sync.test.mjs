@@ -26,10 +26,11 @@ function autosave(episode, metaId = "kitsu:45619", resolveIdentity) {
   return h;
 }
 
-function tracker(service, { total = 13, current = 0, status, rewatching = false, switchDuring, stateful = false } = {}) {
+function tracker(service, { total = 13, current = 0, status, rewatching = false, switchDuring, stateful = false, storage, server } = {}) {
   let profile = "a", session = {};
-  const store = new Map(), writes = [], events = [];
-  const state = {
+  const store = storage ?? new Map();
+  const writes = [], events = [];
+  const state = server ?? {
     current,
     status: status ?? (service === "anilist" ? "CURRENT" : "watching"),
     rewatching,
@@ -85,7 +86,7 @@ function tracker(service, { total = 13, current = 0, status, rewatching = false,
     return dependencies[id];
   }, exports, { getItem: (key) => store.get(key), setItem: (key, value) => store.set(key, value) });
   exports.subscribeSync((event) => events.push(event));
-  return { writes, events,
+  return { writes, events, storage: store, server: state,
     sync: exports[service === "anilist" ? "syncAnimeProgress" : "syncMalProgress"],
     mark: exports[service === "anilist" ? "markAnimeWatching" : "markMalWatching"],
   };
@@ -192,6 +193,38 @@ for (const service of ["anilist", "mal"]) {
     }
     await api.sync("kitsu:45619", 13, "Test series", 1, true);
     assert.equal(api.writes.length, 2, "the trailing finale ticks must not re-count");
+  });
+
+  test(`${service}: a finale replay after a restart does not re-count as a rewatch`, async () => {
+    const storage = new Map();
+    const first = tracker(service, { total: 13, current: 12, stateful: true, storage });
+    const args = ["kitsu:45619", 13, "Test series", 1, true];
+    await first.sync(...args);
+    assert.equal(first.writes.length, 1, "the first watch completes once");
+    const restarted = tracker(service, { total: 13, stateful: true, storage, server: first.server });
+    await restarted.sync(...args);
+    await restarted.sync(...args);
+    assert.equal(restarted.writes.length, 0, "replaying the finale after a restart must not count");
+  });
+
+  test(`${service}: a full rewatch after a restart still counts once`, async () => {
+    const storage = new Map();
+    const first = tracker(service, { total: 13, current: 12, stateful: true, storage });
+    await first.sync("kitsu:45619", 13, "Test series", 1, true);
+    const restarted = tracker(service, { total: 13, stateful: true, storage, server: first.server });
+    await restarted.sync("kitsu:45619", 1, "Test series", 1, true);
+    assert.equal(restarted.writes.length, 1);
+    assert.equal(restarted.writes[0].status, service === "anilist" ? "REPEATING" : "watching");
+    await restarted.sync("kitsu:45619", 13, "Test series", 1, true);
+    assert.equal(restarted.writes.length, 2);
+    if (service === "anilist") {
+      assert.equal(Number(restarted.writes[1].repeat), 1);
+    } else {
+      assert.equal(restarted.writes[1].status, "completed");
+      assert.equal(Number(restarted.writes[1].num_times_rewatched), 1);
+    }
+    await restarted.sync("kitsu:45619", 13, "Test series", 1, true);
+    assert.equal(restarted.writes.length, 2, "the trailing finale ticks must not re-count");
   });
 
   for (const switchDuring of ["profile", "account"]) {

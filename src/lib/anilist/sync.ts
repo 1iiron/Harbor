@@ -97,6 +97,32 @@ function saveRewatch(map: RewatchMap): void {
   }
 }
 
+// The episode at which a finished rewatch was counted. Kept across restarts so
+// replaying the finale cannot flip a completed entry into a phantom rewatch.
+// Only multi-episode titles persist: for a movie, replaying its single episode
+// is indistinguishable from the trailing ticks of the pass that just ended.
+const REWATCH_DONE_KEY_BASE = "harbor.anilist.rewatch-done.v1";
+function rewatchDoneKey(): string {
+  return `${REWATCH_DONE_KEY_BASE}.${activeProfileId()}`;
+}
+type RewatchDoneMap = Record<string, number>;
+
+function loadRewatchDone(): RewatchDoneMap {
+  try {
+    return JSON.parse(localStorage.getItem(rewatchDoneKey()) ?? "{}") as RewatchDoneMap;
+  } catch {
+    return {};
+  }
+}
+
+function saveRewatchDone(map: RewatchDoneMap): void {
+  try {
+    localStorage.setItem(rewatchDoneKey(), JSON.stringify(map));
+  } catch {
+    return;
+  }
+}
+
 function leadingInt(value: string): number | null {
   const n = Number(value.split(":")[0]);
   return Number.isFinite(n) ? n : null;
@@ -236,6 +262,21 @@ export async function syncAnimeProgress(
   const sent = loadSent();
   const sentKey = `${harborId}|${season ?? ""}|${ep}`;
   const rewatch = loadRewatch();
+  const rewatchDone = loadRewatchDone();
+  const rememberRewatchDone = (episode: number) => {
+    rewatchCompleted.set(harborId, episode);
+    if (episode > 1) {
+      rewatchDone[harborId] = episode;
+      saveRewatchDone(rewatchDone);
+    }
+  };
+  const forgetRewatchDone = () => {
+    rewatchCompleted.delete(harborId);
+    if (rewatchDone[harborId] != null) {
+      delete rewatchDone[harborId];
+      saveRewatchDone(rewatchDone);
+    }
+  };
   const prevSent = sentProgress(sent, sentKey);
   // Finished/repeating titles skip the per-episode fast-path (see RewatchMap).
   if (
@@ -286,7 +327,7 @@ export async function syncAnimeProgress(
       if (total > 0 && target > total) return;
       // The finale of a rewatch we just finished keeps emitting progress; without
       // this the next tick would read COMPLETED and start the rewatch over.
-      const completedEp = rewatchCompleted.get(harborId);
+      const completedEp = rewatchCompleted.get(harborId) ?? rewatchDone[harborId];
       if (completedEp != null && entryStatus === "COMPLETED" && ep >= completedEp) return;
 
       // Watching the finale while already Rewatching finishes the pass: AniList
@@ -300,7 +341,7 @@ export async function syncAnimeProgress(
           repeat,
         });
         if (saved?.SaveMediaListEntry?.progress === total) {
-          rewatchCompleted.set(harborId, ep);
+          rememberRewatchDone(ep);
           emit({ kind: "ok", title, episode: total, rewatch: true });
         } else {
           emit({ kind: "error", title, error: "update-not-confirmed" });
@@ -312,7 +353,7 @@ export async function syncAnimeProgress(
       // rewatch counter); continuing one is forward-only, where equal is not
       // backwards. A new pass clears the finished-rewatch guard above.
       if (entryStatus === "REPEATING" && target <= current) return;
-      rewatchCompleted.delete(harborId);
+      forgetRewatchDone();
       emit({ kind: "syncing", title, episode: target, rewatch: true });
       const saved = await anilistRequest<SaveResponse>(SAVE_MUTATION, {
         mediaId,
@@ -358,7 +399,7 @@ export async function syncAnimeProgress(
       // A first-watch completion is not a finished rewatch: remember where it
       // happened so the finale's trailing progress ticks read COMPLETED and stop
       // instead of flipping the entry into a phantom rewatch.
-      if (status === "COMPLETED") rewatchCompleted.set(harborId, target);
+      if (status === "COMPLETED") rememberRewatchDone(target);
       emit({ kind: "ok", title, episode: target });
     } else {
       // Unconfirmed writes stay retryable; recording them as sent would suppress retries.
