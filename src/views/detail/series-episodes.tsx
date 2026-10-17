@@ -195,8 +195,13 @@ export function SeriesEpisodes({
     setSearchLoading(false);
   }, [meta.id, tvId]);
   useEffect(() => {
-    if (!(searchOpen && searching) && !(aiMode && !cinemetaVideos?.length)) return;
-    if (!settings.tmdbKey) return;
+    const wantsCatalog = (searchOpen && searching) || (aiMode && !cinemetaVideos?.length);
+    if (!wantsCatalog || !settings.tmdbKey) {
+      // Closing the search mid-fetch must not leave the AI form waiting on a
+      // catalog that nobody is loading any more.
+      setSearchLoading(false);
+      return;
+    }
     const pending = seasons
       .map((season) => season.seasonNumber)
       .filter((season) => season >= 1 && !searchedSeasonCache.current.has(season));
@@ -232,10 +237,33 @@ export function SeriesEpisodes({
     seasons,
     settings.tmdbKey,
   ]);
-  const searchVideos = useMemo(
-    () => episodeSearchVideos(cinemetaVideos, searchedEpisodes, enrichedEpisodes),
-    [cinemetaVideos, searchedEpisodes, enrichedEpisodes],
-  );
+  const searchVideos = useMemo(() => {
+    // The catalog has to index the titles the grid shows for those seasons, and
+    // that name is the preferred-language choice, not the raw TMDB string.
+    const localized = searchedEpisodes.map((ep) => {
+      const pref = preferredVideos.get(`${ep.seasonNumber}:${ep.episodeNumber}`);
+      const name =
+        pickPreferredEpisodeTitle(
+          [
+            { text: preferredVideoName(pref), score: PREFERRED_TEXT_SCORE },
+            { text: ep.name, language: ep.nameLanguage },
+          ],
+          [],
+          metadataLanguage,
+        ) ?? ep.name;
+      const overview =
+        pickPreferredEpisodeOverview(
+          [
+            { text: preferredVideoOverview(pref), score: PREFERRED_TEXT_SCORE },
+            { text: ep.overview, language: ep.overviewLanguage },
+          ],
+          [],
+          metadataLanguage,
+        ) ?? ep.overview;
+      return name === ep.name && overview === ep.overview ? ep : { ...ep, name, overview };
+    });
+    return episodeSearchVideos(cinemetaVideos, localized, enrichedEpisodes);
+  }, [cinemetaVideos, searchedEpisodes, enrichedEpisodes, preferredVideos, metadataLanguage]);
 
   const hiddenSet = useHiddenEpisodes(meta.id);
   const hideActive = settings.episodeHiding && !showHidden;
