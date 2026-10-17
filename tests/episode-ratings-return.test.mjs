@@ -145,6 +145,7 @@ test("Cinemeta episode grids receive genuine episode IMDb badges", () => {
     },
     "@/lib/local-library/use-series-play": { useLocalAwareSeriesPlay: () => () => {} },
     "@/lib/episode-progress": { resumeDefaultSeason: () => 3 },
+    "@/lib/season-view-pref": { getViewedSeason: () => undefined, setViewedSeason: () => {} },
     "./episode-groups": { groupEpisodes, episodeNumber, episodeSeason },
     "./helpers": { isUpcomingDate: () => false },
     "./episode-grid": { EpisodeGrid },

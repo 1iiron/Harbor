@@ -125,6 +125,7 @@ test("TMDB season picker restores and persists selections across detail recreati
       subscribeManualWatched: () => () => {},
     },
     "@/lib/episode-progress": { resumeDefaultSeason: () => 1 },
+    "@/lib/episode-search": { episodeSearchVideos: () => [] },
     "@/lib/ai-models": { providerForModel: () => null },
     "@/lib/hidden-episodes": { useHiddenEpisodes: () => new Set() },
     "@/lib/settings/episode-order": {
@@ -133,7 +134,11 @@ test("TMDB season picker restores and persists selections across detail recreati
     },
     "@/lib/providers/tmdb": { tmdbSeasonEpisodes: async () => [] },
     "@/lib/providers/tmdb/tmdb-client": { tmdbLanguageIso: () => "en" },
-    "@/lib/localized-text": { pickLocalizedText: () => null },
+    "@/lib/localized-text": {
+      pickLocalizedText: () => null,
+      pickPreferredEpisodeTitle: () => null,
+      pickPreferredEpisodeOverview: () => null,
+    },
     "@/lib/meta-resource": {
       PREFERRED_TEXT_SCORE: 1,
       preferredVideoName: () => null,
