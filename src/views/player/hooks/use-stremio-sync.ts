@@ -62,13 +62,15 @@ export function useStremioSync(params: {
     resolutionSettled,
     castActiveRef,
   } = params;
-  const canonicalId = cloudWriteId(src.meta.id, resolvedImdbId, resolvedImdbVerified);
+  const canonicalId = src.suppressCloudSync
+    ? null
+    : cloudWriteId(src.meta.id, resolvedImdbId, resolvedImdbVerified);
   const watcherProfileId = useProfiles().activeProfile?.id ?? null;
   useEffect(() => {
     if (!resolutionSettled) return;
-    const watchedId = canonicalId ?? src.meta.id;
+    const watchedId = src.suppressCloudSync ? null : (canonicalId ?? src.meta.id);
     if (watchedId) recordWatchedBy(watchedId, watcherProfileId);
-  }, [resolutionSettled, canonicalId, src.meta.id, watcherProfileId]);
+  }, [resolutionSettled, canonicalId, src.meta.id, src.suppressCloudSync, watcherProfileId]);
   useEffect(() => {
     if (
       ANIME_SCHEME.test(src.meta.id) &&
