@@ -38,6 +38,7 @@ import { flushCloudSync } from "@/views/player/hooks/use-stremio-sync";
 import { startWriteQueueFlusher } from "@/lib/stremio-write-queue";
 import {
   mediaServerConnections,
+  mediaServerRefreshIntervalMs,
   mediaServerSyncDue,
   updateMediaServerConnection,
 } from "@/lib/media-server/connections";
@@ -586,8 +587,25 @@ function MediaServerSyncRunner() {
     const onWake = () => {
       if (document.visibilityState === "visible") void refresh();
     };
-    const timer = window.setInterval(() => void refresh(), MEDIA_SERVER_SYNC_MS);
-    const initial = window.setTimeout(() => void refresh(), 2500);
+    // Wake when the soonest configured interval is due (or the base cadence),
+    // so custom minute-level intervals are honored instead of a fixed 15-minute poll.
+    let timer: number | undefined;
+    const nextDelay = () => {
+      const now = Date.now();
+      let soonest = MEDIA_SERVER_SYNC_MS;
+      for (const entry of mediaServerConnections()) {
+        const interval = mediaServerRefreshIntervalMs(entry);
+        if (interval == null) continue;
+        const due = entry.lastSyncAt == null ? 0 : entry.lastSyncAt + interval - now;
+        soonest = Math.min(soonest, Math.max(0, due));
+      }
+      return Math.min(MEDIA_SERVER_SYNC_MS, Math.max(30_000, soonest));
+    };
+    const schedule = () => {
+      if (cancelled) return;
+      timer = window.setTimeout(() => void refresh().finally(schedule), nextDelay());
+    };
+    const initial = window.setTimeout(() => void refresh().finally(schedule), 2500);
     const onProfile = () => {
       launchSynced.clear();
       void refresh();
@@ -597,7 +615,7 @@ function MediaServerSyncRunner() {
     document.addEventListener("visibilitychange", onWake);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearTimeout(timer);
       window.clearTimeout(initial);
       window.removeEventListener("harbor:active-profile-changed", onProfile);
       window.removeEventListener("online", refresh);

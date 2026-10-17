@@ -383,6 +383,9 @@ function PosterBody({
     if (failedRef.current.has(url)) return;
     failedRef.current.add(url);
     setLoaded(false);
+    // An early-revealed candidate may now fail; drop it so the plate/shimmer and
+    // the next candidate take over instead of pinning a broken image.
+    setDisplayed((d) => (d === url ? undefined : d));
     setIdx((i) => i + 1);
   }, []);
   const currentRef = useRef(current);

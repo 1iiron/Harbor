@@ -42,6 +42,7 @@ import type {
   MediaServerItem,
   MediaServerTitle,
 } from "@/lib/media-server/types";
+import { activeProfileId } from "@/lib/active-profile-id";
 import { useSettings } from "@/lib/settings";
 import { useT } from "@/lib/i18n";
 import { useView } from "@/lib/view";
@@ -66,7 +67,8 @@ const fallbackMeta = (title: MediaServerTitle): Meta => ({
   name: title.fallbackTitle,
   releaseInfo: title.year ? String(title.year) : undefined,
 });
-const REVIEW_DISMISSED_KEY = "harbor.media-server.review-dismissed.v1";
+const REVIEW_DISMISSED_KEY = "harbor.media-server.review-dismissed.v2";
+const reviewDismissedStorageKey = () => `${REVIEW_DISMISSED_KEY}.${activeProfileId()}`;
 
 export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLElement | null> }) {
   const t = useT();
@@ -87,17 +89,26 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
   const [activeCollection, setActiveCollection] = useState<MediaServerCollection | null>(null);
   const [collectionIds, setCollectionIds] = useState<Set<string> | null>(null);
   const collectionIdsCache = useRef(new Map<string, Set<string>>());
-  const [reviewDismissed, setReviewDismissed] = useState(() => {
+  // Count-based dismissal (like the local library's review banner): a dismissal
+  // silences exactly the titles seen so far, and a later sync that adds more
+  // unmatched titles brings the banner back. Profile-scoped so one profile's
+  // dismissal cannot hide another's.
+  const [reviewDismissedCount, setReviewDismissedCount] = useState(() => {
     try {
-      return localStorage.getItem(REVIEW_DISMISSED_KEY) === "1";
+      const stored = localStorage.getItem(reviewDismissedStorageKey());
+      if (stored != null) return Number(stored) || 0;
+      return localStorage.getItem("harbor.media-server.review-dismissed.v1") === "1"
+        ? Number.MAX_SAFE_INTEGER
+        : 0;
     } catch {
-      return false;
+      return 0;
     }
   });
+  const unmatchedRef = useRef(0);
   const dismissReview = () => {
-    setReviewDismissed(true);
+    setReviewDismissedCount(unmatchedRef.current);
     try {
-      localStorage.setItem(REVIEW_DISMISSED_KEY, "1");
+      localStorage.setItem(reviewDismissedStorageKey(), String(unmatchedRef.current));
     } catch {
       /* ignore */
     }
@@ -247,12 +258,12 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
   useEffect(() => {
     hydrateDeps.current = { serverPoster, tmdbKey: settings.tmdbKey, metaKey };
   });
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   const pumpMeta = useCallback(() => {
     const MAX = 6;
     while (metaActive.current < MAX && metaQueue.current.length > 0) {
@@ -516,6 +527,9 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
   const unmatched = titles.filter(
     (title) => !title.identity.tmdbId && !title.identity.imdbId && !title.identity.tvdbId,
   );
+  useEffect(() => {
+    unmatchedRef.current = unmatched.length;
+  }, [unmatched]);
   const syncAll = async () => {
     setSyncing(true);
     setSyncMessage(t("Connecting to home servers…"));
@@ -679,7 +693,7 @@ export function MediaServersTab({ scrollRef }: { scrollRef?: RefObject<HTMLEleme
           </div>
         }
       />
-      {unmatched.length > 0 && !reviewDismissed && (
+      {unmatched.length > 0 && unmatched.length > reviewDismissedCount && (
         <div className="flex items-center gap-2 rounded-xl bg-amber-500/12 px-3.5 py-2.5 ring-1 ring-amber-500/30">
           <button
             type="button"

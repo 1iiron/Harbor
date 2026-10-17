@@ -77,13 +77,22 @@ const REFRESH_UNIT_MS: Record<RefreshUnit, number> = {
   weeks: 604_800_000,
 };
 
+export function mediaServerRefreshIntervalMs(
+  connection: MediaServerConnection,
+): number | null {
+  if (!connection.enabled) return null;
+  if (connection.refreshInterval === "manual" || connection.refreshInterval === "launch")
+    return null;
+  return connection.refreshInterval === "custom"
+    ? Math.max(1, connection.refreshEveryValue ?? connection.refreshEveryDays ?? 1) *
+        REFRESH_UNIT_MS[connection.refreshEveryUnit ?? "days"]
+    : REFRESH_MS[connection.refreshInterval];
+}
+
 export function mediaServerSyncDue(connection: MediaServerConnection, now = Date.now()): boolean {
   if (!connection.enabled || connection.refreshInterval === "manual") return false;
   if (connection.refreshInterval === "launch") return true;
-  const interval =
-    connection.refreshInterval === "custom"
-      ? Math.max(1, connection.refreshEveryValue ?? connection.refreshEveryDays ?? 1) *
-        REFRESH_UNIT_MS[connection.refreshEveryUnit ?? "days"]
-      : REFRESH_MS[connection.refreshInterval];
+  const interval = mediaServerRefreshIntervalMs(connection);
+  if (interval == null) return false;
   return connection.lastSyncAt == null || now - connection.lastSyncAt >= interval;
 }
