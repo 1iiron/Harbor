@@ -19,6 +19,7 @@ import { isTextInLanguage } from "@/lib/providers/anime-episode-build";
 import { peekAnimeArt, saveAnimeArt } from "@/lib/providers/anime-art-cache";
 import { imdbToKitsu, tmdbTvToKitsu } from "@/lib/providers/anime-mapping";
 import { kitsuAnime, kitsuMainTvSeries, parseKitsuId } from "@/lib/providers/kitsu";
+import { resolveDetailAnimeEntry } from "./detail/resolve-anime-entry";
 import { isOrphanAnimeCandidate } from "@/lib/anime-detect";
 import { getAnimeCanonicalId, recordAnimeCwId } from "@/lib/anime-cw-ids";
 import { stripFranchiseSuffix } from "@/lib/providers/jikan";
@@ -589,23 +590,19 @@ export function DetailView({
         ? detail.imdbId
         : null;
     if (tmdbTv == null && !imdb) return;
-    // A previous visit already resolved this catalog id to an anime entry
-    // (recordAnimeCwId). Use it immediately so the page opens straight into the
-    // anime view instead of rendering the series view and swapping. Only the
-    // canonical mapping is trusted here — the played-cour mapping can point at
-    // whichever cour was watched last.
+    // Prefer a previously recorded canonical mapping over another provider
+    // lookup, but validate it before loading details: a special may share the
+    // series' external IDs. Played-cour hints can point at the last watched
+    // cour, so they are not used for detail detection.
     const recorded =
       getAnimeCanonicalId(meta.id) ??
       (imdb != null && imdb !== meta.id ? getAnimeCanonicalId(imdb) : null);
     const recordedKitsu = recorded != null ? parseKitsuId(recorded) : null;
-    if (recordedKitsu != null && recordedKitsu !== failedKitsu.current) {
-      setDetectedKitsu(recordedKitsu);
-      return;
-    }
     let cancelled = false;
     setDetectingAnime(true);
     (async () => {
-      let k = tmdbTv != null && Number.isFinite(tmdbTv) ? await tmdbTvToKitsu(tmdbTv) : null;
+      let k = recordedKitsu != null && recordedKitsu !== failedKitsu.current ? recordedKitsu : null;
+      if (k == null && tmdbTv != null && Number.isFinite(tmdbTv)) k = await tmdbTvToKitsu(tmdbTv);
       if (k == null && imdb) k = await imdbToKitsu(imdb);
       // Orphan ids (standalone TMDB/IMDb entries with no cross-db mapping --
       // e.g. Bleach TYBW tt14986406): fall back to Kitsu title search and
@@ -643,9 +640,12 @@ export function DetailView({
           }
         }
       }
+      if (k != null) k = await resolveDetailAnimeEntry(k, meta, detail);
       if (cancelled) return;
       if (k != null && k !== failedKitsu.current) {
-        const verdict = await kitsuYearVerdict(k, meta.releaseInfo, detail?.year);
+        const verdict = k === recordedKitsu
+          ? "ok"
+          : await kitsuYearVerdict(k, meta.releaseInfo, detail?.year);
         if (cancelled) return;
         if (verdict === "ok") setDetectedKitsu(k);
         else if (verdict === "reject") {
@@ -673,6 +673,10 @@ export function DetailView({
     detectedKitsu,
     addonNative,
     meta.id,
+    meta.type,
+    meta.name,
+    meta.animeFormat,
+    detail?.title,
     detail?.imdbId,
     detail?.year,
     detail?.genres,
