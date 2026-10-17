@@ -103,6 +103,7 @@ type ExternalSubtitleMetadata = {
   release?: string;
   provider?: string;
   providerDerived?: boolean;
+  localTrusted?: boolean;
   fps?: number;
   downloads?: number;
   author?: string;
@@ -359,6 +360,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
               mpvUrl,
               subtitle.trustedSource !== true,
             ),
+            allowLocalNetwork: subtitle.trustedSource === true,
           });
           mpvUrl = prepared.playableUrl;
           cleanup = prepared.cleanup;
@@ -382,6 +384,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         cues: preparedCues,
         originalUrl,
         format: preparedFormat,
+        ...(subtitle.trustedSource === true ? { localTrusted: true } : {}),
         prepared: cleanup != null,
         autoSelectionEligible: false,
       };
@@ -756,6 +759,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
             release: extMeta?.release,
             provider: extMeta?.provider,
             providerDerived: extMeta?.providerDerived,
+            localTrusted: extMeta?.localTrusted,
             fps: extMeta?.fps,
             downloads: extMeta?.downloads,
             author: extMeta?.author,
@@ -1254,6 +1258,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
             encoding: metadata?.encoding,
             release: metadata?.release,
             filename: metadata?.rawFilename,
+            allowLocalNetwork: metadata?.localTrusted === true,
             requestHeaders: subtitleTrackDownloadHeaders(
               metadata?.downloadAuth,
               url,
@@ -1311,6 +1316,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
           release: metadata?.release,
           provider: metadata?.provider,
           providerDerived: metadata?.providerDerived,
+          localTrusted: metadata?.localTrusted,
           fps: metadata?.fps,
           downloads: metadata?.downloads,
           author: metadata?.author,
