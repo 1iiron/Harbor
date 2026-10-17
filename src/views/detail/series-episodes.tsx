@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Eye, EyeOff } from "lucide-react";
+import { getViewedSeason } from "@/lib/season-view-pref";
 import { EpisodeJumper } from "@/components/episode-jumper";
 import { providerForModel } from "@/lib/ai-models";
 import { CrossSeasonResults } from "./series-episodes/cross-season-results";
@@ -95,7 +96,7 @@ export function SeriesEpisodes({
   const userPickedRef = useRef(false);
   const scrolledRef = useRef(false);
   const [active, setActive] = useState<number>(() =>
-    resumeDefaultSeason(meta.id, seasons, stremioWatched, resumeSeason),
+    getViewedSeason(meta.id, seasons) ?? resumeDefaultSeason(meta.id, seasons, stremioWatched, resumeSeason),
   );
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -136,7 +137,7 @@ export function SeriesEpisodes({
 
   useEffect(() => {
     if (userPickedRef.current) return;
-    const def = resumeDefaultSeason(meta.id, seasons, combinedWatched, resumeSeason);
+    const def = getViewedSeason(meta.id, seasons) ?? resumeDefaultSeason(meta.id, seasons, combinedWatched, resumeSeason);
     if (import.meta.env.DEV) {
       const counts = seasons
         .filter((s) => s.seasonNumber >= 1)
@@ -204,7 +205,7 @@ export function SeriesEpisodes({
   const altActive = arcActive || orderActive;
   const orderSeasonEff =
     ordering && !ordering.seasons.some((s) => s.seasonNumber === orderSeason)
-      ? resumeDefaultSeason(meta.id, ordering.seasons, combinedWatched, resumeSeason)
+      ? (getViewedSeason(meta.id, ordering.seasons) ?? resumeDefaultSeason(meta.id, ordering.seasons, combinedWatched, resumeSeason))
       : orderSeason;
   const source = arcActive ? "arcs" : orderActive ? "order" : "default";
   const arcAvailable = settings.episodeArcGroups && arc.hasArcs;
