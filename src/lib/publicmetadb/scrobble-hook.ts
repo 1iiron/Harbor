@@ -1,11 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { getPlaybackPosition } from "@/lib/player/playback-clock";
 import { useSettings } from "@/lib/settings";
 import type { PlayerSrc } from "@/lib/view";
 import { resolvePmdbEpisodeTarget, resolvePmdbTarget } from "./ids";
 import { usePublicMetaDb } from "./provider";
 import { pmdbDeleteResumeForTarget, pmdbSaveResume } from "./scrobble";
-import { pendingResumeKey, recordPendingResume, removePendingResume } from "./pending-sync";
+import { recordPendingResume, syncPendingResume } from "./pending-sync";
 import { markPmdbWatched } from "./history";
 import type { PmdbTarget } from "./types";
 
@@ -30,6 +30,8 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
   const targetRef = useRef<PmdbTarget | null>(null);
   const durationRef = useRef(0);
   const maxPosRef = useRef(0);
+  const lastPosRef = useRef(0);
+  const pageHiddenRef = useRef(false);
   const lastSaveTimeRef = useRef(0);
   const lastSavedPosRef = useRef(-1);
   const endedHandledRef = useRef(false);
@@ -55,10 +57,8 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
     }
   };
 
-  // mode "live": the page is alive, so attempt the save now and keep the
-  // outbox entry only when it fails. mode "unload": pagehide/unmount, where a
-  // network attempt cannot complete (and raw cross-origin beacons die on CORS
-  // preflight) — persist to the outbox only; the provider flush replays it.
+  // Persist before sending so shutdown or a failed request cannot lose progress.
+  // A real page unload leaves replay to the provider; player navigation can sync now.
   const saveOrWatched = (
     target: PmdbTarget | null,
     posSec: number,
@@ -77,21 +77,23 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
       const completion = completionRef.current;
       if (completion.done || completion.inFlight) return;
       if (mode === "live" && Date.now() < completion.retryAt) return;
-      const key = recordPendingResume(target, posMs, durMs);
-      if (mode === "unload") return;
+      if (mode === "unload") {
+        recordPendingResume(target, posMs, durMs);
+        return;
+      }
       completion.inFlight = true;
       completion.retryAt = Date.now() + MIN_SAVE_INTERVAL_MS;
       lastSaveTimeRef.current = Date.now();
       lastSavedPosRef.current = clampedPos;
       // A completed flush replays as a 100% resume save, which the server
       // answers as completed and converts to watched + resume cleanup.
-      void markPmdbWatched(target)
-        .then(async (ok) => {
-          if (!ok) return;
-          await pmdbDeleteResumeForTarget(target);
-          completion.done = true;
-          if (key) removePendingResume(key);
-        })
+      void syncPendingResume(target, posMs, durMs, async () => {
+        const ok = await markPmdbWatched(target);
+        if (!ok) return false;
+        await pmdbDeleteResumeForTarget(target);
+        return true;
+      })
+        .then((ok) => { completion.done = ok; })
         .finally(() => {
           completion.inFlight = false;
         });
@@ -106,11 +108,9 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
     lastSaveTimeRef.current = Date.now();
     lastSavedPosRef.current = clampedPos;
 
-    const key = pendingResumeKey(target);
-    void pmdbSaveResume(target, posMs, durMs).then((res) => {
-      if (res) removePendingResume(key);
-      else recordPendingResume(target, posMs, durMs);
-    });
+    void syncPendingResume(target, posMs, durMs, () =>
+      pmdbSaveResume(target, posMs, durMs).then((res) => res != null),
+    );
   };
 
   // Track latest usable duration for the current key. Updated from the live
@@ -129,7 +129,7 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
       if (enabledRef.current) {
         const t = targetRef.current;
         const d = durationRef.current;
-        const p = maxPosRef.current;
+        const p = lastPosRef.current;
         if (t && d >= STUB_MAX_SEC && p > 0) saveOrWatched(t, p, d);
       }
     }
@@ -139,6 +139,7 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
     targetRef.current = null;
     durationRef.current = snap.durationSec >= STUB_MAX_SEC ? snap.durationSec : 0;
     maxPosRef.current = 0;
+    lastPosRef.current = 0;
     endedHandledRef.current = false;
     completionRef.current = { inFlight: false, done: false, retryAt: 0 };
     lastSaveTimeRef.current = 0;
@@ -172,6 +173,7 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
       if (!cancelled) {
         targetRef.current = resolved;
         const live = getPlaybackPosition();
+        lastPosRef.current = live;
         if (live > maxPosRef.current) maxPosRef.current = live;
       }
     })();
@@ -205,6 +207,7 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
       if (dur < STUB_MAX_SEC) return;
       const now = Date.now();
       const pos = getPlaybackPosition();
+      lastPosRef.current = pos;
       if (pos > maxPosRef.current) maxPosRef.current = pos;
 
       const prev = seekTrackRef.current;
@@ -219,6 +222,7 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
           pendingSeekTimerRef.current = null;
           if (!enabledRef.current) return;
           const live = getPlaybackPosition();
+          lastPosRef.current = live;
           if (live > maxPosRef.current) maxPosRef.current = live;
           const t = targetRef.current;
           const d = durationRef.current;
@@ -267,6 +271,7 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
       clearPendingSeek();
       const live = getPlaybackPosition();
       if (live > maxPosRef.current) maxPosRef.current = live;
+      lastPosRef.current = live;
       saveOrWatched(t, live, dur);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -275,24 +280,28 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
   // Page hide / app close. Registered once; reads refs so no stale closures.
   useEffect(() => {
     const onPageHide = () => {
+      pageHiddenRef.current = true;
       if (!enabledRef.current) return;
       clearPendingSeek();
       const t = targetRef.current;
       const dur = durationRef.current;
       if (!t || dur < STUB_MAX_SEC) return;
       const live = getPlaybackPosition();
-      const best = Math.max(live, maxPosRef.current);
+      const best = statusRef.current === "ended" ? Math.max(live, maxPosRef.current) : live;
       saveOrWatched(t, best, dur, "unload");
     };
 
+    const onPageShow = () => { pageHiddenRef.current = false; };
     window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("pageshow", onPageShow);
     return () => {
       window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
     };
   }, []);
 
-  // Flush on unmount only. Empty deps: cleanup must not run on duration edits.
-  useEffect(() => {
+  // Capture the live clock before the bridge's passive cleanup resets it.
+  useLayoutEffect(() => {
     return () => {
       if (!enabledRef.current) return;
       clearPendingSeek();
@@ -300,8 +309,8 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
       const dur = durationRef.current;
       if (!t || dur < STUB_MAX_SEC) return;
       const live = getPlaybackPosition();
-      const best = Math.max(live, maxPosRef.current);
-      saveOrWatched(t, best, dur, "unload");
+      const best = statusRef.current === "ended" ? Math.max(live, maxPosRef.current) : live;
+      saveOrWatched(t, best, dur, pageHiddenRef.current ? "unload" : "live");
     };
   }, []);
 }

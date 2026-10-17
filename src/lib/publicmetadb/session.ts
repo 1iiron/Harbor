@@ -1,5 +1,5 @@
 import { activeProfileId, activeProfileIsPrimary } from "@/lib/active-profile-id";
-import { getSecret, setSecret } from "@/lib/secret-store";
+import { getSecret, setSecret, subscribeSecretsReady } from "@/lib/secret-store";
 import type { PmdbSession } from "./types";
 
 const BASE_KEY = "harbor.publicmetadb.session.v1";
@@ -53,6 +53,9 @@ export function resetForProfile(): void {
   cached = null;
   for (const fn of subscribers) fn();
 }
+
+// Module imports can read the session before the persisted secret store arrives.
+if (typeof window !== "undefined") subscribeSecretsReady(resetForProfile);
 
 export function getSession(): PmdbSession | null {
   ensureLoaded();

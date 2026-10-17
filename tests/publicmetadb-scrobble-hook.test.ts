@@ -1,14 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { hookHarness, flushPromises } from "./helpers/hook-harness.ts";
+import "./_localstorage-stub.ts";
+import { clearPendingResumes, listPendingResumes, recordPendingResume, syncPendingResume } from "../src/lib/publicmetadb/pending-sync.ts";
+import type { PmdbTarget } from "../src/lib/publicmetadb/types.ts";
 
-function fixture(mark: () => Promise<boolean> = async () => true) {
+function fixture(
+  mark: () => Promise<boolean> = async () => true,
+  save: () => Promise<{ action: "saved" } | null> = async () => ({ action: "saved" }),
+  resetClockOnCleanup = false,
+) {
+  clearPendingResumes();
   let now = 1_000_000;
   let position = 910;
   let marked = 0;
   let deleted = 0;
   let recorded = 0;
   const intervals = new Map<number, () => void>();
+  const timeouts = new Map<number, () => void>();
+  const listeners = new Map<string, () => void>();
+  const saves: Array<{ target: PmdbTarget; positionMs: number }> = [];
   let timerId = 0;
   const harness = hookHarness("src/lib/publicmetadb/scrobble-hook.ts", "usePublicMetaDbScrobble", {
     "@/lib/player/playback-clock": { getPlaybackPosition: () => position },
@@ -17,22 +28,34 @@ function fixture(mark: () => Promise<boolean> = async () => true) {
     "./ids": { resolvePmdbTarget: async (id: string) => ({ tmdb_id: Number(id.split(":")[2]), media_type: "movie" }) },
     "./scrobble": {
       pmdbDeleteResumeForTarget: async () => { deleted++; return true; },
-      pmdbSaveResume: async () => ({ action: "saved" }),
+      pmdbSaveResume: (target: PmdbTarget, positionMs: number) => {
+        saves.push({ target, positionMs });
+        return save();
+      },
     },
     "./history": { markPmdbWatched: () => { marked++; return mark(); } },
     "./pending-sync": {
-      recordPendingResume: () => { recorded++; return "pending"; },
-      removePendingResume: () => {},
-      pendingResumeKey: () => "pending",
+      recordPendingResume: (...args: Parameters<typeof recordPendingResume>) => {
+        recorded++;
+        return recordPendingResume(...args);
+      },
+      syncPendingResume: (...args: Parameters<typeof syncPendingResume>) => {
+        recorded++;
+        return syncPendingResume(...args);
+      },
     },
   }, {
     Date: { now: () => now },
     window: {
       setInterval: (callback: () => void) => { const id = ++timerId; intervals.set(id, callback); return id; },
-      clearInterval: (id: number) => intervals.delete(id),
-      clearTimeout: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
+      clearInterval: (id: number) => {
+        intervals.delete(id);
+        if (resetClockOnCleanup) position = 0;
+      },
+      setTimeout: (callback: () => void) => { const id = ++timerId; timeouts.set(id, callback); return id; },
+      clearTimeout: (id: number) => timeouts.delete(id),
+      addEventListener: (name: string, callback: () => void) => listeners.set(name, callback),
+      removeEventListener: (name: string) => listeners.delete(name),
     },
   });
   return {
@@ -48,6 +71,9 @@ function fixture(mark: () => Promise<boolean> = async () => true) {
       }
     },
     counts: () => ({ marked, deleted, recorded }),
+    saves,
+    setPosition: (next: number) => { position = next; },
+    pageHide: () => listeners.get("pagehide")?.(),
     unmount: () => harness.unmount(),
   };
 }
@@ -102,5 +128,78 @@ test("a new media identity can complete after the previous title completed", asy
   await flushPromises();
   await h.tick();
   assert.deepEqual(h.counts(), { marked: 2, deleted: 2, recorded: 2 });
+  h.unmount();
+});
+
+test("leaving the player online sends the final rewound position immediately", async () => {
+  const h = fixture();
+  h.setPosition(800);
+  h.render();
+  await flushPromises();
+  h.setPosition(400);
+  h.unmount();
+  await flushPromises();
+  assert.deepEqual(h.saves.map((s) => s.positionMs), [400_000]);
+  assert.equal(h.counts().marked, 0);
+  assert.equal(listPendingResumes().length, 0);
+});
+
+test("exit captures the position before passive player teardown clears the clock", async () => {
+  const h = fixture(undefined, undefined, true);
+  h.setPosition(800);
+  h.render();
+  await flushPromises();
+  h.setPosition(400);
+  h.unmount();
+  await flushPromises();
+  assert.deepEqual(h.saves.map((s) => s.positionMs), [400_000]);
+});
+
+test("page shutdown persists the rewound position without attempting a live save", async () => {
+  const h = fixture();
+  h.render();
+  await flushPromises();
+  h.setPosition(400);
+  h.pageHide();
+  h.unmount();
+  await flushPromises();
+  assert.equal(h.saves.length, 0);
+  assert.equal(h.counts().marked, 0);
+  assert.equal(listPendingResumes()[0].positionMs, 400_000);
+});
+
+test("a failed exit save remains in the outbox for replay", async () => {
+  const h = fixture(undefined, async () => null);
+  h.setPosition(400);
+  h.render();
+  await flushPromises();
+  h.unmount();
+  await flushPromises();
+  assert.equal(h.saves.length, 1);
+  assert.equal(listPendingResumes()[0].positionMs, 400_000);
+});
+
+test("natural end can complete when the playback clock resets to zero", async () => {
+  const h = fixture();
+  h.render();
+  await flushPromises();
+  h.setPosition(0);
+  h.render("ended");
+  await flushPromises();
+  assert.equal(h.counts().marked, 1);
+  h.unmount();
+});
+
+test("changing media uses the previous item's latest position after a backward seek", async () => {
+  const h = fixture();
+  h.setPosition(800);
+  h.render();
+  await flushPromises();
+  h.setPosition(400);
+  await h.tick();
+  h.setPosition(0);
+  h.render("playing", "tmdb:movie:551");
+  await flushPromises();
+  assert.deepEqual(h.saves.map((s) => [s.target.tmdb_id, s.positionMs]), [[550, 401_000]]);
   h.unmount();
 });

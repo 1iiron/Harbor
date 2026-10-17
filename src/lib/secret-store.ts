@@ -34,6 +34,7 @@ const IMMEDIATE_KEY_PREFIXES = [
   "harbor.anilist.session.v1",
   "harbor.media-server.token.v1",
   "harbor.plex-auth.device.v1",
+  "harbor.publicmetadb.session.v1",
 ];
 
 function isImmediateKey(key: string): boolean {

@@ -240,7 +240,10 @@ export async function resolvePmdbEpisodeTarget(
     episode.absoluteNumber > 0;
 
   if (!isAnime && !hasAbsNumber) {
-    const direct = stremioIdToPmdbTarget(harborId, episode, "series");
+    const direct = stremioIdToPmdbTarget(harborId, {
+      season: episode.imdbSeason ?? episode.season,
+      episode: episode.imdbEpisode ?? episode.episode,
+    }, "series");
     if (direct && (direct.season != null || direct.episode != null)) {
       return direct;
     }
@@ -252,14 +255,21 @@ export async function resolvePmdbEpisodeTarget(
     : harborId.startsWith("tmdb:tv:")
       ? Number(harborId.split(":")[2])
       : undefined;
-  const imdbId = az?.mappings?.imdb_id || (fallbackImdb && /^tt\d+$/.test(fallbackImdb) ? fallbackImdb : undefined);
+  const imdbId = az?.mappings?.imdb_id ||
+    (/^tt\d+$/.test(harborId) ? harborId : undefined) ||
+    (fallbackImdb && /^tt\d+$/.test(fallbackImdb) ? fallbackImdb : undefined);
 
-  // Look up the entry-relative episode number in az.episodes (e.g. "1" in a cour)
-  const entryEpKey = String(episode.episode);
-  const epData = az?.episodes?.[entryEpKey];
+  // Anime entry lookups use cour-relative numbers. A whole-show lookup must
+  // match season too, or S2E1 would pick the mapping for S1E1.
+  const epData = isAnime
+    ? az?.episodes?.[String(episode.episode)]
+    : Object.values(az?.episodes ?? {}).find((ep) =>
+        ep.seasonNumber === (episode.imdbSeason ?? episode.season) &&
+        ep.episodeNumber === (episode.imdbEpisode ?? episode.episode),
+      );
 
-  let season = epData?.seasonNumber ?? episode.imdbSeason ?? episode.season;
-  let number = epData?.episodeNumber ?? episode.imdbEpisode ?? episode.episode;
+  let season = episode.imdbSeason ?? epData?.seasonNumber ?? episode.season;
+  let number = episode.imdbEpisode ?? epData?.episodeNumber ?? episode.episode;
   const absNum = episode.absoluteNumber ?? epData?.absoluteEpisodeNumber;
 
   if (tmdbId != null && Number.isFinite(tmdbId)) {

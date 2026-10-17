@@ -77,12 +77,16 @@ export function listPendingResumes(): PendingResume[] {
   return load();
 }
 
-function dropPending(key: string): void {
-  save(load().filter((p) => p.key !== key));
+function sameSnapshot(a: PendingResume, b: PendingResume): boolean {
+  return (
+    a.key === b.key && a.at === b.at &&
+    a.positionMs === b.positionMs && a.runtimeMs === b.runtimeMs
+  );
 }
 
-export function removePendingResume(key: string): void {
-  dropPending(key);
+export function removePendingResume(key: string, expected?: PendingResume): void {
+  // A request can finish after the same title has newer progress in the outbox.
+  save(load().filter((p) => p.key !== key || (expected != null && !sameSnapshot(p, expected))));
 }
 
 export function recordPendingResume(
@@ -114,6 +118,29 @@ export function recordPendingResume(
 
 let flushDeps: ResumeFlushDeps | null = null;
 
+export async function syncPendingResume(
+  target: PmdbTarget,
+  positionMs: number,
+  runtimeMs: number,
+  send: () => Promise<boolean>,
+): Promise<boolean> {
+  const owner = storageKey();
+  const started = generation;
+  const at = Date.now();
+  const key = recordPendingResume(target, positionMs, runtimeMs, at);
+  if (!key) return false;
+  const snapshot = { key, target, at, positionMs: Math.round(positionMs), runtimeMs: Math.round(runtimeMs) };
+  try {
+    const ok = await send();
+    if (ok && owner === storageKey() && started === generation) {
+      removePendingResume(key, snapshot);
+    }
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function flushPendingResumes(
   deps?: ResumeFlushDeps,
 ): Promise<{ flushed: number; remaining: number }> {
@@ -131,6 +158,7 @@ export async function flushPendingResumes(
   let flushed = 0;
   for (const p of fresh) {
     if (!stillOwned()) break;
+    if (!load().some((current) => sameSnapshot(current, p))) continue;
     let ok = false;
     try {
       ok = await d.save(p.target, p.positionMs, p.runtimeMs);
@@ -140,7 +168,7 @@ export async function flushPendingResumes(
     if (!stillOwned()) break;
     if (!ok) break;
     flushed += 1;
-    dropPending(p.key);
+    removePendingResume(p.key, p);
   }
   return { flushed, remaining: load().length };
 }
