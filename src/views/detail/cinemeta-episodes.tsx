@@ -1,5 +1,3 @@
-import { useEpisodeImdbRatings } from "./use-episode-imdb-ratings";
-import { EpisodeRatingBadge } from "./episode-rating-badge";
 import { Check, ChevronDown } from "lucide-react";
 import { Play } from "@/components/icons/play-filled";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -24,6 +22,8 @@ import { EpisodeGridCard } from "./episode-grid-card";
 import type { GridEpisode, Progress } from "./episode-grid-types";
 import { EpisodeLayoutToggle } from "./episode-layout-toggle";
 import { isUpcomingDate } from "./helpers";
+import { EpisodeRatingBadge } from "./episode-rating-badge";
+import { useEpisodeImdbRatings } from "./use-episode-imdb-ratings";
 import {
   episodeNumber,
   episodeSeason,
@@ -92,10 +92,8 @@ export function CinemetaEpisodes({
     [grouped],
   );
 
-  const [active, setActive] = useState<number>(
-    () =>
-
-      resumeDefaultSeason(meta.id, seasonStats, combinedWatched, resumeSeason),
+  const [active, setActive] = useState<number>(() =>
+    resumeDefaultSeason(meta.id, seasonStats, combinedWatched, resumeSeason),
   );
   const userPickedRef = useRef(false);
 
@@ -105,10 +103,7 @@ export function CinemetaEpisodes({
 
   useEffect(() => {
     if (userPickedRef.current) return;
-    setActive(
-
-        resumeDefaultSeason(meta.id, seasonStats, combinedWatched, resumeSeason),
-    );
+    setActive(resumeDefaultSeason(meta.id, seasonStats, combinedWatched, resumeSeason));
   }, [meta.id, seasonStats, combinedWatched, resumeSeason]);
 
   const imdbRatings = useEpisodeImdbRatings(
