@@ -8,7 +8,10 @@
     powershell -File scripts/build-shipyard.ps1 -RebuildApp # force a fresh app release build
     powershell -File scripts/build-shipyard.ps1 -Channel beta   # stamp the build as beta
 
-  Or through pnpm:  pnpm shipyard   /   pnpm shipyard -- -Run
+  Or through pnpm for a plain build: pnpm shipyard. Pass switches straight through
+  (pnpm shipyard -Run), but a literal "--" reaching PowerShell is rejected as a parameter
+  name, so when in doubt call the script directly:
+  powershell -File scripts/build-shipyard.ps1 -Run
 
   The frontend stamps itself from HARBOR_CHANNEL at build time: only "stable" clears the
   Beta label the app shows in About. -Channel sets it when this script builds the app;

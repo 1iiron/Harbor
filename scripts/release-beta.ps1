@@ -7,7 +7,9 @@
     pwsh -File scripts/release-beta.ps1 -SkipApp         # reuse the existing harbor.exe
     pwsh -File scripts/release-beta.ps1 -Channel stable -Publish   # publish to the stable channel
 
-  Or through pnpm:  pnpm release:beta  /  pnpm release:stable   (add -- -Publish to publish)
+  Or through pnpm for a plain run:  pnpm release:beta  /  pnpm release:stable.
+  For -Publish or other switches call the script directly, so no literal "--" can reach
+  PowerShell:  pwsh -File scripts/release-beta.ps1 -Publish
 
   If the updater key is protected by a password, set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
   first; without it the signer stops and prompts interactively, which hangs a script.
