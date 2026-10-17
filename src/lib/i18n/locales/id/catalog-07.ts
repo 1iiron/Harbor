@@ -317,8 +317,8 @@ const catalog: Record<string, string> = {
   "Harbor Relay": "Harbor Relay",
   "Harbor Relay Documentation": "Dokumentasi Harbor Relay",
   "Harbor Relay docs": "Dokumentasi Harbor Relay",
-  "Harbor Setup did not finish updating Harbor. Nothing was changed.":
-    "Harbor Setup tidak berhasil menyelesaikan pembaruan Harbor. Tidak ada yang diubah.",
+  "Harbor Shipyard did not finish updating Harbor. Nothing was changed.":
+    "Harbor Shipyard tidak berhasil menyelesaikan pembaruan Harbor. Tidak ada yang diubah.",
   "Harbor Staff": "Staf Harbor",
   "Harbor Voyages": "Pelayaran Harbor",
   "Harbor accepted that but returned no session. Try again.":
@@ -404,7 +404,7 @@ const catalog: Record<string, string> = {
   "Harbor in your browser": "Harbor di browser Anda",
   "Harbor is an independent client. It is not affiliated with or endorsed by Stremio.":
     "Harbor adalah klien independen. Harbor tidak berafiliasi dengan atau didukung oleh Stremio.",
-  "Harbor is closing. Harbor Setup will finish and reopen it.":
+  "Harbor is closing. Harbor Shipyard will finish and reopen it.":
     "Harbor sedang ditutup. Penyiapan Harbor akan menyelesaikan prosesnya lalu membukanya kembali.",
   "Harbor is having trouble, try again in a moment":
     "Harbor mengalami masalah, coba lagi sebentar lagi",

@@ -249,6 +249,8 @@ export type Settings = {
   harborColor: string;
   anilistAutoSync: boolean;
   malAutoSync: boolean;
+  anilistCountRewatches: boolean;
+  malCountRewatches: boolean;
   anilistBlurComments: boolean;
   showAnilistComments: boolean;
   useAnilistAvatar: boolean;
@@ -277,6 +279,7 @@ export type Settings = {
   discordShowTimestamp: boolean;
   discordShowPartyJoin: boolean;
   discordMusicPresence: boolean;
+  discordHideMusicWhenPaused: boolean;
   playerEngine: "auto" | "html5" | "mpv";
   /** resize shrinks the Harbor window; native floats the video in its own window. */
   pipBehavior: "resize" | "native";

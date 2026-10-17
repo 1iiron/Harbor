@@ -189,7 +189,8 @@ async function putWithState(
         hasScheduledVideos: baseHints.hasScheduledVideos ?? false,
       },
       removed: base ? base.removed === true : false,
-      temp: base ? base.temp === true : false,
+      // Recording watched state does not create an explicit bookmark.
+      temp: base ? base.removed === true || base.temp === true : true,
       _ctime: base?._ctime ?? now,
       _mtime: now,
     };

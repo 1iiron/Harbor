@@ -34,20 +34,60 @@ fn main() {
     }
 
     if target_os == "macos" {
-        let mut prefixes: Vec<String> = Vec::new();
-        if let Ok(p) = std::env::var("HOMEBREW_PREFIX") {
-            if !p.is_empty() {
-                prefixes.push(p);
+        // Release builds must link the closure staged by
+        // `python3 scripts/macos-bundle-libmpv.py prepare`, whose libmpv already
+        // carries the @rpath install name. Linking a local Homebrew copy instead
+        // records this machine's absolute Homebrew path in the executable, which
+        // launched on the build machine and crashed on every Mac without mpv
+        // (0.9.132, issue #1533), because the post-link rewrite that used to
+        // correct it could be skipped without failing the build.
+        println!("cargo:rerun-if-env-changed=HARBOR_MACOS_LIB_DIR");
+        println!("cargo:rerun-if-env-changed=HARBOR_MACOS_FRAMEWORKS_DIR");
+        let staged = std::env::var("HARBOR_MACOS_LIB_DIR")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var("HARBOR_MACOS_FRAMEWORKS_DIR")
+                    .ok()
+                    .filter(|value| !value.is_empty())
+                    .map(|value| PathBuf::from(value).join("link"))
+            });
+        if let Some(dir) = staged {
+            if !dir.join("libmpv.dylib").exists() {
+                panic!(
+                    "no staged libmpv.dylib under {}. Run `python3 scripts/macos-bundle-libmpv.py \
+                     prepare --frameworks <dir> --config <file> --target <triple>` and point \
+                     HARBOR_MACOS_LIB_DIR at the link directory it reports.",
+                    dir.display()
+                );
             }
-        }
-        for p in ["/opt/homebrew", "/usr/local", "/opt/local"] {
-            prefixes.push(p.to_string());
-        }
-        for prefix in &prefixes {
-            for sub in ["lib", "opt/mpv/lib", "opt/libmpv/lib"] {
-                let dir = std::path::Path::new(prefix).join(sub);
-                if dir.exists() {
-                    println!("cargo:rustc-link-search=native={}", dir.display());
+            println!("cargo:rustc-link-search=native={}", dir.display());
+        } else if std::env::var("PROFILE").map_or(false, |profile| profile == "release") {
+            panic!(
+                "macOS release builds must link the staged libmpv closure. Run `python3 \
+                 scripts/macos-bundle-libmpv.py prepare --frameworks <dir> --config <file> \
+                 --target <triple>` first and set HARBOR_MACOS_LIB_DIR to the link directory it \
+                 reports, or let HARBOR_MACOS_FRAMEWORKS_DIR point at the frameworks directory. \
+                 Debug builds may still link a locally installed mpv."
+            );
+        } else {
+            // Developer builds (`tauri dev`) may link a locally installed mpv.
+            let mut prefixes: Vec<String> = Vec::new();
+            if let Ok(p) = std::env::var("HOMEBREW_PREFIX") {
+                if !p.is_empty() {
+                    prefixes.push(p);
+                }
+            }
+            for p in ["/opt/homebrew", "/usr/local", "/opt/local"] {
+                prefixes.push(p.to_string());
+            }
+            for prefix in &prefixes {
+                for sub in ["lib", "opt/mpv/lib", "opt/libmpv/lib"] {
+                    let dir = std::path::Path::new(prefix).join(sub);
+                    if dir.exists() {
+                        println!("cargo:rustc-link-search=native={}", dir.display());
+                    }
                 }
             }
         }

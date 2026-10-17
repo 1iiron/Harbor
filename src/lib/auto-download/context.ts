@@ -3,7 +3,7 @@ import {
   fetchManifestAt,
   filterEnabled,
 } from "@/lib/addon-store";
-import { torboxAddonFor, userAddons, withDebridKeys, type Addon } from "@/lib/addons";
+import { userAddons, withDebridKeys, type Addon } from "@/lib/addons";
 import { applyOrderToItems, loadDisplayOrder } from "@/lib/addons-store/reorder";
 import { buildDebridClients } from "@/lib/debrid/registry";
 import type { DebridStore } from "@/lib/debrid/types";
@@ -82,17 +82,6 @@ async function gatherStreamAddons(authKey: string | null, settings: Settings): P
     pmKey: settings.pmKey,
     dlKey: settings.dlKey,
   });
-  const torbox = torboxAddonFor(settings.tbKey);
-  if (torbox) {
-    const i = list.findIndex(
-      (a) => a.manifest.id === "app.torbox.stremio" || a.transportUrl?.includes("stremio.torbox.app"),
-    );
-    if (i >= 0) {
-      if (list[i].transportUrl !== torbox.transportUrl) list[i] = torbox;
-    } else {
-      list.push(torbox);
-    }
-  }
   // The switch holds back the extensions that have a page of their own; a plugin with no rows of
   // its own is asked either way, which is why only the first is required here.
   if (settings.pluginsEnabled && settings.pluginsBackground) {

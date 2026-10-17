@@ -298,7 +298,7 @@ const coverage: Record<string, string> = {
   "Harbor Rank": "Harbor Rank",
   "Harbor couldn't reach MyAnimeList or AniList. Check the connection and reopen Big Picture.":
     "Harbor non è riuscito a contattare MyAnimeList o AniList. Controlla la connessione e riapri Big Picture.",
-  "Harbor is closing. Harbor Setup will finish and reopen it.":
+  "Harbor is closing. Harbor Shipyard will finish and reopen it.":
     "Harbor si sta chiudendo. Il programma di installazione completerà l'operazione e riaprirà Harbor.",
   "Harbor never hosts your books or source files.":
     "Harbor non ospita mai i tuoi libri né i file sorgente.",

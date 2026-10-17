@@ -200,8 +200,8 @@ const catalogGI: Record<string, string> = {
   "Harbor Relay": "Harbor Relay",
   "Harbor Relay Documentation": "Harbor Relay दस्तावेज़",
   "Harbor Relay docs": "Harbor Relay दस्तावेज़",
-  "Harbor Setup did not finish updating Harbor. Nothing was changed.":
-    "Harbor Setup Harbor का अपडेट पूरा नहीं कर पाया। कुछ भी नहीं बदला गया।",
+  "Harbor Shipyard did not finish updating Harbor. Nothing was changed.":
+    "Harbor Shipyard Harbor का अपडेट पूरा नहीं कर पाया। कुछ भी नहीं बदला गया।",
   "Harbor Staff": "Harbor स्टाफ़",
   "Harbor Voyages": "Harbor की यात्राएँ",
   "Harbor accepted that but returned no session. Try again.":
@@ -282,8 +282,8 @@ const catalogGI: Record<string, string> = {
   "Harbor in your browser": "आपके ब्राउज़र में Harbor",
   "Harbor is an independent client. It is not affiliated with or endorsed by Stremio.":
     "Harbor एक स्वतंत्र क्लाइंट है। यह Stremio से संबद्ध नहीं है और न ही उसके द्वारा अनुमोदित है।",
-  "Harbor is closing. Harbor Setup will finish and reopen it.":
-    "Harbor बंद हो रहा है। Harbor Setup प्रक्रिया पूरी करके इसे फिर से खोलेगा।",
+  "Harbor is closing. Harbor Shipyard will finish and reopen it.":
+    "Harbor बंद हो रहा है। Harbor Shipyard प्रक्रिया पूरी करके इसे फिर से खोलेगा।",
   "Harbor is having trouble, try again in a moment":
     "Harbor में समस्या आ रही है, कुछ देर बाद फिर कोशिश करें",
   "Harbor is open source. PRs that reference a bug get reviewed within 48h and ship with credit in the release notes.":

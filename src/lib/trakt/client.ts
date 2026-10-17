@@ -30,19 +30,41 @@ function baseHeaders(): HeadersInit {
   };
 }
 
+/**
+ * The Harbor token proxy is not Trakt: it only accepts `Content-Type` (anything else
+ * fails its CORS preflight, which silently killed every refresh while the device-token
+ * login, which sends just this header, kept working).
+ */
+function proxyHeaders(): HeadersInit {
+  return { "Content-Type": "application/json" };
+}
+
 async function refreshAccessToken(): Promise<TraktSession | null> {
   const current = getSession();
   if (!current) return null;
-  const res = await fetch(TRAKT_TOKEN_PROXY, {
-    method: "POST",
-    headers: baseHeaders(),
-    body: JSON.stringify({
-      refresh_token: current.refreshToken,
-      grant_type: "refresh_token",
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(TRAKT_TOKEN_PROXY, {
+      method: "POST",
+      headers: proxyHeaders(),
+      body: JSON.stringify({
+        refresh_token: current.refreshToken,
+        grant_type: "refresh_token",
+      }),
+    });
+  } catch {
+    // A transport failure says nothing about the grant, so the stored session stays.
+    return null;
+  }
   if (!res.ok) {
-    setSession(null);
+    // Only Trakt's own refusal ends the connection. A proxy hiccup, a rate limit or a
+    // server error must not sign the listener out of their tracker and lose the
+    // refresh token, which is the only thing that can restore it silently.
+    if (res.status === 400 || res.status === 401 || res.status === 403) {
+      // A refresh token rotates on every use: a rejection means this one is spent.
+      const latest = getSession();
+      if (latest?.refreshToken === current.refreshToken) setSession(null);
+    }
     return null;
   }
   const data = (await res.json()) as {

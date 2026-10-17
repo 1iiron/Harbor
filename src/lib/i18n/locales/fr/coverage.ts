@@ -264,8 +264,8 @@ const coverage: Record<string, string> = {
   "Harbor found episode sources, but none was a downloadable package for {season}. Try another addon or refresh the sources.":
     "Harbor a trouvé des sources pour les épisodes, mais aucune ne proposait de fichier téléchargeable pour {season}. Essayez une autre extension ou actualisez les sources.",
   "Harbor in a browser": "Harbor dans un navigateur",
-  "Harbor is closing. Harbor Setup will finish and reopen it.":
-    "Harbor va se fermer. Harbor Setup terminera l’installation, puis relancera Harbor.",
+  "Harbor is closing. Harbor Shipyard will finish and reopen it.":
+    "Harbor va se fermer. Harbor Shipyard terminera l’installation, puis relancera Harbor.",
   "Harbor {version} downloaded but did not install on its own.":
     "Harbor {version} a été téléchargé, mais ne s’est pas installé automatiquement.",
   "Harbor's full video engine. Plays anything you throw at it.":

@@ -97,7 +97,14 @@ export function playbackPersistenceHarness(kind: "local" | "cloud" = "local") {
     skipIdentityResolution() { dependencies.animeIdentityEligible = () => false; },
     switchTrackerSession() { trackerSession = {}; },
     enableAnimeSync() {
-      dependencies.useSettings = () => ({ settings: { anilistAutoSync: true, malAutoSync: true } });
+      dependencies.useSettings = () => ({
+        settings: {
+          anilistAutoSync: true,
+          malAutoSync: true,
+          anilistCountRewatches: true,
+          malCountRewatches: true,
+        },
+      });
       dependencies.animeIdentityEligible = () => true;
       dependencies.resolveAnimeIdentity = async (...args: any[]) => { identityRequests.push(args); return { kitsuId: 99, number: args[2].episode }; };
       dependencies.syncAnimeProgress = (...args: any[]) => trackerProgress.push(["anilist", ...args]);

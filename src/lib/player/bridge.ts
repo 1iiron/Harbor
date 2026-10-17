@@ -29,6 +29,7 @@ export type TrackInfo = {
   release?: string;
   provider?: string;
   providerDerived?: boolean;
+  localTrusted?: boolean;
   fps?: number;
   downloads?: number;
   author?: string;

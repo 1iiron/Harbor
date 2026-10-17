@@ -195,13 +195,13 @@ const system: Record<string, string> = {
   "This doesn't look like a Harbor plugin repo. Harbor expects a JSON file shaped { name, plugins: [ ... ] }.":
     "这似乎不是 Harbor 插件仓库。Harbor 需要结构为 { name, plugins: [ ... ] } 的 JSON 文件。",
   "https:// API or site URL": "https:// API 或网站 URL",
-  "This one also replaces Harbor's bundled players and tools, so it installs through Harbor Setup. Harbor closes, the installer finishes, then Harbor reopens.":
-    "此更新还会替换 Harbor 内置的播放器和工具，因此需要通过 Harbor Setup 安装。Harbor 会关闭，安装程序完成后将重新打开 Harbor。",
+  "This one also replaces Harbor's bundled players and tools, so it installs through Harbor Shipyard. Harbor closes, the installer finishes, then Harbor reopens.":
+    "此更新还会替换 Harbor 内置的播放器和工具，因此需要通过 Harbor Shipyard 安装。Harbor 会关闭，安装程序完成后将重新打开 Harbor。",
   "Install and reopen": "安装并重新打开",
-  "Harbor is closing. Harbor Setup will finish and reopen it.":
-    "Harbor 正在关闭。Harbor Setup 完成安装后会重新打开 Harbor。",
-  "Harbor Setup did not finish updating Harbor. Nothing was changed.":
-    "Harbor Setup 未能完成 Harbor 更新。未进行任何更改。",
+  "Harbor is closing. Harbor Shipyard will finish and reopen it.":
+    "Harbor 正在关闭。Harbor Shipyard 完成安装后会重新打开 Harbor。",
+  "Harbor Shipyard did not finish updating Harbor. Nothing was changed.":
+    "Harbor Shipyard 未能完成 Harbor 更新。未进行任何更改。",
   "Failed to load": "加载失败",
   "{shown} of {total} file from your computer": "已显示电脑中的 {shown}/{total} 个文件",
   "Failed to create thread": "创建主题失败",

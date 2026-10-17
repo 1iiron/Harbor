@@ -728,8 +728,8 @@ const catalog05: Record<string, string> = {
   "Harbor Relay": "Harbor Relay",
   "Harbor Relay Documentation": "Dokumentacja Harbor Relay",
   "Harbor Relay docs": "Dokumentacja Harbor Relay",
-  "Harbor Setup did not finish updating Harbor. Nothing was changed.":
-    "Harbor Setup nie ukończył aktualizacji Harbor. Nie wprowadzono żadnych zmian.",
+  "Harbor Shipyard did not finish updating Harbor. Nothing was changed.":
+    "Harbor Shipyard nie ukończył aktualizacji Harbor. Nie wprowadzono żadnych zmian.",
   "Harbor Staff": "Zespół Harbor",
   "Harbor Voyages": "Harbor Voyages",
 };
