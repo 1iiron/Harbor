@@ -75,6 +75,12 @@ import { useTrakt } from "@/lib/trakt/provider";
 import { buildTraktHomeRows } from "@/lib/trakt/home-rails";
 import { fetchWatchedKeySet } from "@/lib/trakt/history";
 import { peekTraktWatched } from "@/lib/trakt/watched-keys";
+import { usePublicMetaDb } from "@/lib/publicmetadb/provider";
+import {
+  loadPmdbTitleWatchedKeys,
+  peekPmdbWatched,
+  rememberPmdbWatched,
+} from "@/lib/publicmetadb/watched-keys";
 import { recentlyPlayed, subscribePlayback, type WatchedSet } from "@/lib/playback-history";
 import { collapseWatchedKeys, isTitleWatched } from "@/lib/watched-title";
 import { useWatchedFlagIds } from "@/lib/watched-flag";
@@ -147,9 +153,11 @@ export function Home({
   const [simklRows, setSimklRows] = useState<HomeRow[]>([]);
   const [letterboxdRows, setLetterboxdRows] = useState<HomeRow[]>([]);
   const externalCw = useExternalCw(
-    !hideSharedCw && (settings.cwSources.trakt || settings.cwSources.simkl),
+    !hideSharedCw &&
+      (settings.cwSources.trakt || settings.cwSources.simkl || settings.cwSources.publicmetadb),
   );
   const [traktWatched, setTraktWatched] = useState<Set<string>>(() => peekTraktWatched());
+  const [pmdbWatched, setPmdbWatched] = useState<Set<string>>(() => peekPmdbWatched());
   const [simklWatchedMap, setSimklWatchedMap] = useState<Map<string, Set<string>>>(() =>
     peekSimklWatchedMap(),
   );
@@ -175,6 +183,7 @@ export function Home({
   const [addonsTick, setAddonsTick] = useState(0);
   const [buildTick, setBuildTick] = useState(0);
   const { isConnected: traktConnected, session: traktSession } = useTrakt();
+  const { isConnected: pmdbConnected } = usePublicMetaDb();
   const { isConnected: simklConnected } = useSimkl();
   const { isConnected: anilistConnected } = useAnilist();
   const letterboxd = useLetterboxd();
@@ -391,6 +400,32 @@ export function Home({
       cancelled = true;
     };
   }, [uiLang, settings.homeMode, settings.tmdbKey, settings.tmdbLanguage]);
+
+  // PMDB keys arrive Trakt-shaped (see watched-keys.ts), so one merged set
+  // serves both the catalog truncation and the CW full-key check.
+  const watchedSetCombined = useMemo(
+    () => new Set([...traktWatched, ...pmdbWatched]),
+    [traktWatched, pmdbWatched],
+  );
+
+  useEffect(() => {
+    if (!pmdbConnected) {
+      setPmdbWatched(new Set());
+      return;
+    }
+    let cancelled = false;
+    loadPmdbTitleWatchedKeys()
+      .then((set) => {
+        if (!cancelled) {
+          setPmdbWatched(set);
+          rememberPmdbWatched(set);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [pmdbConnected, activeProfile?.id]);
 
   useEffect(() => {
     if (!traktConnected) {
@@ -1231,7 +1266,7 @@ export function Home({
           <CWSection
             signedIn={!!authKey}
             items={cwItems}
-            watchedSet={traktWatched}
+            watchedSet={watchedSetCombined}
             onDismiss={onDismissCw}
           />
         )}
@@ -1431,7 +1466,7 @@ export function Home({
               onDeleteCustomSource={handleDeleteCustomSource}
               onEditFolderImages={handleEditFolderImages}
               hideWatched={settings.hideWatchedInCatalogs}
-              watchedSet={traktWatched}
+              watchedSet={watchedSetCombined}
               localWatched={localWatched}
               stremioWatched={stremioWatchedIds}
               homeLanguages={settings.homeLanguages}

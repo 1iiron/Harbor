@@ -87,6 +87,7 @@ test("Cinemeta episode grids restore the saved season after recreation", () => {
 
 test("TMDB season picker restores and persists selections across detail recreation", () => {
   const SeasonArcPicker = () => null;
+  const pmdbWatched = new Set(["1:1"]);
   const react = {
     useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
     useEffect: () => {},
@@ -118,6 +119,7 @@ test("TMDB season picker restores and persists selections across detail recreati
     },
     "@/lib/trakt/provider": { useTrakt: () => ({ isConnected: false }) },
     "@/lib/simkl/provider": { useSimkl: () => ({ isConnected: false }) },
+    "@/lib/publicmetadb/provider": { usePublicMetaDb: () => ({ isConnected: true }) },
     "@/lib/i18n": { useT: () => (value) => value },
     "@/lib/manual-watched": {
       manualEpisodeKeys: () => ({ watched: new Set(), unwatched: new Set() }),
@@ -145,7 +147,10 @@ test("TMDB season picker restores and persists selections across detail recreati
       preferredVideoOverview: () => null,
     },
     "./series-episodes/use-watched-sets": {
-      useWatchedSets: () => ({ traktWatched: new Set(), simklWatched: new Set() }),
+      useWatchedSets: ({ pmdbConnected }) => {
+        assert.equal(pmdbConnected, true);
+        return { traktWatched: new Set(), simklWatched: new Set(), pmdbWatched };
+      },
     },
     "./series-episodes/use-episode-enrich": {
       useEpisodeEnrich: () => ({ episodes: [], imdbRatings: new Map(), preferredVideos: new Map() }),
@@ -157,7 +162,10 @@ test("TMDB season picker restores and persists selections across detail recreati
     "./series-episodes/use-episode-order": { useEpisodeOrder: () => null },
     "./series-episodes/use-tvdb-season-types": { useTvdbSeasonTypes: () => [] },
     "./series-episodes/use-episode-progress-map": {
-      useEpisodeProgressMap: () => ({ progressByEp: new Map(), spoilerFor: () => null, allWatched: false }),
+      useEpisodeProgressMap: (args) => {
+        assert.equal(args.pmdbWatched, pmdbWatched);
+        return { progressByEp: new Map(), spoilerFor: () => null, allWatched: false };
+      },
     },
     "./series-episodes/use-mark-season": { useMarkSeason: () => () => {} },
     "./series-episodes/season-arc-picker": { SeasonArcPicker },

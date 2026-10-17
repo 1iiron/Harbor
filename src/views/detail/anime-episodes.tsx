@@ -11,6 +11,9 @@ import { fetchWatchedKeySet } from "@/lib/trakt/history";
 import { useTrakt } from "@/lib/trakt/provider";
 import { useAnilistWatched } from "@/lib/anilist/use-anilist-watched";
 import { useMalWatched } from "@/lib/mal/use-mal-watched";
+import { usePublicMetaDb } from "@/lib/publicmetadb/provider";
+import { fetchPmdbWatchedKeySet } from "@/lib/publicmetadb/history";
+import { resolvePmdbTarget } from "@/lib/publicmetadb/ids";
 import { EpisodeWatchedMenu, type WatchedMenuTarget } from "@/components/episode-watched-menu";
 import { manualWatchedVersion, subscribeManualWatched } from "@/lib/manual-watched";
 import { useT } from "@/lib/i18n";
@@ -155,6 +158,29 @@ export function AnimeEpisodes({
     trackId ?? meta.id,
     episodes,
   );
+  const { isConnected: pmdbConnected } = usePublicMetaDb();
+  const [pmdbWatched, setPmdbWatched] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    if (!pmdbConnected) {
+      setPmdbWatched(new Set());
+      return;
+    }
+    let cancelled = false;
+    resolvePmdbTarget(meta.id, "series")
+      .then((target) => (target ?? (trackId ? resolvePmdbTarget(trackId, "series") : null)))
+      .then((target) => {
+        if (cancelled) return;
+        return fetchPmdbWatchedKeySet(target ?? undefined);
+      })
+      .then((set) => {
+        if (!cancelled && set) setPmdbWatched(set);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [pmdbConnected, meta.id, trackId]);
   // Split-franchise sequels (TYBW, Stone Wars, …) render standalone: only the
   // opened entry's episodes, no sibling pooling, no whole-series TVDB buckets.
   const [rootEntryId, setRootEntryId] = useState<string | null>(() => franchiseRootSync(meta.id));
@@ -202,6 +228,7 @@ export function AnimeEpisodes({
     traktWatched,
     anilistWatched,
     malWatched,
+    pmdbWatched,
     mwVersion,
   });
   // Preferred season must stay reactive to watched-data arrival (trakt/AniList/MAL
@@ -464,9 +491,18 @@ export function AnimeEpisodes({
     episode: number,
     watched: boolean,
     sourceMetaId?: string,
+    absoluteNumber?: number,
   ) => {
     e.preventDefault();
-    setWatchedMenu({ x: e.clientX, y: e.clientY, season, episode, watched, metaId: sourceMetaId });
+    setWatchedMenu({
+      x: e.clientX,
+      y: e.clientY,
+      season,
+      episode,
+      watched,
+      metaId: sourceMetaId,
+      absoluteNumber,
+    });
   };
 
   const { progressFor, nextUpNum, nextUpId, spoilerFor, allWatched } = useAnimeProgressMap({
@@ -477,6 +513,7 @@ export function AnimeEpisodes({
     traktWatched,
     anilistWatched,
     malWatched,
+    pmdbWatched,
     entrySourceId: displaySourceId,
     entryAnilistWatched,
     entryMalWatched,
@@ -765,6 +802,7 @@ export function AnimeEpisodes({
               season: ep.seasonNumber ?? 1,
               episode: ep.number,
               released: ep.airdate ?? null,
+              absoluteNumber: ep.absoluteNumber,
             }))}
           onClose={() => setWatchedMenu(null)}
         />

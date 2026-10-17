@@ -519,7 +519,13 @@ export type Settings = {
   showSimklCard: boolean;
   showLetterboxdCard: boolean;
   externalContinueWatching: boolean;
-  cwSources: { library: boolean; trakt: boolean; simkl: boolean; local: boolean };
+  cwSources: {
+    library: boolean;
+    trakt: boolean;
+    simkl: boolean;
+    local: boolean;
+    publicmetadb: boolean;
+  };
   showPlaylistsTab: boolean;
   skipProfileScreen: boolean;
   profilePromptInterval: "launch" | "15m" | "30m" | "never";
@@ -685,6 +691,7 @@ export type Settings = {
   simklScrobbleEnabled: boolean;
   /** Preferred language for anime titles across the app (cards, picker, presence). */
   animeTitleLanguage: "english" | "romaji" | "native";
+  publicmetadbScrobbleEnabled: boolean;
   weekStartsMonday: boolean;
   calendarPosterSize: CalendarPosterSize;
   customCalendar: {
