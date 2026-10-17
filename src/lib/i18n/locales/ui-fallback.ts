@@ -1,5 +1,14 @@
 // Newly introduced UI copy remains usable until each locale provides an override.
 const uiFallback: Record<string, string> = {
+  "Rewatching on AniList": "Rewatching on AniList",
+  "Rewatched on AniList": "Rewatched on AniList",
+  "Rewatching on MyAnimeList": "Rewatching on MyAnimeList",
+  "Rewatched on MyAnimeList": "Rewatched on MyAnimeList",
+  "Count AniList rewatches": "Count AniList rewatches",
+  "Count MyAnimeList rewatches": "Count MyAnimeList rewatches",
+  "Watching an anime you already finished marks it as Rewatching and counts the rewatch, instead of resetting your progress.":
+    "Watching an anime you already finished marks it as Rewatching and counts the rewatch, instead of resetting your progress.",
+  "Turn on Sync watch progress first.": "Turn on Sync watch progress first.",
   "Big Picture display": "Big Picture display",
   "Which monitor Big Picture opens on at startup.":
     "Which monitor Big Picture opens on at startup.",
