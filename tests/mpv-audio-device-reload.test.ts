@@ -90,3 +90,16 @@ test("refocus reload waits for a long absence and removes both listeners on disp
     assert.ok(mpv.includes(`window.removeEventListener("${event}", ${callback})`));
   }
 });
+
+test("the reload continuation bails when the media moved on underneath it", () => {
+  assert.match(schedule, /const reloadLoadId = mediaLoadId;/);
+  assert.match(schedule, /const stillCurrent = \(\) =>/);
+  assert.match(schedule, /if \(!stillCurrent\(\)\) return;/);
+  // A user seek during the reload must suppress the resync re-seek.
+  assert.match(schedule, /lastUserSeekAt <= reloadBeganAt/);
+});
+
+test("an adopted retained session treats its first device list as a change", () => {
+  assert.match(mpv, /let adoptedRetainedSession = false;/);
+  assert.match(mpv, /if \(adoptedRetainedSession\) \{\s*scheduleAudioDeviceReload\(\);/);
+});

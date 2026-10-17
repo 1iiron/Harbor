@@ -284,6 +284,12 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
   let expectedMediaPath: string | null = null;
   let observedMediaPath: string | null = null;
   let mediaRevision = 0;
+  // A session adopted across player teardown never replays its initial audio
+  // device enumeration, so its first list event is a change, not a baseline.
+  let adoptedRetainedSession = false;
+  // Timestamp of the last user-issued seek, so an in-flight output reload does
+  // not re-seek (and rewind) after the viewer's own seek.
+  let lastUserSeekAt = 0;
   let suppressEndFileUntil = 0;
   let svpFilterFailed = false;
   let secondarySid: string | null = null;
@@ -605,12 +611,22 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       // is churn, not a device change, and must not force the output reload.
       if (!mustReload && observedAudioDeviceListSig === lastAudioDeviceListSig) return;
       lastAudioDeviceListSig = observedAudioDeviceListSig;
+      // The reload outlives its media: playback can move to another episode (or
+      // fail) while an await is in flight, so the continuation bails unless the
+      // same load is still playing.
+      const reloadLoadId = mediaLoadId;
+      const reloadRevision = mediaRevision;
+      const reloadBeganAt = Date.now();
+      const stillCurrent = () =>
+        mpvStarted && reloadLoadId === mediaLoadId && reloadRevision === mediaRevision;
       void (async () => {
         // Remember the selected audio track so we can restore it after the
         // output reload deselects it (mpv drops the track on ao init failure).
         const prevAid = snap.audioTracks.find((t) => t.selected)?.id ?? null;
         await applyAudioDevice(appliedAudioDevice ?? "auto").catch(() => {});
+        if (!stillCurrent()) return;
         await invoke("mpv_command", { cmd: ["ao-reload"] }).catch(() => {});
+        if (!stillCurrent()) return;
         if (prevAid) {
           await invoke("mpv_set_property", { name: "aid", value: prevAid }).catch(() => {});
         }
@@ -618,16 +634,23 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         // an output reload re-anchors playback to the head of that buffer —
         // that far ahead of video — so mpv holds audio ("delaying audio start")
         // while video plays on silently. A same-position exact seek restarts
-        // A/V in sync immediately.
+        // A/V in sync immediately. Skip it when the viewer seeks during the
+        // reload, or the resync would rewind the seek already in flight.
         if (
+          stillCurrent() &&
           snap.audioNormalize &&
           !currentIsLive &&
+          lastUserSeekAt <= reloadBeganAt &&
           (snap.status === "playing" || snap.status === "paused")
         ) {
           const pos = await invoke<number | null>("mpv_get_property", {
             name: "time-pos",
           }).catch(() => null);
-          if (typeof pos === "number" && Number.isFinite(pos)) {
+          if (
+            typeof pos === "number" &&
+            Number.isFinite(pos) &&
+            lastUserSeekAt <= reloadBeganAt
+          ) {
             invoke("mpv_command", { cmd: ["seek", pos, "absolute+exact"] }).catch(() => {});
           }
         }
@@ -711,8 +734,14 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         } else if (sig !== observedAudioDeviceListSig) {
           observedAudioDeviceListSig = sig;
           if (lastAudioDeviceListSig == null) {
-            // First enumeration: nothing to compare against yet.
-            lastAudioDeviceListSig = sig;
+            // First enumeration after we started mpv is the baseline. A session
+            // adopted across player teardown never replays that enumeration, so
+            // its first event is a real change and must reload instead.
+            if (adoptedRetainedSession) {
+              scheduleAudioDeviceReload();
+            } else {
+              lastAudioDeviceListSig = sig;
+            }
           } else if (sig !== lastAudioDeviceListSig) {
             scheduleAudioDeviceReload();
           }
@@ -934,6 +963,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         retainedMpv.isLive === nextIsLive
       ) {
         mpvStarted = true;
+        adoptedRetainedSession = true;
         currentIsLive = nextIsLive;
         currentStartupProfile = nextStartupProfile;
         retainedMpv = null;
@@ -1048,6 +1078,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         preparedSubtitleCleanups.clearBefore(activeLoadId);
         markPlaybackTrace(activeTraceId, "loadfile-accepted");
         mpvStarted = true;
+        adoptedRetainedSession = false;
         currentIsLive = nextIsLive;
         currentStartupProfile = nextStartupProfile;
         void addSeedSubtitles(src.subtitles, activeLoadId);
@@ -1073,6 +1104,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       invoke("mpv_set_property", { name: "pause", value: true }).catch(() => {});
     },
     seek(sec, precision: PlayerSeekPrecision = "exact") {
+      lastUserSeekAt = Date.now();
       snap.subText = "";
       snap.subStartSec = 0;
       snap.secondarySubText = "";
