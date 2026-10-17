@@ -254,7 +254,9 @@ export function useAnimeTvdbPanel(
       const entryRowsByNumber = new Map<number, KitsuEpisode>();
       if (seasonEntry) {
         for (const p of pool) {
-          if (p.sourceMetaId !== seasonEntry.meta.id || p.number == null) continue;
+          // Anchor rows of the entry itself carry no sourceMetaId; they belong
+          // to the current meta and must still match their own season entry.
+          if ((p.sourceMetaId ?? metaId) !== seasonEntry.meta.id || p.number == null) continue;
           if (!entryRowsByNumber.has(p.number)) entryRowsByNumber.set(p.number, p);
         }
       }
@@ -424,7 +426,7 @@ export function useAnimeTvdbPanel(
     }
     if (items.length === 0) return null;
     return { items, subset, pool };
-  }, [ordering, episodes, franchiseEpisodes, extrasLabel, franchise, foreignSeasons, imdbId]);
+  }, [ordering, episodes, franchiseEpisodes, extrasLabel, franchise, foreignSeasons, imdbId, metaId]);
 
   useEffect(() => {
     if (!ordering) return;

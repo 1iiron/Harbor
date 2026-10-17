@@ -82,6 +82,28 @@ const ordering = {
   imageByAbs: new Map(),
 };
 
+// The sequel cour opened directly: its own pool rows carry no sourceMetaId.
+// TVDB dated only the first episode while the pool knows E2-4 air in the future.
+const anchorPool: any[] = [];
+for (let n = 1; n <= 13; n++) {
+  const az = aniZipMeta[n];
+  anchorPool.push(row({
+    id: n, number: n,
+    title: n === 1 ? "The Battle Begins" : `Episode ${n}`,
+    airdate: az ? az.air : null,
+    imdbSeason: az ? 2 : undefined,
+    imdbEpisode: az ? n : undefined,
+    absoluteNumber: az ? az.abs : undefined,
+    tvdbEpisodeId: az ? az.tvdbId : undefined,
+    rating: undefined,
+  }, null));
+}
+anchorPool.push(row({ id: 101, number: 170, imdbSeason: 1, imdbEpisode: 170, absoluteNumber: 170 }, "kitsu:13209"));
+const anchorOrdering = {
+  ...ordering,
+  bySeason: new Map([[2, tvdbRows.map((e) => (e.episodeNumber === 1 ? e : { ...e, airDate: null }))]]),
+};
+
 // Pre-seed useState in call order: seriesId, ordering, orderTypes, activeType,
 // sel, touched, resolved, foreignSeasons.
 const states: any[] = [
@@ -162,4 +184,24 @@ test("an ongoing TVDB season rates only its aired episodes", () => {
   }
   assert.equal(rows[1].airdate, day(6), "dated rows keep their air date");
   assert.equal(rows[4].airdate, null, "undated rows stay undated rather than faking aired");
+});
+
+test("the season still binds when the anchor rows carry no source of their own", () => {
+  // The sequel cour is opened directly: the pool's own rows are unmarked while
+  // the TVDB rows lost their dates, so only the entry's own rows can fill them.
+  states[1] = anchorOrdering;
+  call = 0;
+  const result = useAnimeTvdbPanel(
+    50024, "tt7441658", [], "default", "", true, anchorPool, undefined, "2", franchise, "kitsu:50024",
+  );
+  assert.ok(result.panel, "panel should resolve");
+  const rows = result.panel.visibleEpisodes;
+  assert.equal(rows.length, 13);
+  assert.equal(rows[0].rating, 7.8, "the aired episode keeps its IMDb rating");
+  assert.equal(rows[1].airdate, day(6), "the pool's own air date fills the undated TVDB row");
+  assert.equal(rows[2].airdate, day(13), "later pool dates fill in too");
+  for (const ep of rows.slice(1)) {
+    assert.equal(ep.rating, undefined, `E${ep.number} must have no rating`);
+    assert.equal(ep.ratingIsImdb, undefined, `E${ep.number} must not be marked imdb`);
+  }
 });
