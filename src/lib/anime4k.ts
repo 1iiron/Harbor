@@ -22,9 +22,9 @@ let packRepair: Promise<void> | null = null;
 export function anime4kPackComplete(): Promise<boolean> {
   packCheck ??= anime4kDir()
     .then(Boolean)
-    // A failed probe must not hold playback back; the repair pass below reports
-    // the real state anyway.
-    .catch(() => true);
+    // A failed probe must not claim a complete pack: reporting incomplete lets
+    // the repair pass re-check and top up whatever is missing.
+    .catch(() => false);
   return packCheck;
 }
 

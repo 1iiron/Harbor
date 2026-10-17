@@ -97,10 +97,17 @@ async function animeEntryFollowUp(
     const cacheKey = `anime-entry:${id}`;
     const cached = listCache.get(cacheKey);
     if (cached !== undefined) return cached;
-    const fetched = await fetchEpisodeList(
-      { id, type: "series", name: item.name } as Meta,
-      { tmdbKey },
-    ).catch(() => []);
+    let fetched: PlayEpisode[] = [];
+    try {
+      fetched = await fetchEpisodeList(
+        { id, type: "series", name: item.name } as Meta,
+        { tmdbKey },
+      );
+    } catch {
+      // A transient failure must stay retryable: caching the empty result would
+      // disable the sequel fallback for this entry for the whole session.
+      return [];
+    }
     listCache.set(cacheKey, fetched);
     return fetched;
   };

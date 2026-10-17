@@ -35,6 +35,31 @@ function writeKey(key: string, map: Record<string, string>): void {
   }
 }
 
+// v1 mixed play-time and detail-page mappings; carry its catalog → anime
+// mappings into the canonical map once so an upgrade does not orphan every
+// previously recorded row.
+const LEGACY_KEY = "harbor.anime-cw-ids.v1";
+if (typeof localStorage !== "undefined") {
+  try {
+    const legacy = localStorage.getItem(LEGACY_KEY);
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as Record<string, string>;
+      const current = readKey(KEY);
+      let changed = false;
+      for (const [catalogId, animeId] of Object.entries(parsed ?? {})) {
+        if (!CATALOG_ID.test(catalogId) || !ANIME_SCHEME.test(animeId)) continue;
+        if (current[catalogId] != null) continue;
+        current[catalogId] = animeId;
+        changed = true;
+      }
+      if (changed) writeKey(KEY, current);
+      localStorage.removeItem(LEGACY_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 function record(key: string, catalogId: string, animeId: string): void {
   if (!CATALOG_ID.test(catalogId) || !ANIME_SCHEME.test(animeId)) return;
   const map = readKey(key);

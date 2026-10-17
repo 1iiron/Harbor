@@ -65,7 +65,7 @@ export async function resolveCwAnimePlayEpisode(
     imdbEpisode: azEp?.episodeNumber ?? query.imdbEpisode,
     absoluteNumber: azEp?.absoluteEpisodeNumber ?? query.absoluteNumber ?? undefined,
     tvdbEpisodeId: azEp?.tvdbId,
-    airDate: azEp?.airDate ?? query.airDate ?? undefined,
+    airDate: azEp?.airDate ?? azEp?.airdate ?? query.airDate ?? undefined,
     runtime: azEp?.runtime,
   };
 }
