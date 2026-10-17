@@ -1,6 +1,6 @@
 import { X, Loader2, CornerDownLeft, CalendarRange, Tag } from "lucide-react";
 import { Search } from "@/components/icons/search-icon";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
 import { TvModalClose } from "@/components/tv-modal-close";
@@ -66,6 +66,8 @@ export function SearchOverlay() {
   } = useSearch();
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const resultsBodyRef = useRef<HTMLDivElement>(null);
+  const scrollMemory = useRef({ key: "", top: 0 });
   const backdropGesture = useRef<(() => void) | null>(null);
   const { openFilter, openMeta, openPerson, setView } = useView();
   const [explore, setExplore] = useState<ExploreFrame[]>([]);
@@ -83,6 +85,16 @@ export function SearchOverlay() {
   }, [query]);
   const { mounted, closing } = useExitPresence(open, 150);
   const fullscreen = useWindowFullscreen();
+  // The exit animation unmounts the panel; retain its position outside that DOM.
+  const scrollKey = JSON.stringify([activeProfile?.id, query, mediaFilter, aiMode, explore]);
+  useLayoutEffect(() => {
+    if (scrollMemory.current.key !== scrollKey) {
+      scrollMemory.current = { key: scrollKey, top: 0 };
+    }
+    if (mounted && resultsBodyRef.current) {
+      resultsBodyRef.current.scrollTop = scrollMemory.current.top;
+    }
+  }, [mounted, scrollKey]);
 
   useEffect(
     () => () => backdropGesture.current?.(),
@@ -113,7 +125,7 @@ export function SearchOverlay() {
     if (!open) return;
     const prevFocused =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const id = window.setTimeout(() => inputRef.current?.focus(), 30);
+    const id = window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 30);
     document.body.style.overflow = "hidden";
     return () => {
       window.clearTimeout(id);
@@ -433,7 +445,15 @@ export function SearchOverlay() {
             )}
           </div>
 
-          <div className="harbor-search-body relative isolate min-h-0 overflow-x-hidden overflow-y-auto px-7 py-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div
+            ref={resultsBodyRef}
+            onScroll={(event) => {
+              if (open && !closing && scrollMemory.current.key === scrollKey) {
+                scrollMemory.current.top = event.currentTarget.scrollTop;
+              }
+            }}
+            className="harbor-search-body relative isolate min-h-0 overflow-x-hidden overflow-y-auto px-7 py-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
             {storeQuery !== null ? <Suspense fallback={<p role="status">{t("common.loading")}</p>}><SteamStoreSearch key={activeProfile?.id ?? "default"} profile={activeProfile?.id ?? "default"} query={storeQuery} active={open&&!closing} onAction={()=>recordRecent(query)}/></Suspense> : explore.length > 0 ? (
               <ExplorePane
                 key={explore.length}

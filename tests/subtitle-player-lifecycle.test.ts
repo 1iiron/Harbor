@@ -260,6 +260,11 @@ test("moviehash enrichment is independent of timing autosync and uses the late-u
   assert.match(autoloadSource, /error instanceof Error \? error\.name : "unknown"/);
 });
 
+test("autoloaded external candidates cannot override the embedded preference", () => {
+  assert.match(autoloadSource, /desiredSubtitleIsEmbedded\(/);
+  assert.match(autoloadSource, /!keepEmbedded\s*&&/);
+});
+
 test("delayed candidate preflight blocks structural autosync and an aligned result keeps it blocked", () => {
   const inferior = {
     external: true,

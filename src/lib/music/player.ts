@@ -14,7 +14,8 @@ import {
   sendDeckCommand,
   serveDeckCommands,
 } from "./deck-sync";
-import { createDeckAdoption } from "./deck-primary";
+import { createDeckAdoption, nativePlaybackAdoption } from "./deck-primary";
+import { engineSnapshot } from "./decks";
 import { insertIntoQueue, markManuallyQueued, queueInsertIndex } from "./queue-insert";
 import { queueTrackKey } from "./queue-order";
 import { adoptRequestedIdentity } from "./queue-source";
@@ -29,7 +30,7 @@ import { musicAdvance, musicPrevious, musicWarmTargets, resetMusicOrder } from "
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useSyncExternalStore } from "react";
-import { readMusicPreference, writeMusicPreference } from "./preferences";
+import { readMusicPreference, readStoredMusicPreference, writeMusicPreference } from "./preferences";
 import {
   clampMusicVolume,
   initializeMusicAudioSettings,
@@ -45,6 +46,7 @@ import {
 import { beginMusicQueue, getMusicPlaybackOrigin, restoreMusicPlaybackOrigin } from "./playback-origin";
 import { hydrateMusicContextTracks, hydrateMusicRecentContexts } from "./recent-context";
 import { hydrateMusicDestinations } from "./recent-destinations";
+import { hydratePinnedMusicPlaylists } from "./pinned-playlists";
 import { hydrateMusicSourceConsent } from "./source-consent";
 import type {
   MusicAudioQuality,
@@ -164,6 +166,12 @@ function warmBeforeEnd(): void {
   const key = `${state.current.connectorId ?? ""}:${state.current.id}`;
   if (nearEndKey === key) return;
   nearEndKey = key;
+  if (state.current.connectorId === "spotify") {
+    // librespot plays a preloaded track without a load gap; stream URLs are warmed below.
+    const next = musicWarmTargets(state.queue, state.queueIndex, 1)[0];
+    if (next && queueTrackKey(next) !== queueTrackKey(state.current))
+      void invoke("music_spotify_preload", { track: next }).catch(() => {});
+  }
   warmNeighbours();
 }
 
@@ -242,6 +250,7 @@ function currentCheckpoint(): MusicCheckpoint | null {
     sourceKey: `${current.connectorId ?? ""}:${current.id}`,
     position: state.currentTime,
     origin: getMusicPlaybackOrigin(),
+    track: current,
     savedAt: Date.now(),
   };
 }
@@ -249,6 +258,10 @@ function currentCheckpoint(): MusicCheckpoint | null {
 /** Written to both stores: IndexedDB survives a full localStorage, localStorage survives an unload. */
 function saveMusicCheckpoint(): void {
   const checkpoint = currentCheckpoint();
+  // A player with no current track must not erase the last checkpoint. The profile reset and
+  // the idle restore both publish a null current, and writing that as the string "null" wiped
+  // the saved session on every start.
+  if (!checkpoint) return;
   writeCheckpointToDb(checkpoint);
   writeMusicPreference(SESSION_KEY, JSON.stringify(checkpoint));
 }
@@ -316,7 +329,9 @@ function clearLegacyMigration(migration: LegacyMusicMigration | null): void {
 }
 
 export function resetMusicForProfile(): void {
-  if (!initialization && activeProfile === activeProfileId()) return;
+  // The mount-time call runs with the profile unchanged and the restore already in flight;
+  // resetting then would clear that restore for nothing. Only a real profile change resets.
+  if (activeProfile === activeProfileId() && initialization) return;
   cancelMusicQueueAutomation();
   activeProfile = activeProfileId();
   initialization = null;
@@ -348,6 +363,7 @@ export function initializeMusic(): Promise<void> {
   void hydrateMusicContextTracks().catch(() => {});
   void hydrateMusicRecentContexts().catch(() => {});
   void hydrateMusicDestinations().catch(() => {});
+  void hydratePinnedMusicPlaylists().catch(() => {});
   void hydrateLikedArtistStore().catch(() => {});
   void hydrateArtistBlockStore().catch(() => {});
   void hydrateMusicSourceConsent().catch(() => {});
@@ -363,7 +379,9 @@ export function initializeMusic(): Promise<void> {
       clearLegacyMigration(migration);
       let mirrored: MusicCheckpoint | null = null;
       try {
-        mirrored = JSON.parse(readMusicPreference(SESSION_KEY) ?? "null");
+        // Direct storage read: the preference cache can outlive a hot update and would then
+        // restore a checkpoint that no longer matches what is stored.
+        mirrored = JSON.parse(readStoredMusicPreference(SESSION_KEY) ?? "null");
       } catch {
         /* A corrupt checkpoint does not block the library. */
       }
@@ -376,16 +394,30 @@ export function initializeMusic(): Promise<void> {
               `${track.connectorId ?? ""}:${track.id}` === saved?.sourceKey,
           )
         : -1;
+      // A track that played through a substitute source no longer matches the saved queue, so
+      // the checkpoint itself carries the track. With no usable checkpoint at all, the most
+      // recent track is the honest fallback: the queue top is arbitrary and would resume a song
+      // the listener did not choose, which is how one miss became a permanent wrong resume.
+      const recovered =
+        restoredIndex < 0 ? (saved?.track ?? bootstrap.recents[0] ?? null) : null;
+      const queue = recovered
+        ? [
+            recovered,
+            ...bootstrap.queue.filter(
+              (track) => queueTrackKey(track) !== queueTrackKey(recovered),
+            ),
+          ]
+        : bootstrap.queue;
       const index = restoredIndex >= 0 ? restoredIndex : 0;
-      const current = bootstrap.queue[index] ?? null;
+      const current = restoredIndex >= 0 ? (queue[index] ?? null) : recovered;
       const position =
-        restoredIndex >= 0
-          ? usableCheckpointPosition(saved?.position, current?.durationSeconds)
+        current && (restoredIndex >= 0 || recovered === saved?.track)
+          ? usableCheckpointPosition(saved?.position, current.durationSeconds)
           : 0;
       publish({
         phase: current ? "paused" : "idle",
         current,
-        queue: bootstrap.queue,
+        queue,
         queueIndex: current ? index : -1,
         currentTime: position,
         duration: current?.durationSeconds ?? 0,
@@ -394,6 +426,7 @@ export function initializeMusic(): Promise<void> {
         likedTracks: bootstrap.likedTracks,
         recents: dedupeMusicTracks(bootstrap.recents),
       });
+      void adoptNativePlayback();
     })
     .catch((error) => {
       initialization = null;
@@ -426,6 +459,50 @@ const deckAdoption = createDeckAdoption({
     nextMusic(true);
   },
 });
+
+/**
+ * A reload leaves the native engine playing while this module starts from the checkpoint.
+ * The checkpoint only knows where the song was saved, so without adopting the live engine the
+ * progress bar freezes at that position, the first Play restarts the track from the beginning,
+ * and the controls do nothing afterwards. A live engine is the source of truth.
+ */
+async function adoptNativePlayback(): Promise<void> {
+  if (isDeckWindow()) return;
+  const profile = activeProfile;
+  const request = playRequest;
+  const snapshot = await engineSnapshot();
+  if (playRequest !== request || activeProfile !== profile) return;
+  const adopted = nativePlaybackAdoption(snapshot, state);
+  if (!adopted) return;
+  await ensureNativeEvents().catch(() => {});
+  if (playRequest !== request || activeProfile !== profile) return;
+  enginePrimed = true;
+  observedPause = adopted.phase === "paused";
+  resumeAt = null;
+  if (adopted.deck === 1) {
+    // Deck B has no event loop; the polling watch is the only way its progress keeps moving.
+    deckAdoption.adopt({
+      deck: 1,
+      track: adopted.track,
+      trackId: adopted.track.id,
+      connectorId: adopted.track.connectorId ?? null,
+      live: true,
+      paused: adopted.phase === "paused",
+      position: adopted.currentTime,
+      duration: adopted.duration,
+    });
+  }
+  publish({
+    current: adopted.track,
+    queue: adopted.queue,
+    queueIndex: adopted.queueIndex,
+    currentTime: adopted.currentTime,
+    duration: adopted.duration,
+    phase: adopted.phase,
+    error: null,
+  });
+  updateMediaSession(adopted.track);
+}
 
 function handlePlaybackEvent(payload: MpvEvent): void {
   if (

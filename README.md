@@ -9,7 +9,7 @@
 
 ### A Stremio Client Built for Adventure!
 
-Offering things like a native player, a stream ranking engine, Wikidata, watch parties, PiP, DVR, Live TV, anime, a theme engine, and much more. Check out our website at www.harbor.site for an immersive experience.
+Offering things like a native player, a stream ranking engine, Wikidata, watch parties, PiP, DVR, Live TV, anime, a theme engine, and much more. A new website will launch soon for an immersive experience.
 
 <br/>
 
@@ -28,7 +28,7 @@ Offering things like a native player, a stream ranking engine, Wikidata, watch p
 </div>
 
 <br/>
-<h4 align="center">💬 New: By popular demand, join our community discord for support and help (https://discord.gg/gUGg4YSsg)!</h4>
+<h4 align="center">💬 New: By popular demand, join our community discord for support and help (https://discord.gg/yvafyeZmXh)!</h4>
 <p align="center">
   <img src="https://harbor.site/readme-media/hero.png" width="900">
   <br/>

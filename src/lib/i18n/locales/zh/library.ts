@@ -288,8 +288,8 @@ const library: Record<string, string> = {
     "已设置。如果之后字幕逐渐不同步，请向前播放一段，并在后面的字幕行再次点按“从此处同步”以校正偏移。",
   "Sync subtitles": "同步字幕",
   "Loading your library…": "正在加载你的媒体库…",
-  "This one installs through Harbor Setup, but the update manifest carries no signature for it. Harbor will not run an installer it cannot verify. Download it and run it yourself.":
-    "此更新通过 Harbor Setup 安装，但更新清单中没有它的签名。Harbor 不会运行无法验证的安装程序。请下载后自行运行。",
+  "This one installs through Harbor Shipyard, but the update manifest carries no signature for it. Harbor will not run an installer it cannot verify. Download it and run it yourself.":
+    "此更新通过 Harbor Shipyard 安装，但更新清单中没有它的签名。Harbor 不会运行无法验证的安装程序。请下载后自行运行。",
   "Download installer": "下载安装程序",
   "Your collection.": "你的收藏。",
   "Watchlist is what you've saved for later. History is everything you've watched. Local is files on your computer.":

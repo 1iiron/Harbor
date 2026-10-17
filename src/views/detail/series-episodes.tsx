@@ -456,7 +456,7 @@ export function SeriesEpisodes({
       {!altActive && loading && <EpisodeGridSkeleton />}
 
       {!altActive && !loading && enrichedEpisodes.length === 0 && (
-        <CinemetaFallback meta={meta} videos={cinemetaVideos} season={active} />
+        <CinemetaFallback meta={meta} videos={cinemetaVideos} season={active} imdbRatings={imdbRatings} />
       )}
 
       {!altActive && !loading && enrichedEpisodes.length > 0 && (

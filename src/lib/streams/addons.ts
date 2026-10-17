@@ -3,7 +3,12 @@ import type { Addon } from "@/lib/addons";
 import { dlog, dwarn } from "@/lib/debug";
 import { isHarborFetchPolicyError } from "@/lib/fetch-fallback-policy";
 import { isLocalNetworkUrl } from "@/lib/local-network";
-import { isAddonRanked, isStatusOnlyAddon } from "./addon-detect";
+import {
+  isAddonRanked,
+  isRetiredTorboxAddon,
+  isStatusOnlyAddon,
+  isStremioLocalAddon,
+} from "./addon-detect";
 import type { AddonRankFn } from "./addon-priority";
 import { hasUncachedMarker } from "./cached";
 import { infoHashFromSources, infoHashFromUrl } from "@/lib/torrent/magnet";
@@ -154,6 +159,14 @@ export async function fetchAddonStreams(
     }
     if (isStatusOnlyAddon(addon)) {
       skipped.push(`${addon.manifest.name}(status-addon)`);
+      continue;
+    }
+    if (isStremioLocalAddon(addon)) {
+      skipped.push(`${addon.manifest.name}(stremio-local)`);
+      continue;
+    }
+    if (isRetiredTorboxAddon(addon)) {
+      skipped.push(`${addon.manifest.name}(retired)`);
       continue;
     }
     const forcedId = forcedBases.get(addon.transportUrl.replace(/\/manifest\.json$/, ""));

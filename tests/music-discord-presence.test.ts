@@ -98,6 +98,21 @@ test("a watch party keeps its own activity instead of the listening one", () => 
   );
 });
 
+test("a paused song clears its presence after a short grace period", () => {
+  assert.ok(
+    presenceSource.includes("MUSIC_PAUSED_HIDE_MS"),
+    "the paused presence must expire instead of persisting",
+  );
+  assert.ok(
+    presenceSource.includes("config.hideMusicWhenPaused"),
+    "the expiry must be controlled by the hideMusicWhenPaused setting",
+  );
+  assert.ok(
+    presenceSource.includes("musicHideTimer"),
+    "a timer must clear the presence without another state change",
+  );
+});
+
 test("every deep link builder has a caller", () => {
   assert.ok(musicPresenceSource.includes("musicTrackPath(track.artist, track.title)"));
   assert.ok(musicPresenceSource.includes("musicArtistPath(track.artist)"));

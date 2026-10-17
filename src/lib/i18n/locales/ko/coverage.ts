@@ -443,8 +443,8 @@ const coverage: Record<string, string> = {
   Dismiss: "닫기",
   "Download installer": "설치 프로그램 다운로드",
   "Install and reopen": "설치 후 다시 열기",
-  "Harbor is closing. Harbor Setup will finish and reopen it.":
-    "Harbor를 종료하는 중입니다. Harbor Setup이 설치를 완료한 뒤 다시 엽니다.",
+  "Harbor is closing. Harbor Shipyard will finish and reopen it.":
+    "Harbor를 종료하는 중입니다. Harbor Shipyard이 설치를 완료한 뒤 다시 엽니다.",
   "Most Popular": "최고 인기작",
   "What everyone is reading": "지금 모두가 읽는 작품",
   "Critically Acclaimed": "평단의 찬사를 받은 작품",

@@ -2598,6 +2598,7 @@ dependencies = [
  "libmpv2",
  "libmpv2-sys",
  "librespot-core",
+ "librespot-metadata",
  "librespot-oauth",
  "librespot-playback",
  "librqbit",

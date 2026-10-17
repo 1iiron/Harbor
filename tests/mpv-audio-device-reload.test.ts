@@ -46,7 +46,8 @@ test("the reload re-init guard is Windows-only while actively playing", () => {
 });
 
 test("the reload re-asserts the device then forces ao-reload on the current default", () => {
-  assert.match(schedule, /applyAudioDevice\(appliedAudioDevice \?\? "auto"\)/);
+  assert.match(schedule, /await applyAudioDevice\(/);
+  assert.match(schedule, /stillCurrent\(\) && canReload\(\)/);
   assert.match(schedule, /cmd: \["ao-reload"\]/);
   // ao-reload must appear after the Windows gate so it only fires on desktop.
   assert.ok(schedule.indexOf("isWindowsDesktop()") < schedule.indexOf("ao-reload"));
@@ -94,7 +95,7 @@ test("refocus reload waits for a long absence and removes both listeners on disp
 test("the reload continuation bails when the media moved on underneath it", () => {
   assert.match(schedule, /const reloadLoadId = mediaLoadId;/);
   assert.match(schedule, /const stillCurrent = \(\) =>/);
-  assert.match(schedule, /if \(!stillCurrent\(\)\) return;/);
+  assert.match(schedule, /if \(!stillCurrent\(\) \|\| !canReload\(\)\)/);
   // A user seek during the reload must suppress the resync re-seek.
   assert.match(schedule, /lastUserSeekAt <= reloadBeganAt/);
 });
