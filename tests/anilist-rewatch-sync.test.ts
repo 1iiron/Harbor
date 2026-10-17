@@ -13,7 +13,10 @@ test("finished and rewatching titles sync as a rewatch instead of being skipped"
     /if \(entryStatus === "COMPLETED" \|\| entryStatus === "REPEATING"\) return;/,
     "a finished entry must not bail out — that is what made rewatching impossible to record",
   );
-  assert.match(sync, /if \(entryStatus === "COMPLETED" \|\| entryStatus === "REPEATING"\) \{/);
+  assert.match(
+    sync,
+    /if \(\(entryStatus === "COMPLETED" \|\| entryStatus === "REPEATING"\) && !episodeBeyondEntry\) \{/,
+  );
   assert.match(
     sync,
     /status: "REPEATING",/,
@@ -39,7 +42,8 @@ test("finished titles bypass the per-episode sent fast-path", () => {
 });
 
 test("reaching the finale marks the title rewatch-eligible", () => {
-  assert.match(sync, /if \(status === "COMPLETED"\) \{/);
+  // A split write completes the later cour, not this harborId's entry.
+  assert.match(sync, /if \(status === "COMPLETED" && !splitWrite\) \{/);
 });
 
 test("finishing a rewatch completes the entry and bumps the repeat counter", () => {

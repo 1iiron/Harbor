@@ -156,9 +156,88 @@ const ENTRY_QUERY = `query ($id: Int) {
   Media(id: $id, type: ANIME) {
     id
     episodes
+    status
     mediaListEntry { id progress status repeat }
+    relations {
+      edges {
+        relationType
+        node {
+          id
+          episodes
+          status
+          mediaListEntry { id progress status }
+        }
+      }
+    }
   }
 }`;
+
+type ListEntry = { id: number; progress: number; status: string; repeat?: number } | null;
+
+type MediaNode = {
+  id: number;
+  episodes: number | null;
+  status: string | null;
+  mediaListEntry: ListEntry;
+};
+
+type RelationsResponse = {
+  Media:
+    | (MediaNode & {
+        relations: {
+          edges: Array<{ relationType: string; node: MediaNode | null }>;
+        } | null;
+      })
+    | null;
+};
+
+type MediaRelations = NonNullable<RelationsResponse["Media"]>;
+
+async function fetchMediaRelations(id: number): Promise<MediaRelations | null> {
+  const data = await anilistRequest<RelationsResponse>(ENTRY_QUERY, { id });
+  return data?.Media ?? null;
+}
+
+/**
+ * AniList splits a franchise into per-cour entries (JoJo stages, Bleach TYBW)
+ * while Kitsu/MAL keep one entry. When the mapped entry is finished and cannot
+ * hold the episode, walk the sequels and subtract each entry's episode count
+ * until the cour that aired it is found — the numbers are continuous across the
+ * split, so the remainder is the episode inside that entry.
+ */
+async function resolveSplitEntry(
+  media: MediaRelations,
+  target: number,
+): Promise<{ mediaId: number; episode: number; total: number; entry: ListEntry } | null> {
+  const seen = new Set<number>([media.id]);
+  let current = media;
+  let remaining = target;
+  for (let hop = 0; hop < 4; hop++) {
+    const total = current.episodes ?? 0;
+    // Only a finished entry is a safe hop: an airing one may simply not have
+    // published its full episode count yet.
+    if (current.status !== "FINISHED" || total <= 0 || remaining <= total) return null;
+    remaining -= total;
+    const sequel = current.relations?.edges?.find(
+      (edge) => edge.relationType === "SEQUEL" && edge.node?.id != null,
+    )?.node;
+    if (!sequel || seen.has(sequel.id)) return null;
+    seen.add(sequel.id);
+    const sequelTotal = sequel.episodes ?? 0;
+    if (sequelTotal > 0 && remaining <= sequelTotal) {
+      return {
+        mediaId: sequel.id,
+        episode: remaining,
+        total: sequelTotal,
+        entry: sequel.mediaListEntry,
+      };
+    }
+    const fetched = await fetchMediaRelations(sequel.id);
+    if (!fetched) return null;
+    current = fetched;
+  }
+  return null;
+}
 
 const SAVE_MUTATION = `mutation ($mediaId: Int, $progress: Int, $status: MediaListStatus) {
   SaveMediaListEntry(mediaId: $mediaId, progress: $progress, status: $status) {
@@ -298,21 +377,26 @@ export async function syncAnimeProgress(
     const mediaId = await resolveAnilistMediaId(harborId);
     if (!owned() || mediaId == null) return;
 
-    const cur = await anilistRequest<EntryResponse>(ENTRY_QUERY, { id: mediaId });
+    const cur = await anilistRequest<RelationsResponse>(ENTRY_QUERY, { id: mediaId });
     if (!owned()) return;
     const media = cur?.Media;
     if (!media) return;
 
+    // Never overwrite an entry the user deliberately moved to Completed or
+    // Re-watching; auto-sync would otherwise flip it back to CURRENT. A split
+    // franchise is the exception: the episode is beyond this entry, and the
+    // write goes to the later cour that aired it (resolved below).
     const entryStatus = media.mediaListEntry?.status;
     const current = media.mediaListEntry?.progress ?? 0;
     const total = media.episodes ?? 0;
+    const episodeBeyondEntry = total > 0 && ep > total;
 
     // The user already finished (or is rewatching) this title. A plain watched
     // push would send CURRENT and reset the entry's progress — AniList sets
     // progress to whatever it is sent, lower numbers included — so keep the entry
     // on REPEATING and only ever move the rewatch counter forward. That is what
     // renders the episodes as Rewatched rather than Watched.
-    if (entryStatus === "COMPLETED" || entryStatus === "REPEATING") {
+    if ((entryStatus === "COMPLETED" || entryStatus === "REPEATING") && !episodeBeyondEntry) {
       // Rewatch recording is off: leave the finished entry exactly as the user
       // set it, the way the sync behaved before rewatches were supported.
       if (!countRewatches) return;
@@ -369,37 +453,61 @@ export async function syncAnimeProgress(
     }
 
     // The caller resolves entry-relative numbering before reaching this layer.
-    const target = ep;
-    if (total > 0 && target > total) return;
-    if (target <= current) {
-      rememberSent(sent, sentKey, Math.max(prevSent?.p ?? 0, current));
+    let target = ep;
+    let writeId = mediaId;
+    let entryProgress = current;
+    let entryTotal = total;
+    let splitWrite = false;
+    if (total > 0 && target > total) {
+      // A split franchise: the mapped entry is an earlier cour than the one
+      // that aired this episode. Never silently drop it.
+      const split = await resolveSplitEntry(media, target);
+      if (!owned()) return;
+      if (!split) return;
+      const siblingStatus = split.entry?.status;
+      if (siblingStatus === "COMPLETED" || siblingStatus === "REPEATING") return;
+      writeId = split.mediaId;
+      target = split.episode;
+      entryTotal = split.total;
+      entryProgress = split.entry?.progress ?? 0;
+      splitWrite = true;
+    }
+    if (target <= entryProgress) {
+      // A split write is recorded against the requested episode: the sent cache
+      // above compares in the caller's numbering, not the cour's own.
+      rememberSent(sent, sentKey, Math.max(prevSent?.p ?? 0, splitWrite ? ep : entryProgress));
       saveSent(sent);
       return;
     }
 
-    const status = total > 0 && target >= total ? "COMPLETED" : "CURRENT";
+    const status = entryTotal > 0 && target >= entryTotal ? "COMPLETED" : "CURRENT";
     // Mark the title finished so a later rewatch is not swallowed by this
-    // episode's first-watch entry in the fast-path above.
-    if (status === "COMPLETED") {
+    // episode's first-watch entry in the fast-path above. A split write
+    // completes the later cour, not this harborId's entry, so that entry stays
+    // untouched.
+    if (status === "COMPLETED" && !splitWrite) {
       rewatch[harborId] = true;
       saveRewatch(rewatch);
     }
     emit({ kind: "syncing", title, episode: target });
 
     const saved = await anilistRequest<SaveResponse>(SAVE_MUTATION, {
-      mediaId,
+      mediaId: writeId,
       progress: target,
       status,
     });
 
     if (!owned()) return;
     if (saved?.SaveMediaListEntry?.progress === target) {
-      rememberSent(sent, sentKey, target);
+      // Split writes advance the sent cache in the caller's numbering so the
+      // next autosave tick collapses instead of re-walking the franchise.
+      rememberSent(sent, sentKey, splitWrite ? ep : target);
       saveSent(sent);
       // A first-watch completion is not a finished rewatch: remember where it
       // happened so the finale's trailing progress ticks read COMPLETED and stop
-      // instead of flipping the entry into a phantom rewatch.
-      if (status === "COMPLETED") rememberRewatchDone(target);
+      // instead of flipping the entry into a phantom rewatch. A split write
+      // completes the later cour, not this harborId's entry.
+      if (status === "COMPLETED" && !splitWrite) rememberRewatchDone(target);
       emit({ kind: "ok", title, episode: target });
     } else {
       // Unconfirmed writes stay retryable; recording them as sent would suppress retries.
