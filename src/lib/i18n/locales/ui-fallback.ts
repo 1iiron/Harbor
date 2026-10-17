@@ -912,6 +912,15 @@ const uiFallback: Record<string, string> = {
   "Signed in as {email}. Your library, add-ons and watch history sync with Stremio.":
     "Signed in as {email}. Your library, add-ons and watch history sync with Stremio.",
   "Signed in. Enter your server address below.": "Signed in. Enter your server address below.",
+  Collections: "Collections",
+  Daily: "Daily",
+  Minutes: "Minutes",
+  Hours: "Hours",
+  Days: "Days",
+  Weeks: "Weeks",
+  "Refresh interval": "Refresh interval",
+  "Refresh unit": "Refresh unit",
+  "No collections on these servers.": "No collections on these servers.",
   "Signs in to Letterboxd and unlocks your diary, friends activity and ratings.":
     "Signs in to Letterboxd and unlocks your diary, friends activity and ratings.",
   "Simkl is a free site for tracking the movies, shows, and anime you watch. Open it to read more or to make an account.":

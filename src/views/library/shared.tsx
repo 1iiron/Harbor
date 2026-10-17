@@ -24,7 +24,7 @@ export type Tab =
   | "letterboxd"
   | "mal";
 
-export type TypeKey = "all" | "movie" | "series";
+export type TypeKey = "all" | "movie" | "series" | "collections";
 
 export type WatchlistMerged = {
   key: string;
@@ -69,6 +69,7 @@ export function FilterBar({
   counts,
   trailing,
   hideTypePills,
+  collections,
 }: {
   type: TypeKey;
   setType: (t: TypeKey) => void;
@@ -77,6 +78,8 @@ export function FilterBar({
   counts: { all: number; movie: number; series: number };
   trailing?: React.ReactNode;
   hideTypePills?: boolean;
+  /** When set, a Collections pill is shown with this count. */
+  collections?: number;
 }) {
   const t = useT();
   return (
@@ -92,6 +95,12 @@ export function FilterBar({
           <FilterPill active={type === "series"} onClick={() => setType("series")}>
             {t("Shows")} <span className="ms-1 text-ink-subtle">{counts.series}</span>
           </FilterPill>
+          {collections != null && (
+            <FilterPill active={type === "collections"} onClick={() => setType("collections")}>
+              {t("Collections")}
+              {collections > 0 && <span className="ms-1 text-ink-subtle">{collections}</span>}
+            </FilterPill>
+          )}
         </div>
       )}
       <input
