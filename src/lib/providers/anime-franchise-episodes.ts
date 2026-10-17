@@ -34,7 +34,7 @@ export function fetchEntryEpisodes(kitsuId: number, settings: Settings): Promise
   const lang = tvdbLangFromIso1(settings.tmdbLanguage || settings.uiLanguage);
   const iso1 = settings.tmdbLanguage || settings.uiLanguage || "en";
   const localized = iso1.split("-")[0]?.toLowerCase() !== "en";
-  const cacheKey = `${kitsuId}:${lang}:${localized ? "loc" : "std"}`;
+  const cacheKey = `${kitsuId}:${iso1}:v2`;
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.at < ENTRY_CACHE_TTL_MS) return cached.promise;
   const p = (async () => {
@@ -102,13 +102,14 @@ export function fetchEntryEpisodes(kitsuId: number, settings: Settings): Promise
     mergeTvdbEpisodes(eps, tvdbRaw?.loc ?? null, {
       lang: localized ? iso1 : undefined,
       targetLang: iso1,
+      englishEpisodes: tvdbRaw?.en,
     });
-    mergeTmdbEpisodes(eps, tmdbEpsRaw, { lang: localized ? iso1 : undefined, targetLang: iso1 });
+    mergeTmdbEpisodes(eps, tmdbEpsRaw, { lang: localized ? iso1 : undefined, targetLang: iso1, englishEpisodes: tmdbEnRaw });
     // Fall back to English titles/overviews when the localized translation is missing (providers
     // otherwise fall back to the original, e.g. Japanese for anime). `targetLang` keeps this pass
     // from overwriting a title the user already has in their own language.
     if (localized) {
-      if (tvdbRaw?.en) mergeTvdbEpisodes(eps, tvdbRaw.en, { targetLang: iso1 });
+      if (tvdbRaw?.en) mergeTvdbEpisodes(eps, tvdbRaw.en, { targetLang: iso1, fallbackOnly: true });
       if (tmdbEnRaw) mergeTmdbEpisodes(eps, tmdbEnRaw, { targetLang: iso1 });
     }
     // Last resort: MAL names episodes the other providers leave unnamed (it

@@ -3,6 +3,7 @@ import type { Meta } from "@/lib/cinemeta";
 import { registerEvictable } from "@/lib/maintenance";
 import { safeFetch } from "@/lib/safe-fetch";
 import { adultContentHidden } from "@/lib/addons-store/adult-filter";
+import { episodeTextLanguage } from "@/lib/episode-text-language";
 
 const KITSU = "https://kitsu.io/api/edge";
 
@@ -82,6 +83,8 @@ export type KitsuEpisode = {
   seasonNumber: number;
   title: string;
   synopsis: string;
+  titleLanguage?: string;
+  synopsisLanguage?: string;
   thumbnail: string | null;
   thumbnailFallback?: string | null;
   airdate: string | null;
@@ -346,6 +349,8 @@ export async function kitsuEpisodes(id: number, limit = 60): Promise<KitsuEpisod
         seasonNumber: a.seasonNumber ?? 1,
         title: a.canonicalTitle || `Episode ${a.number ?? "?"}`,
         synopsis: a.synopsis || a.description || "",
+        titleLanguage: episodeTextLanguage(a.canonicalTitle, "en"),
+        synopsisLanguage: episodeTextLanguage(a.synopsis || a.description, "en"),
         thumbnail: pickImg(a.thumbnail) ?? null,
         airdate: a.airdate ?? null,
         length: a.length ?? null,

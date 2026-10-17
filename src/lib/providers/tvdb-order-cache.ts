@@ -2,10 +2,9 @@ import type { Season } from "@/lib/providers/tmdb";
 import type { OrderedEpisode, TvdbOrder } from "./tvdb-order";
 import { isPlaceholderEpisodeText } from "./episode-placeholder";
 
-// v7: invalidates orders cached before unaired-episode handling (date
-// reconciliation and rating gating) shipped — stale rows must not pin old
-// air dates or numbering for up to three days.
-const PREFIX = "harbor.tvdbo.v7.";
+// v8: keep upstream unaired/placeholder invalidation and invalidate orders
+// that predate per-field translation provenance.
+const PREFIX = "harbor.tvdbo.v8.";
 const TTL = 3 * 24 * 60 * 60 * 1000;
 
 /**

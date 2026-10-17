@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 // @ts-expect-error Node test types are outside the browser tsconfig.
 import test from "node:test";
 import ts from "typescript";
+import { pickPreferredEpisodeOverview, pickPreferredEpisodeTitle } from "../src/lib/localized-text.ts";
 
 // Runs the real useAnimeTvdbPanel builder against a Black Clover S2 replica:
 // a currently-airing sequel cour whose TVDB rows carry dates only for the
@@ -142,6 +143,8 @@ const { useAnimeTvdbPanel } = load("src/views/detail/anime-episodes/use-anime-tv
   },
   "@/lib/providers/tmdb/tmdb-client": { tmdbLanguageIso: () => "en" },
   "@/lib/localized-text": {
+    pickPreferredEpisodeTitle,
+    pickPreferredEpisodeOverview,
     pickLocalizedText: (cands: Array<{ text?: string | null }>) =>
       cands.find((c) => c?.text != null && c.text !== "")?.text,
   },

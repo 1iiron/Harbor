@@ -2,6 +2,7 @@ import { lruSet } from "@/lib/cache";
 import { registerCache } from "@/lib/memory-profiler";
 import { safeFetch as tauriFetch } from "@/lib/safe-fetch";
 import { HARBOR_TVDB_BASE } from "@/lib/config/endpoints";
+import { episodeTextLanguage } from "@/lib/episode-text-language";
 
 const BASE = "https://api4.thetvdb.com/v4";
 const PROXY_V4 = `${HARBOR_TVDB_BASE}/api/tvdb/v4`;
@@ -52,6 +53,8 @@ export type TvdbEpisode = {
   absoluteNumber?: number;
   name?: string;
   overview?: string;
+  nameLanguage?: string;
+  overviewLanguage?: string;
   aired?: string;
   runtime?: number;
   image?: string;
@@ -327,6 +330,8 @@ export async function tvdbEpisodes(
       seasonNumber: e.seasonNumber,
       name: e.name,
       overview: e.overview,
+      nameLanguage: episodeTextLanguage(e.name, lang, undefined, e.nameTranslations),
+      overviewLanguage: episodeTextLanguage(e.overview, lang, undefined, e.overviewTranslations),
       aired: e.aired,
       runtime: e.runtime,
       image: tvdbImg(e.image),
@@ -395,6 +400,8 @@ export async function tvdbEpisodesByType(
         absoluteNumber: typeof e.absoluteNumber === "number" ? e.absoluteNumber : undefined,
         name: e.name,
         overview: e.overview,
+        nameLanguage: episodeTextLanguage(e.name, lang, undefined, e.nameTranslations),
+        overviewLanguage: episodeTextLanguage(e.overview, lang, undefined, e.overviewTranslations),
         aired: e.aired,
         runtime: e.runtime,
         image: tvdbImg(e.image),

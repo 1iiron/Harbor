@@ -2,6 +2,7 @@ import type { Episode, Season } from "@/lib/providers/tmdb";
 import { tvdbEpisodesByType, tvdbSeasonNames, tvdbSeriesByRemote, type TvdbEpisode } from "./tvdb";
 import { isStaleTvdbOrder, readOrderCache, writeOrderCache } from "./tvdb-order-cache";
 import { firstRealEpisodeText } from "./episode-placeholder";
+import { episodeTextLanguage } from "@/lib/episode-text-language";
 
 export type OrderedEpisode = Episode & { nameEn?: string; overviewEn?: string };
 
@@ -135,6 +136,8 @@ async function build(
       overview: firstRealEpisodeText([tr?.overview, trEn?.overview, e.overview]) ?? "",
       nameEn: firstRealEpisodeText([trEn?.name, e.name]),
       overviewEn: firstRealEpisodeText([trEn?.overview, e.overview]),
+      nameLanguage: episodeTextLanguage(firstRealEpisodeText([tr?.name, trEn?.name, e.name]), lang, trEn?.name, tr?.nameLanguage ? [tr.nameLanguage] : undefined),
+      overviewLanguage: episodeTextLanguage(firstRealEpisodeText([tr?.overview, trEn?.overview, e.overview]), lang, trEn?.overview, tr?.overviewLanguage ? [tr.overviewLanguage] : undefined),
       stillPath: null,
       stillUrl: e.image ?? undefined,
       airDate: e.aired ?? null,

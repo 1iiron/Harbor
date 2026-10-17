@@ -484,13 +484,14 @@ export async function animeDetails(
   mergeTvdbEpisodes(episodes, tvdbEpsRaw?.loc ?? null, {
     lang: localized ? iso1 : undefined,
     targetLang: iso1,
+    englishEpisodes: tvdbEpsRaw?.en,
   });
-  mergeTmdbEpisodes(episodes, tmdbEpsRaw, { lang: localized ? iso1 : undefined, targetLang: iso1 });
+  mergeTmdbEpisodes(episodes, tmdbEpsRaw, { lang: localized ? iso1 : undefined, targetLang: iso1, englishEpisodes: tmdbEnRaw });
   // Fall back to English titles/overviews when the localized translation is missing (providers
   // otherwise fall back to the original, e.g. Japanese for anime). `targetLang` keeps this pass
   // from overwriting a title the user already has in their own language.
   if (localized) {
-    if (tvdbEpsRaw?.en) mergeTvdbEpisodes(episodes, tvdbEpsRaw.en, { targetLang: iso1 });
+    if (tvdbEpsRaw?.en) mergeTvdbEpisodes(episodes, tvdbEpsRaw.en, { targetLang: iso1, fallbackOnly: true });
     if (tmdbEnRaw) mergeTmdbEpisodes(episodes, tmdbEnRaw, { targetLang: iso1 });
   }
   // Last resort: MAL names episodes the other providers leave unnamed (it

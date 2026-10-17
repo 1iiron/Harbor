@@ -303,7 +303,7 @@ test("both order caches and the TVDB response cache reject stale data", () => {
     "utf8",
   );
   assert.ok(persisted.includes("isStaleTvdbOrder(s.bySeason)"));
-  assert.ok(persisted.includes('const PREFIX = "harbor.tvdbo.v7."'));
+  assert.ok(persisted.includes('const PREFIX = "harbor.tvdbo.v8."'));
   const order = readFileSync(new URL("../src/lib/providers/tvdb-order.ts", import.meta.url), "utf8");
   assert.ok(order.includes("isStaleTvdbOrder(cached.order.bySeason)"));
   assert.ok(order.includes("ORDER_CACHE_TTL_MS"));

@@ -3,7 +3,7 @@ import { useT } from "@/lib/i18n";
 import type { KitsuEpisode } from "@/lib/providers/kitsu";
 import { kitsuToTvdb } from "@/lib/providers/anime-mapping";
 import { isFranchiseExtra, type FranchiseEntry } from "@/lib/providers/anime-detail";
-import { isForeignScriptTitle, isGenericEpisodeName } from "@/lib/providers/anime-episode-build";
+import { isForeignScriptTitle } from "@/lib/providers/anime-episode-build";
 import {
   tvdbLangFromIso1,
   tvdbOrderTypeHasEpisodes,
@@ -13,7 +13,7 @@ import {
   type TvdbSeasonTypeOption,
 } from "@/lib/providers/tvdb";
 import { tmdbLanguageIso } from "@/lib/providers/tmdb/tmdb-client";
-import { pickLocalizedText } from "@/lib/localized-text";
+import { pickPreferredEpisodeOverview, pickPreferredEpisodeTitle } from "@/lib/localized-text";
 import { isUpcomingDate } from "@/lib/dates";
 import { harborImdbEpisodesCached } from "@/lib/providers/harbor-imdb";
 import {
@@ -93,6 +93,7 @@ export function useAnimeTvdbPanel(
   metaId?: string | null,
 ): AnimeTvdbPanelState {
   const t = useT();
+  const metadataLanguage = tmdbLanguageIso();
   const [seriesId, setSeriesId] = useState<number | null>(null);
   const [ordering, setOrdering] = useState<TvdbOrder | null>(null);
   const [orderTypes, setOrderTypes] = useState<TvdbSeasonTypeOption[]>([]);
@@ -165,7 +166,7 @@ export function useAnimeTvdbPanel(
         tvdbKey,
         seriesId,
         effective,
-        tvdbLangFromIso1(tmdbLanguageIso()),
+        tvdbLangFromIso1(metadataLanguage),
       );
       if (cancelled) return;
       setOrdering(o);
@@ -174,7 +175,7 @@ export function useAnimeTvdbPanel(
     return () => {
       cancelled = true;
     };
-  }, [enabled, tvdbKey, seriesId, seasonType]);
+  }, [enabled, tvdbKey, seriesId, seasonType, metadataLanguage]);
 
   const [foreignSeasons, setForeignSeasons] = useState<Set<number> | null>(null);
   useEffect(() => {
@@ -200,7 +201,7 @@ export function useAnimeTvdbPanel(
   const extrasLabel = t("Extras");
   const built = useMemo(() => {
     if (!ordering) return null;
-    const lang = tmdbLanguageIso();
+    const lang = metadataLanguage;
     const englishTarget = lang === "" || lang === "en";
     const pool = franchiseEpisodes ?? episodes;
     const franchiseWide = franchiseEpisodes != null;
@@ -305,27 +306,16 @@ export function useAnimeTvdbPanel(
           currentByTvdbId.get(e.id) ??
           currentByPair.get(`${e.seasonNumber}:${e.episodeNumber}`) ??
           (abs != null ? currentByAbs.get(abs) : undefined);
-        let title: string | undefined;
-        let synopsis: string | undefined;
-        if (match && currentMatch && match !== currentMatch) {
-          title = pickLocalizedText([{ text: match?.title }, { text: currentMatch?.title }], {
-            forName: true,
-            lang,
-          });
-          synopsis = pickLocalizedText(
-            [{ text: match?.synopsis }, { text: currentMatch?.synopsis }],
-            { lang },
-          );
-        }
-        // A matched pool row can carry a Japanese-script title while TVDB has the
-        // English one for the same row. Only an English target may substitute it;
-        // a localized user keeps their own-language title.
-        if (title == null && match && englishTarget && isForeignScriptTitle(match.title)) {
-          const rowName = e.nameEn ?? e.name;
-          if (rowName && !isGenericEpisodeName(rowName) && !isForeignScriptTitle(rowName)) {
-            title = rowName;
-          }
-        }
+        const title = pickPreferredEpisodeTitle(
+          [{ text: englishTarget && isForeignScriptTitle(e.name) ? undefined : e.name, language: e.nameLanguage }, { text: englishTarget && isForeignScriptTitle(e.nameEn) ? undefined : e.nameEn, language: "en" }],
+          [{ text: match?.title, language: match?.titleLanguage }, { text: currentMatch?.title, language: currentMatch?.titleLanguage }],
+          lang,
+        );
+        const synopsis = pickPreferredEpisodeOverview(
+          [{ text: e.overview, language: e.overviewLanguage }, { text: e.overviewEn, language: "en" }],
+          [{ text: match?.synopsis, language: match?.synopsisLanguage }, { text: currentMatch?.synopsis, language: currentMatch?.synopsisLanguage }],
+          lang,
+        );
 
         let streamId: string | undefined;
         if (!match && franchise) {
@@ -364,6 +354,8 @@ export function useAnimeTvdbPanel(
               thumbnail: !match.thumbnail && img ? img : match.thumbnail,
               ...(title != null ? { title } : {}),
               ...(synopsis != null ? { synopsis } : {}),
+              titleLanguage: title === match.title ? match.titleLanguage : currentMatch && title === currentMatch.title ? currentMatch.titleLanguage : title === e.name ? e.nameLanguage : "en",
+              synopsisLanguage: synopsis === match.synopsis ? match.synopsisLanguage : currentMatch && synopsis === currentMatch.synopsis ? currentMatch.synopsisLanguage : synopsis === e.overview ? e.overviewLanguage : "en",
               ...(match.rating == null && imdbRating != null
                 ? { rating: imdbRating, ratingIsImdb: true }
                 : {}),
@@ -372,20 +364,10 @@ export function useAnimeTvdbPanel(
               id: -e.id,
               number: e.episodeNumber,
               seasonNumber: e.seasonNumber,
-              title:
-                pickLocalizedText(
-                  [{ text: e.name }, { text: e.nameEn ?? "" }, { text: currentMatch?.title ?? "" }],
-                  { forName: true, lang },
-                ) ?? e.name,
-              synopsis:
-                pickLocalizedText(
-                  [
-                    { text: e.overview },
-                    { text: e.overviewEn ?? "" },
-                    { text: currentMatch?.synopsis ?? "" },
-                  ],
-                  { lang },
-                ) ?? e.overview,
+              title: title ?? e.name,
+              synopsis: synopsis ?? "",
+              titleLanguage: currentMatch && title === currentMatch.title ? currentMatch.titleLanguage : title === e.name ? e.nameLanguage : "en",
+              synopsisLanguage: currentMatch && synopsis === currentMatch.synopsis ? currentMatch.synopsisLanguage : synopsis === e.overview ? e.overviewLanguage : "en",
               thumbnail: img ?? null,
               airdate: rowAir[bi] ?? null,
               length: e.runtime ?? null,
@@ -426,7 +408,7 @@ export function useAnimeTvdbPanel(
     }
     if (items.length === 0) return null;
     return { items, subset, pool };
-  }, [ordering, episodes, franchiseEpisodes, extrasLabel, franchise, foreignSeasons, imdbId, metaId]);
+  }, [ordering, episodes, franchiseEpisodes, extrasLabel, franchise, foreignSeasons, imdbId, metaId, metadataLanguage]);
 
   useEffect(() => {
     if (!ordering) return;
