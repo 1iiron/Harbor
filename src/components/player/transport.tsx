@@ -29,7 +29,6 @@ import {
 import { renderControl, type ControlContext } from "./transport/control-renderer";
 import { SongIdToast } from "@/components/song-id-toast";
 import { useCastModalPlay } from "./use-cast-modal-play";
-import { ChapterMenu } from "./transport/chapter-menu";
 
 // This is the mouse-era transport. Big Picture suppresses it outright and
 // renders views/big-picture/player instead, so nothing here scales for ten feet.
@@ -397,6 +396,7 @@ export function Transport({
     sleep,
     onPlayPause,
     onSeekStep,
+    onSeek,
     onMute,
     onVolume,
     onAudio,
@@ -425,6 +425,7 @@ export function Transport({
     setSubtitleMenuOpen,
     setSpeedMenuOpen,
     setAspectMenuOpen,
+    setChapterMenuOpen,
     cropMode,
     onCropMode,
     setAnime4kMenuOpen,
@@ -501,16 +502,6 @@ export function Transport({
                   chapters={snap.chapters}
                 />
               </div>
-              {snap.chapters.length > 0 && (
-                <div className={fadeClassName}>
-                  <ChapterMenu
-                    chapters={snap.chapters}
-                    positionSec={snap.positionSec}
-                    onSeek={onSeek}
-                    onOpenChange={setChapterMenuOpen}
-                  />
-                </div>
-              )}
               {controlsInSlot(chromeConfig, "seek-trailing").map((c) => (
                 <Fragment key={c.id}>{renderFadedControl(c.id)}</Fragment>
               ))}

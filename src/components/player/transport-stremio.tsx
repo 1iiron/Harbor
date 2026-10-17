@@ -23,7 +23,6 @@ import {
 } from "./transport/control-renderer-stremio";
 import { usePlayerNavigation } from "@/lib/view";
 import { useCastModalPlay } from "./use-cast-modal-play";
-import { ChapterMenu } from "./transport/chapter-menu";
 
 export type TransportStremioProps = {
   snap: PlayerSnapshot;
@@ -253,6 +252,7 @@ export function TransportStremio(p: TransportStremioProps) {
     setSubtitleMenuOpen,
     setSpeedMenuOpen,
     setAspectMenuOpen,
+    setChapterMenuOpen,
     cropMode,
     onCropMode,
     setAnime4kMenuOpen,
@@ -260,6 +260,7 @@ export function TransportStremio(p: TransportStremioProps) {
     onAnime4kMode,
     anime4kAvailable,
     onPlayPause,
+    onSeek,
     onMute,
     onVolume,
     onAudio,
@@ -342,14 +343,6 @@ export function TransportStremio(p: TransportStremioProps) {
           {renderSlot("bottom-left")}
           {renderSlot("bottom-center")}
           <div className="flex-1" />
-          {snap.chapters.length > 0 && (
-            <ChapterMenu
-              chapters={snap.chapters}
-              positionSec={snap.positionSec}
-              onSeek={onSeek}
-              onOpenChange={setChapterMenuOpen}
-            />
-          )}
           {renderSlot("bottom-right")}
         </div>
       </div>
