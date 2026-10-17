@@ -16,7 +16,7 @@ import { scrollToDataEp } from "@/lib/episode-scroll";
 import { tmdbSeasonEpisodes, type Episode, type Season } from "@/lib/providers/tmdb";
 import { tmdbLanguageIso } from "@/lib/providers/tmdb/tmdb-client";
 import type { OrderedEpisode } from "@/lib/providers/tvdb-order";
-import { pickLocalizedText } from "@/lib/localized-text";
+import { pickPreferredEpisodeOverview, pickPreferredEpisodeTitle } from "@/lib/localized-text";
 import {
   PREFERRED_TEXT_SCORE,
   preferredVideoName,
@@ -72,6 +72,8 @@ export function SeriesEpisodes({
 }) {
   const t = useT();
   const { settings, update } = useSettings();
+  const metadataLanguage = tmdbLanguageIso();
+  const seasonCacheKey = (season: number) => `${tvId}:${metadataLanguage}:${season}`;
   const { isConnected: traktConnected } = useTrakt();
   const { isConnected: simklConnected } = useSimkl();
   const mwVersion = useSyncExternalStore(subscribeManualWatched, manualWatchedVersion);
@@ -124,7 +126,7 @@ export function SeriesEpisodes({
     for (const k of manual.unwatched) s.delete(k);
     return s;
   }, [stremioWatched, simklWatched, traktWatched, meta.id, imdbId, mwVersion]);
-  const cache = useRef<Map<number, Episode[]>>(new Map());
+  const cache = useRef<Map<string, Episode[]>>(new Map());
 
   const traktKey = imdbId ?? meta.id;
 
@@ -226,8 +228,8 @@ export function SeriesEpisodes({
       tmdbSeasonEpisodes(settings.tmdbKey, tvId, season).then((eps) => {
         if (cancelled || eps.length === 0) return [];
         const m = cache.current;
-        m.delete(season);
-        m.set(season, eps);
+        m.delete(seasonCacheKey(season));
+        m.set(seasonCacheKey(season), eps);
         while (m.size > 2) {
           const oldest = m.keys().next().value;
           if (oldest === undefined) break;
@@ -235,7 +237,7 @@ export function SeriesEpisodes({
         }
         return eps;
       });
-    const cached = cache.current.get(active);
+    const cached = cache.current.get(seasonCacheKey(active));
     if (cached) {
       setEpisodes(cached);
       setLoading(false);
@@ -247,13 +249,13 @@ export function SeriesEpisodes({
         setLoading(false);
       });
     }
-    if (orderActive && orderSeasonEff !== active && !cache.current.has(orderSeasonEff)) {
+    if (orderActive && orderSeasonEff !== active && !cache.current.has(seasonCacheKey(orderSeasonEff))) {
       void load(orderSeasonEff);
     }
     return () => {
       cancelled = true;
     };
-  }, [tvId, active, settings.tmdbKey, orderActive, orderSeasonEff]);
+  }, [tvId, active, settings.tmdbKey, orderActive, orderSeasonEff, metadataLanguage]);
   const orderedEpsRaw: OrderedEpisode[] = arcActive
     ? arc.episodes
     : ordering
@@ -261,39 +263,31 @@ export function SeriesEpisodes({
       : [];
   const orderedEps = useMemo(() => {
     // pickLocalizedText keys script tests by ISO-1 ("ko"), not TVDB codes ("kor").
-    const lang = tmdbLanguageIso();
+    const lang = metadataLanguage;
     const airedLike =
       orderActive && (settings.tvdbSeasonType === "aired" || settings.tvdbSeasonType === "official");
     const tmdbByKey = new Map<string, Episode>();
     if (airedLike) {
-      for (const e of cache.current.get(orderSeasonEff) ?? []) {
+      for (const e of cache.current.get(seasonCacheKey(orderSeasonEff)) ?? []) {
         tmdbByKey.set(`${e.seasonNumber}:${e.episodeNumber}`, e);
       }
     }
     return orderedEpsRaw.map((ep) => {
       const tmdbEp = airedLike ? tmdbByKey.get(`${ep.seasonNumber}:${ep.episodeNumber}`) : undefined;
       const pref = preferredVideos.get(`${ep.seasonNumber}:${ep.episodeNumber}`);
-      const name =
-        pickLocalizedText(
-          [
-            { text: preferredVideoName(pref), score: PREFERRED_TEXT_SCORE },
-            { text: ep.name },
-            { text: ep.nameEn ?? "" },
-            { text: tmdbEp?.name ?? "" },
-          ],
-          { forName: true, lang },
-        ) ?? ep.name;
-      const overview =
-        pickLocalizedText(
-          [
-            { text: preferredVideoOverview(pref), score: PREFERRED_TEXT_SCORE },
-            { text: ep.overview },
-            { text: ep.overviewEn ?? "" },
-            { text: tmdbEp?.overview ?? "" },
-          ],
-          { lang },
-        ) ?? ep.overview;
-      let next = { ...ep, name, overview };
+      const name = pickPreferredEpisodeTitle(
+        [{ text: preferredVideoName(pref), score: PREFERRED_TEXT_SCORE }, { text: ep.name, language: ep.nameLanguage }, { text: ep.nameEn, language: ep.nameEnLanguage }],
+        [{ text: tmdbEp?.name, language: tmdbEp?.nameLanguage }], lang,
+      ) ?? ep.name;
+      const overview = pickPreferredEpisodeOverview(
+        [{ text: preferredVideoOverview(pref), score: PREFERRED_TEXT_SCORE }, { text: ep.overview, language: ep.overviewLanguage }, { text: ep.overviewEn, language: ep.overviewEnLanguage }],
+        [{ text: tmdbEp?.overview, language: tmdbEp?.overviewLanguage }], lang,
+      ) ?? ep.overview;
+      let next = {
+        ...ep, name, overview,
+        nameLanguage: name === ep.name ? ep.nameLanguage : name === tmdbEp?.name ? tmdbEp.nameLanguage : name === ep.nameEn ? ep.nameEnLanguage : "und",
+        overviewLanguage: overview === ep.overview ? ep.overviewLanguage : overview === tmdbEp?.overview ? tmdbEp.overviewLanguage : overview === ep.overviewEn ? ep.overviewEnLanguage : "und",
+      };
       if (ep.imdbRating == null) {
         const r = imdbRatings.get(`${ep.seasonNumber}:${ep.episodeNumber}`);
         if (r != null && r > 0) next = { ...next, imdbRating: r };
@@ -307,6 +301,8 @@ export function SeriesEpisodes({
     orderSeasonEff,
     settings.tvdbSeasonType,
     preferredVideos,
+    metadataLanguage,
+    tvId,
   ]);
   const visibleOrderedEps = useMemo(
     () =>
@@ -457,7 +453,7 @@ export function SeriesEpisodes({
       {!altActive && loading && <EpisodeGridSkeleton />}
 
       {!altActive && !loading && enrichedEpisodes.length === 0 && (
-        <CinemetaFallback meta={meta} videos={cinemetaVideos} season={active} />
+        <CinemetaFallback meta={meta} videos={cinemetaVideos} season={active} imdbRatings={imdbRatings} />
       )}
 
       {!altActive && !loading && enrichedEpisodes.length > 0 && (

@@ -5,7 +5,7 @@ function resolveBase(raw: string | undefined, fallback: string): string {
 
 export const HARBOR_API_BASE = resolveBase(
   import.meta.env.VITE_HARBOR_API_BASE,
-  "https://harbor.site",
+  "https://harborcommunity.site",
 );
 
 export const HARBOR_TRAKT_BASE = resolveBase(
@@ -19,12 +19,12 @@ export const HARBOR_TVDB_BASE = resolveBase(import.meta.env.VITE_HARBOR_TVDB_BAS
 
 export const HARBOR_BUGS_BASE = resolveBase(
   import.meta.env.VITE_HARBOR_BUGS_BASE,
-  "https://bugs.harbor.site",
+  "https://bugs.harborcommunity.site",
 );
 
 export const HARBOR_SYNC_BASE = resolveBase(
   import.meta.env.VITE_HARBOR_SYNC_BASE,
-  "https://sync.harbor.site",
+  "https://sync.harborcommunity.site",
 );
 
 export const HARBOR_RELAY_BASE = resolveBase(

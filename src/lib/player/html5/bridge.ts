@@ -103,6 +103,8 @@ export function createHtml5Bridge(): PlayerBridge {
     snap.subDelaySec = subDelaySec;
     snap.videoWidth = video.videoWidth || 0;
     snap.videoHeight = video.videoHeight || 0;
+    snap.videoSourceWidth = snap.videoWidth;
+    snap.videoSourceHeight = snap.videoHeight;
     if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && snap.videoWidth > 0) {
       snap.firstFrameReady = true;
     }
@@ -163,6 +165,7 @@ export function createHtml5Bridge(): PlayerBridge {
       release: t.metadata?.release,
       provider: t.metadata?.provider,
       providerDerived: t.metadata?.providerDerived,
+      localTrusted: t.metadata?.localTrusted,
       fps: t.metadata?.fps,
       downloads: t.metadata?.downloads,
       author: t.metadata?.author,
@@ -277,6 +280,7 @@ export function createHtml5Bridge(): PlayerBridge {
             language: track.lang,
             release: track.metadata?.release,
             filename: track.metadata?.rawFilename,
+            allowLocalNetwork: track.metadata?.localTrusted === true,
             requestHeaders: subtitleTrackDownloadHeaders(
               track.metadata?.downloadAuth,
               track.url,
@@ -601,6 +605,7 @@ export function createHtml5Bridge(): PlayerBridge {
             metadata: {
               originalUrl: s.url,
               providerDerived: s.trustedSource !== true,
+              localTrusted: s.trustedSource === true,
               autoSelectionEligible: false,
             },
           };

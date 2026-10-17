@@ -38,6 +38,8 @@ import { TraktTab } from "./library/trakt-tab";
 import { WatchlistTab } from "./library/watchlist-tab";
 import { LetterboxdTab } from "./library/letterboxd-tab";
 import { MediaServersTab } from "./library/media-servers-tab";
+import { TorboxTab } from "./library/torbox-tab";
+import torboxLogo from "@/assets/addon-logos/torbox.png";
 import { pushActivityHint } from "@/lib/discord/activity-hint";
 import { HeroCarousel } from "@/components/hero-carousel";
 import { LibraryFeaturedProvider, useLibraryFeatured } from "./library/featured-context";
@@ -62,6 +64,7 @@ function readSavedTab(): Tab {
       v === "history" ||
       v === "local" ||
       v === "media-servers" ||
+      v === "torbox" ||
       v === "lists" ||
       v === "favorites" ||
       v === "trakt" ||
@@ -156,6 +159,7 @@ export function LibraryView({ active }: { active: boolean }) {
           {tab === "history" && <HistoryTab />}
           {tab === "local" && <LocalTab scrollRef={scrollRef} />}
           {tab === "media-servers" && <MediaServersTab scrollRef={scrollRef} />}
+          {tab === "torbox" && <TorboxTab />}
           {tab === "lists" && <MyListsTab />}
           {tab === "favorites" && <FavoritesTab />}
           {tab === "trakt" && traktConnected && <TraktTab />}
@@ -268,6 +272,10 @@ function Header({
         <TabBtn active={tab === "media-servers"} onClick={() => onTab("media-servers")}>
           <Server size={14} strokeWidth={2.2} />
           {t("Media Servers")}
+        </TabBtn>
+        <TabBtn active={tab === "torbox"} onClick={() => onTab("torbox")}>
+          <img src={torboxLogo} alt="" className="h-3.5 w-3.5 object-contain" />
+          TorBox
         </TabBtn>
         <TabBtn active={tab === "lists"} onClick={() => onTab("lists")}>
           <UiIcon name="list" className="h-3.5 w-3.5" />
