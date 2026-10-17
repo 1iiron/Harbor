@@ -72,7 +72,11 @@ const DEFAULT_DEPS: TrackerEntryDeps = {
     // Browser-only AniList client, loaded lazily so this module stays testable.
     const { animeRelations } = await import("@/lib/anilist/relations");
     const relations = await animeRelations(anilistId).catch(() => []);
-    return relations.filter((r) => r.kind === "sequel").map((r) => ({ id: r.id }));
+    // Provider seasons advance through TV cours; OVAs and specials sit between
+    // them and would shift the hop to the wrong entry.
+    return relations
+      .filter((r) => r.kind === "sequel" && r.format !== "OVA" && r.format !== "SPECIAL")
+      .map((r) => ({ id: r.id }));
   },
   kitsuOfAnilist: (anilistId) => kitsuOfAnilist(anilistId),
 };

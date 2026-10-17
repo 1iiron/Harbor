@@ -97,10 +97,18 @@ export function fillAiredPlaceholderTitles(
         ? byPair.get(`${ep.imdbSeason}:${ep.imdbEpisode}`)
         : undefined) ??
       (abs != null ? byAbs.get(abs) : undefined);
-    if (!hasAired(ep.airdate ?? base?.airdate, now)) {
-      // The episode has not aired (or carries no usable date): a generic
-      // "Episode 4" or blank title becomes the honest "TBA" placeholder.
-      if (titleMissing && (isGenericEpisodeName(ep.title) || !ep.title?.trim())) {
+    const air = ep.airdate ?? base?.airdate;
+    if (!hasAired(air, now)) {
+      // Only a known future date is provably unaired. A row without a usable
+      // date may simply be undated — it keeps its text instead of being
+      // relabelled "TBA" on a guess.
+      const airMs = air != null ? Date.parse(air) : NaN;
+      if (
+        Number.isFinite(airMs) &&
+        airMs > now &&
+        titleMissing &&
+        (isGenericEpisodeName(ep.title) || !ep.title?.trim())
+      ) {
         changed = true;
         return { ...ep, title: "TBA" };
       }

@@ -388,6 +388,9 @@ async function dropCatalogDuplicates(candidates: Candidate[]): Promise<Candidate
   if (animeRoots.size === 0) return candidates;
   return candidates.filter((c) => {
     if (isAnimeId(c.id)) return true;
+    // A film sharing an anime's franchise root is its own release (a movie
+    // sequel), not a duplicate of the series entry.
+    if (c.type === "movie") return true;
     const root = roots.get(c.id);
     return root == null || !animeRoots.has(root);
   });

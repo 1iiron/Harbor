@@ -99,6 +99,20 @@ test("an unaired generic episode title becomes TBA", () => {
   assert.notEqual(out[0], row);
 });
 
+test("an undated generic title is left alone instead of being guessed as TBA", () => {
+  const row = episode({ title: "Episode 3", airdate: null });
+  const out = fillAiredPlaceholderTitles([row], [], NOW);
+  assert.equal(out[0], row);
+  assert.equal(out[0].title, "Episode 3");
+});
+
+test("an unparseable date is not treated as unaired either", () => {
+  const row = episode({ title: "Episode 3", airdate: "not-a-date" });
+  const out = fillAiredPlaceholderTitles([row], [], NOW);
+  assert.equal(out[0], row);
+  assert.equal(out[0].title, "Episode 3");
+});
+
 test("an aired generic title takes the pool's real name", () => {
   const row = episode({
     title: "Episode 3",

@@ -162,7 +162,9 @@ async function animeEntryFollowUp(
     // (from.season, entry number) — never at entry-relative season coords,
     // which would collide with earlier seasons of the same show.
     const season = v.imdbSeason ?? from.season;
-    const episode = v.imdbEpisode ?? v.absoluteNumber ?? v.episode;
+    // The entry-relative episode is the provider episode here; the franchise
+    // absolute number is a different coordinate and must never stand in for it.
+    const episode = v.imdbEpisode ?? v.episode;
     if (skip?.(season, episode)) continue;
     if (watched(season, episode)) continue;
     return { ...v, season, episode };

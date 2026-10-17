@@ -3,6 +3,7 @@ import type { Meta } from "@/lib/cinemeta";
 import { scrollToDataEp } from "@/lib/episode-scroll";
 import { type FranchiseEntry } from "@/lib/providers/anime-detail";
 import type { KitsuEpisode } from "@/lib/providers/kitsu";
+import { isUpcomingDate } from "@/lib/dates";
 import { useSettings } from "@/lib/settings";
 import { effectiveOrderProvider, tvdbPanelEnabled } from "@/lib/settings/episode-order";
 import { useView } from "@/lib/view";
@@ -367,12 +368,15 @@ export function AnimeEpisodes({
     artworkSeasons,
     artworkNeeded,
   );
-  // Rows the air-date frontier marks as unaired — future-dated rows plus
-  // undated rows beyond the last aired episode of an ongoing season — badge
-  // and dim like dated upcoming rows even though no source knows their date.
+  // Only rows with a known future date are provably unaired and skip artwork /
+  // badge as upcoming. A merely undated row past the aired frontier may have
+  // aired, so it keeps its still and is not marked upcoming.
   const unairedIds = useMemo(() => {
     const ids = new Set<number>();
-    unairedIndexes(baseDisplay).forEach((i) => ids.add(baseDisplay[i].id));
+    unairedIndexes(baseDisplay).forEach((i) => {
+      const ep = baseDisplay[i];
+      if (ep.airdate && isUpcomingDate(ep.airdate)) ids.add(ep.id);
+    });
     return ids;
   }, [baseDisplay]);
   const displayEpisodes = useMemo(() => {

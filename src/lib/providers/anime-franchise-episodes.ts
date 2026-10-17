@@ -19,7 +19,11 @@ import { tmdbSeasonEpisodes } from "@/lib/providers/tmdb/tmdb-details";
 import type { Episode as TmdbEpisode } from "@/lib/providers/tmdb/tmdb-details";
 import type { Settings } from "@/lib/settings";
 
-const cache = new Map<string, Promise<KitsuEpisode[]>>();
+// The pool a cour was fetched with can predate freshly published titles, so a
+// result is kept briefly instead of for the whole session; a failed fetch is
+// never kept at all.
+const ENTRY_CACHE_TTL_MS = 5 * 60 * 1000;
+const cache = new Map<string, { at: number; promise: Promise<KitsuEpisode[]> }>();
 
 function isPlayable(ep: KitsuEpisode): boolean {
   if (ep.streamId) return true;
@@ -32,7 +36,7 @@ export function fetchEntryEpisodes(kitsuId: number, settings: Settings): Promise
   const localized = iso1.split("-")[0]?.toLowerCase() !== "en";
   const cacheKey = `${kitsuId}:${lang}:${localized ? "loc" : "std"}`;
   const cached = cache.get(cacheKey);
-  if (cached) return cached;
+  if (cached && Date.now() - cached.at < ENTRY_CACHE_TTL_MS) return cached.promise;
   const p = (async () => {
     const [addonMeta, raw, aniZip, tvdbRaw] = await Promise.all([
       animeKitsuMeta(`kitsu:${kitsuId}`).catch(() => null),
@@ -126,6 +130,10 @@ export function fetchEntryEpisodes(kitsuId: number, settings: Settings): Promise
     }
     return out;
   })();
-  cache.set(cacheKey, p);
+  const entry = { at: Date.now(), promise: p };
+  cache.set(cacheKey, entry);
+  void p.catch(() => {
+    if (cache.get(cacheKey) === entry) cache.delete(cacheKey);
+  });
   return p;
 }
