@@ -1,17 +1,12 @@
 import { isForeignScriptTitle, isGenericEpisodeName } from "@/lib/providers/anime-episode-build";
 import type { KitsuEpisode } from "@/lib/providers/kitsu";
+import { isPlaceholderEpisodeText } from "@/lib/episode-text-placeholder";
+export { isPlaceholderEpisodeText } from "@/lib/episode-text-placeholder";
 
 // Providers publish placeholders such as "TBA" for episodes whose name has not
 // been announced yet. That is honest text for an episode that has not aired, but
 // it must never replace — or hide — the real title of an episode that already
 // aired, which another source may well know.
-const PLACEHOLDER = /^(?:tba|tbd|tbc|n\/?a|unknown|to be announced|to be determined)\b/i;
-
-export function isPlaceholderEpisodeText(text: string | null | undefined): boolean {
-  const t = text?.trim();
-  return !!t && PLACEHOLDER.test(t);
-}
-
 /**
  * First candidate that is neither empty nor a placeholder; when every candidate
  * is a placeholder the first non-empty one is kept (an unaired episode is better

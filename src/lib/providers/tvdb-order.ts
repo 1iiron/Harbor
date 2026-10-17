@@ -4,7 +4,12 @@ import { isStaleTvdbOrder, readOrderCache, writeOrderCache } from "./tvdb-order-
 import { firstRealEpisodeText } from "./episode-placeholder";
 import { episodeTextLanguage } from "@/lib/episode-text-language";
 
-export type OrderedEpisode = Episode & { nameEn?: string; overviewEn?: string };
+export type OrderedEpisode = Episode & {
+  nameEn?: string;
+  overviewEn?: string;
+  nameEnLanguage?: string;
+  overviewEnLanguage?: string;
+};
 
 export type TvdbOrder = {
   seasons: Season[];
@@ -124,6 +129,18 @@ async function build(
     altBySeason.set(bucketKey, altBucket);
     const tr = transById.get(e.id);
     const trEn = transEnById.get(e.id);
+    const name = firstRealEpisodeText([tr?.name, trEn?.name, e.name]) ?? "";
+    const overview = firstRealEpisodeText([tr?.overview, trEn?.overview, e.overview]) ?? "";
+    const nameEn = firstRealEpisodeText([trEn?.name, e.name]);
+    const overviewEn = firstRealEpisodeText([trEn?.overview, e.overview]);
+    const fieldLanguage = (value: string | undefined, field: "name" | "overview") => {
+      const languageField = field === "name" ? "nameLanguage" : "overviewLanguage";
+      if (value && value === tr?.[field]) {
+        return episodeTextLanguage(value, lang, trEn?.[languageField] === "und" ? undefined : trEn?.[field], tr?.[languageField] ? [tr[languageField]] : undefined);
+      }
+      if (value && value === trEn?.[field]) return trEn?.[languageField] ?? episodeTextLanguage(value, "en");
+      return e[languageField] ?? "und";
+    };
     // A localized "TBA" must not shadow a real name in another list: an aired
     // episode often has its English title while the requested-language or
     // original-language row still carries the placeholder. Keep the placeholder
@@ -132,12 +149,14 @@ async function build(
       id: e.id,
       seasonNumber: c.season,
       episodeNumber: c.episode,
-      name: firstRealEpisodeText([tr?.name, trEn?.name, e.name]) ?? "",
-      overview: firstRealEpisodeText([tr?.overview, trEn?.overview, e.overview]) ?? "",
-      nameEn: firstRealEpisodeText([trEn?.name, e.name]),
-      overviewEn: firstRealEpisodeText([trEn?.overview, e.overview]),
-      nameLanguage: episodeTextLanguage(firstRealEpisodeText([tr?.name, trEn?.name, e.name]), lang, trEn?.name, tr?.nameLanguage ? [tr.nameLanguage] : undefined),
-      overviewLanguage: episodeTextLanguage(firstRealEpisodeText([tr?.overview, trEn?.overview, e.overview]), lang, trEn?.overview, tr?.overviewLanguage ? [tr.overviewLanguage] : undefined),
+      name,
+      overview,
+      nameEn,
+      overviewEn,
+      nameLanguage: fieldLanguage(name, "name"),
+      overviewLanguage: fieldLanguage(overview, "overview"),
+      nameEnLanguage: nameEn === trEn?.name ? trEn?.nameLanguage ?? episodeTextLanguage(nameEn, "en") : e.nameLanguage ?? "und",
+      overviewEnLanguage: overviewEn === trEn?.overview ? trEn?.overviewLanguage ?? episodeTextLanguage(overviewEn, "en") : e.overviewLanguage ?? "und",
       stillPath: null,
       stillUrl: e.image ?? undefined,
       airDate: e.aired ?? null,

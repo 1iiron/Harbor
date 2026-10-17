@@ -275,17 +275,17 @@ export function SeriesEpisodes({
       const tmdbEp = airedLike ? tmdbByKey.get(`${ep.seasonNumber}:${ep.episodeNumber}`) : undefined;
       const pref = preferredVideos.get(`${ep.seasonNumber}:${ep.episodeNumber}`);
       const name = pickPreferredEpisodeTitle(
-        [{ text: preferredVideoName(pref), score: PREFERRED_TEXT_SCORE }, { text: ep.name, language: ep.nameLanguage }, { text: ep.nameEn, language: "en" }],
+        [{ text: preferredVideoName(pref), score: PREFERRED_TEXT_SCORE }, { text: ep.name, language: ep.nameLanguage }, { text: ep.nameEn, language: ep.nameEnLanguage }],
         [{ text: tmdbEp?.name, language: tmdbEp?.nameLanguage }], lang,
       ) ?? ep.name;
       const overview = pickPreferredEpisodeOverview(
-        [{ text: preferredVideoOverview(pref), score: PREFERRED_TEXT_SCORE }, { text: ep.overview, language: ep.overviewLanguage }, { text: ep.overviewEn, language: "en" }],
+        [{ text: preferredVideoOverview(pref), score: PREFERRED_TEXT_SCORE }, { text: ep.overview, language: ep.overviewLanguage }, { text: ep.overviewEn, language: ep.overviewEnLanguage }],
         [{ text: tmdbEp?.overview, language: tmdbEp?.overviewLanguage }], lang,
       ) ?? ep.overview;
       let next = {
         ...ep, name, overview,
-        nameLanguage: name === ep.name ? ep.nameLanguage : name === tmdbEp?.name ? tmdbEp.nameLanguage : name === ep.nameEn ? "en" : "und",
-        overviewLanguage: overview === ep.overview ? ep.overviewLanguage : overview === tmdbEp?.overview ? tmdbEp.overviewLanguage : overview === ep.overviewEn ? "en" : "und",
+        nameLanguage: name === ep.name ? ep.nameLanguage : name === tmdbEp?.name ? tmdbEp.nameLanguage : name === ep.nameEn ? ep.nameEnLanguage : "und",
+        overviewLanguage: overview === ep.overview ? ep.overviewLanguage : overview === tmdbEp?.overview ? tmdbEp.overviewLanguage : overview === ep.overviewEn ? ep.overviewEnLanguage : "und",
       };
       if (ep.imdbRating == null) {
         const r = imdbRatings.get(`${ep.seasonNumber}:${ep.episodeNumber}`);

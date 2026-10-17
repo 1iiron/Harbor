@@ -2,8 +2,7 @@ import type { Season } from "@/lib/providers/tmdb";
 import type { OrderedEpisode, TvdbOrder } from "./tvdb-order";
 import { isPlaceholderEpisodeText } from "./episode-placeholder";
 
-// v8: keep upstream unaired/placeholder invalidation and invalidate orders
-// that predate per-field translation provenance.
+// Preserve existing entries; older language evidence is normalized on read.
 const PREFIX = "harbor.tvdbo.v8.";
 const TTL = 3 * 24 * 60 * 60 * 1000;
 
@@ -29,6 +28,7 @@ export function isStaleTvdbOrder(
 
 type Serialized = {
   t: number;
+  textEvidenceVersion?: number;
   seasons: Season[];
   bySeason: [number, OrderedEpisode[]][];
   absByEpId: [number, number][];
@@ -42,6 +42,16 @@ export function readOrderCache(seriesId: number, seasonType: string): TvdbOrder 
     const s = JSON.parse(raw) as Serialized;
     if (!s || typeof s.t !== "number" || Date.now() - s.t > TTL) return null;
     if (isStaleTvdbOrder(s.bySeason)) return null;
+    if (s.textEvidenceVersion !== 1) {
+      for (const [, episodes] of s.bySeason) {
+        for (const ep of episodes) {
+          ep.nameLanguage = "und";
+          ep.overviewLanguage = "und";
+          ep.nameEnLanguage = "und";
+          ep.overviewEnLanguage = "und";
+        }
+      }
+    }
     return {
       seasons: s.seasons,
       bySeason: new Map(s.bySeason),
@@ -57,6 +67,7 @@ export function writeOrderCache(seriesId: number, seasonType: string, order: Tvd
   try {
     const s: Serialized = {
       t: Date.now(),
+      textEvidenceVersion: 1,
       seasons: order.seasons,
       bySeason: [...order.bySeason],
       absByEpId: [...order.absByEpId],

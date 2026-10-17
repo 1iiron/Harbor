@@ -46,19 +46,19 @@ export function buildAnimeOrder(
         byAbs,
         matched,
       );
+      const title = pickPreferredEpisodeTitle([{ text: e.name, language: e.nameLanguage }, { text: e.nameEn, language: e.nameEnLanguage }], [{ text: match?.title, language: match?.titleLanguage }], lang);
+      const synopsis = pickPreferredEpisodeOverview(
+        [{ text: e.overview, language: e.overviewLanguage }, { text: e.overviewEn, language: e.overviewEnLanguage }], [{ text: match?.synopsis, language: match?.synopsisLanguage }], lang,
+      );
       if (match) {
         matched.add(match.id);
-        const title = pickPreferredEpisodeTitle([{ text: e.name, language: e.nameLanguage }, { text: e.nameEn, language: "en" }], [{ text: match.title, language: match.titleLanguage }], lang);
-        const synopsis = pickPreferredEpisodeOverview(
-          [{ text: e.overview, language: e.overviewLanguage }, { text: e.overviewEn, language: "en" }], [{ text: match.synopsis, language: match.synopsisLanguage }], lang,
-        );
         if ((!title || title === match.title) && (!synopsis || synopsis === match.synopsis)) return match;
         return {
           ...match,
           title: title ?? match.title,
           synopsis: synopsis ?? match.synopsis,
-          titleLanguage: title === match.title ? match.titleLanguage : title === e.name ? e.nameLanguage : "en",
-          synopsisLanguage: synopsis === match.synopsis ? match.synopsisLanguage : synopsis === e.overview ? e.overviewLanguage : "en",
+          titleLanguage: title === match.title ? match.titleLanguage : title === e.name ? e.nameLanguage : e.nameEnLanguage,
+          synopsisLanguage: synopsis === match.synopsis ? match.synopsisLanguage : synopsis === e.overview ? e.overviewLanguage : e.overviewEnLanguage,
         };
       }
       const img = abs != null ? ordering.imageByAbs.get(abs) : undefined;
@@ -66,12 +66,10 @@ export function buildAnimeOrder(
         id: -e.id,
         number: e.episodeNumber,
         seasonNumber: e.seasonNumber,
-        titleLanguage: e.nameLanguage,
-        synopsisLanguage: e.overviewLanguage,
-        title:
-          pickPreferredEpisodeTitle([{ text: e.name, language: e.nameLanguage }, { text: e.nameEn, language: "en" }], [], lang) ?? `Episode ${e.episodeNumber}`,
-        synopsis:
-          pickPreferredEpisodeOverview([{ text: e.overview, language: e.overviewLanguage }, { text: e.overviewEn, language: "en" }], [], lang) ?? "",
+        titleLanguage: title === e.name ? e.nameLanguage : e.nameEnLanguage,
+        synopsisLanguage: synopsis === e.overview ? e.overviewLanguage : e.overviewEnLanguage,
+        title: title ?? `Episode ${e.episodeNumber}`,
+        synopsis: synopsis ?? "",
         thumbnail: img ?? null,
         airdate: e.airDate ?? null,
         length: e.runtime ?? null,

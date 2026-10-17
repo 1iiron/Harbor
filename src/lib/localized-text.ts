@@ -2,6 +2,7 @@ import {
   isGenericEpisodeName,
 } from "@/lib/providers/anime-episode-build";
 import { episodeLanguageBase, episodeTextRank, isTextInLanguage, isUsableLocalizedText, type EpisodeTextInput } from "@/lib/episode-text-language";
+import { isPlaceholderEpisodeText } from "@/lib/episode-text-placeholder";
 
 /**
  * Rank how well a candidate localized text matches the user's selected language.
@@ -92,8 +93,10 @@ function pickPreferredEpisodeText(
       score: candidate.score ?? (prefer ? (uncertain ? -1 : 300 - i) : Math.min(text.length, forName ? 60 : 200)),
     };
   });
+  const all = [...candidates(preferred, true), ...candidates(fallback, false)];
+  const real = all.filter((candidate) => candidate.text.trim() && !isPlaceholderEpisodeText(candidate.text) && (!forName || !isGenericEpisodeName(candidate.text)));
   return pickLocalizedText(
-    [...candidates(preferred, true), ...candidates(fallback, false)],
+    real.length ? real : all,
     { forName, lang },
   );
 }

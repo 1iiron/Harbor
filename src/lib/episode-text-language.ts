@@ -63,11 +63,13 @@ export function episodeTextLanguage(
 ): string {
   if (!text?.trim()) return "und";
   const lang = episodeLanguageBase(requested);
-  if (english?.trim() && text.trim() === english.trim()) return "en";
+  if (english?.trim() && text.trim() === english.trim() && !FOREIGN_SCRIPT.test(english)) return "en";
+  if (Array.isArray(availableLanguages) && !availableLanguages.some((available) => episodeLanguageBase(available) === lang)) return "und";
   if (lang === "en") return FOREIGN_SCRIPT.test(text) ? "und" : "en";
   if (!isTextInLanguage(text, lang)) return "und";
   if (Array.isArray(availableLanguages) && availableLanguages.some((available) => episodeLanguageBase(available) === lang)) return lang;
-  if (SCRIPT_TEST[lang] || english?.trim()) return lang;
+  // A different Latin original is not evidence of a requested translation.
+  if (SCRIPT_TEST[lang]) return lang;
   return "und";
 }
 
@@ -77,6 +79,7 @@ export type EpisodeTextInput = string | null | undefined | EpisodeTextCandidate;
 export function episodeTextRank(text: string, language: string | undefined, requested?: string | null): 0 | 1 | 2 | 3 {
   const lang = episodeLanguageBase(requested);
   if (!text.trim()) return 0;
+  if (lang === "en" && FOREIGN_SCRIPT.test(text)) return 0;
   if (!isUsableLocalizedText(text, lang)) return 0;
   if (language && language !== "und") {
     if (episodeLanguageBase(language) === lang) return 3;

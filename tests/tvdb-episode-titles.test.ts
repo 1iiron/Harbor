@@ -68,7 +68,7 @@ function order(name = finaleTitle, nameEn = finaleTitle, overview = "", language
     seasons: [{ seasonNumber: 1, name: "Season 1" }, { seasonNumber: 2, name: "Season 2" }],
     bySeason: new Map([
       [1, [{ id: 10, seasonNumber: 1, episodeNumber: 1, name: "Pilot", overview: "" }]],
-      [2, [{ id: 213, seasonNumber: 2, episodeNumber: 13, name, nameEn, overview, nameLanguage: language, overviewLanguage: language }]],
+      [2, [{ id: 213, seasonNumber: 2, episodeNumber: 13, name, nameEn, overview, nameLanguage: language, overviewLanguage: language, nameEnLanguage: "en" }]],
     ]),
     absByEpId: new Map(),
     imageByAbs: new Map(),
@@ -233,9 +233,9 @@ const turkishOverview = "Subaru başka bir dünyaya çağrılır.";
 
 test("translation evidence distinguishes Turkish from English and treats fields independently", () => {
   assert.equal(episodeTextLanguage(finaleTitle, "tur", finaleTitle), "en");
-  assert.equal(episodeTextLanguage(turkishTitle, "tr-TR", finaleTitle), "tr");
+  assert.equal(episodeTextLanguage(turkishTitle, "tr-TR", finaleTitle), "und");
   assert.equal(episodeTextLanguage(finaleOverview, "tr", finaleOverview), "en");
-  assert.equal(episodeTextLanguage(turkishOverview, "tr", finaleOverview), "tr");
+  assert.equal(episodeTextLanguage(turkishOverview, "tr", finaleOverview), "und");
   assert.equal(episodeTextLanguage("Unverified Latin text", "tr"), "und");
   assert.equal(episodeTextLanguage(turkishTitle, "tur", undefined, ["tur"]), "tr");
   assert.equal(pickPreferredEpisodeTitle([{ text: "Rem", language: "en" }], [], "tr"), "Rem");
@@ -275,8 +275,8 @@ test("the anime merge retains Turkish TMDB metadata through English fallback and
   mergeTmdbEpisodes([ep], tmdbEnglish as any);
   assert.equal(ep.title, turkishTitle);
   assert.equal(ep.synopsis, turkishOverview);
-  assert.equal(ep.titleLanguage, "tr");
-  assert.equal(ep.synopsisLanguage, "tr");
+  assert.equal(ep.titleLanguage, "und");
+  assert.equal(ep.synopsisLanguage, "und");
 
   const { buildAnimeOrder } = load("src/views/detail/anime-episodes/anime-order-utils.ts", {
     "@/lib/localized-text": text,
@@ -291,8 +291,8 @@ test("mixed translation availability selects the title and description independe
   const ep = episode();
   const englishTvdb = [{ id: 213, seasonNumber: 2, number: 13, name: finaleTitle, overview: finaleOverview }];
   const englishTmdb = [{ id: 213, seasonNumber: 2, episodeNumber: 13, name: finaleTitle, overview: finaleOverview }];
-  mergeTvdbEpisodes([ep], [{ ...englishTvdb[0], name: turkishTitle }], { lang: "tr", englishEpisodes: englishTvdb });
-  mergeTmdbEpisodes([ep], [{ ...englishTmdb[0], overview: turkishOverview }] as any, { lang: "tr", englishEpisodes: englishTmdb as any });
+  mergeTvdbEpisodes([ep], [{ ...englishTvdb[0], name: turkishTitle, nameLanguage: "tr" }], { lang: "tr", englishEpisodes: englishTvdb });
+  mergeTmdbEpisodes([ep], [{ ...englishTmdb[0], overview: turkishOverview, overviewLanguage: "tr" }] as any, { lang: "tr", englishEpisodes: englishTmdb as any });
   assert.equal(ep.title, turkishTitle);
   assert.equal(ep.synopsis, turkishOverview);
   assert.equal(ep.titleLanguage, "tr");
@@ -307,7 +307,7 @@ test("TVDB ordering preserves translation evidence with the same existing reques
       tvdbSeasonNames: async () => new Map([[2, "Season 2"]]),
       tvdbEpisodesByType: async (_key: string, _id: number, type: string, lang?: string) => {
         requests.push(`${type}:${lang ?? "default"}`);
-        return lang === "tur" ? [{ ...english[0], overview: turkishOverview }] : english;
+        return lang === "tur" ? [{ ...english[0], overview: turkishOverview, overviewLanguage: "tr" }] : english;
       },
     },
     "./tvdb-order-cache": { isStaleTvdbOrder, readOrderCache: () => null, writeOrderCache: () => {} },
@@ -415,11 +415,172 @@ test("franchise loading reuses the existing localized and English requests and r
   const episodes = await fetchEntryEpisodes(50634, settings);
   assert.equal(episodes[0].title, turkishTitle);
   assert.equal(episodes[0].synopsis, turkishOverview);
-  assert.equal(episodes[0].titleLanguage, "tr");
+  assert.equal(episodes[0].titleLanguage, "und");
   assert.equal(episodes[0].sourceMetaId, "kitsu:50634");
   assert.deepEqual(tmdbRequests, ["1:tr", "2:tr", "1:en", "2:en"]);
   assert.deepEqual(tvdbRequests, ["default:tur", "absolute:tur", "default:eng", "absolute:eng"]);
   await fetchEntryEpisodes(50634, settings);
   assert.equal(tmdbRequests.length, 4);
   assert.equal(tvdbRequests.length, 4);
+});
+
+test("real source text beats translated placeholders in merges and selectors", () => {
+  for (const placeholder of ["TBA", "TBD", "Unknown", "To be announced"]) {
+    const ep = episode();
+    const original = { ...ep };
+    mergeTvdbEpisodes([ep], [{ id: 213, seasonNumber: 2, number: 13, name: placeholder, overview: placeholder, nameLanguage: "tr", overviewLanguage: "tr" }], { lang: "tr" });
+    assert.deepEqual(ep, original);
+    for (const select of [pickPreferredEpisodeTitle, pickPreferredEpisodeOverview]) {
+      assert.equal(select([{ text: placeholder, language: "tr" }], [{ text: finaleTitle, language: "en" }], "tr"), finaleTitle);
+      assert.equal(select([{ text: placeholder, language: "en" }], [], "en"), placeholder);
+    }
+  }
+  const empty = { ...episode(), title: "Episode 13", synopsis: "" };
+  mergeTvdbEpisodes([empty], [{ id: 213, seasonNumber: 2, number: 13, name: "TBA", overview: "TBA" }]);
+  assert.equal(empty.title, "TBA");
+  assert.equal(empty.synopsis, "TBA");
+});
+
+test("original Latin text cannot be confirmed as Turkish merely by differing from English", () => {
+  const frenchTitle = "Le début de la fin";
+  assert.equal(episodeTextLanguage(frenchTitle, "tr", finaleTitle, ["eng", "fra"]), "und");
+  assert.equal(episodeTextLanguage(frenchTitle, "tr", finaleTitle, []), "und");
+  assert.equal(episodeTextLanguage(frenchTitle, "tr", finaleTitle), "und");
+  assert.equal(episodeTextLanguage(turkishTitle, "tr-TR", finaleTitle, ["eng", "tur"]), "tr");
+  for (const confirmed of [false, true]) {
+    const ep = episode();
+    mergeTvdbEpisodes([ep], [{ id: 213, seasonNumber: 2, number: 13, name: frenchTitle, overview: "Une description française", nameLanguage: "und", overviewLanguage: "und" }], {
+      lang: "tr", englishEpisodes: [{ id: 213, seasonNumber: 2, number: 13, name: finaleTitle, overview: finaleOverview }],
+    });
+    mergeTmdbEpisodes([ep], [{ id: 213, seasonNumber: 2, episodeNumber: 13, name: turkishTitle, overview: turkishOverview, nameLanguage: confirmed ? "tr" : "und", overviewLanguage: confirmed ? "tr" : "und" }] as any, { lang: "tr" });
+    assert.equal(ep.title, turkishTitle);
+    assert.equal(ep.synopsis, turkishOverview);
+    assert.equal(ep.titleLanguage, confirmed ? "tr" : "und");
+  }
+});
+
+test("TVDB response parsing honors missing translations separately for names and overviews", async () => {
+  let requests = 0;
+  const provider = load("src/lib/providers/tvdb.ts", {
+    "@/lib/cache": { lruSet: (cache: Map<string, unknown>, key: string, value: unknown) => cache.set(key, value) },
+    "@/lib/memory-profiler": { registerCache: () => {} },
+    "@/lib/config/endpoints": { HARBOR_TVDB_BASE: "https://fixture.invalid" },
+    "@/lib/episode-text-language": { episodeTextLanguage },
+    "@/lib/safe-fetch": { safeFetch: async () => {
+      requests++;
+      return { ok: true, status: 200, json: async () => ({ data: { episodes: [{
+        id: 213, seasonNumber: 2, number: 13,
+        name: "Le début de la fin", overview: turkishOverview,
+        nameTranslations: ["eng", "fra"], overviewTranslations: ["eng", "tur"],
+      }] } }) };
+    } },
+  });
+  for (const rows of [await provider.tvdbEpisodes("", 42, 2, "tur"), await provider.tvdbEpisodesByType("", 42, "default", "tur")]) {
+    assert.equal(rows[0].nameLanguage, "und");
+    assert.equal(rows[0].overviewLanguage, "tr");
+  }
+  const original = await provider.tvdbEpisodesByType("", 42, "default");
+  assert.equal(original[0].nameLanguage, "und");
+  assert.equal(original[0].overviewLanguage, "und");
+  assert.equal(requests, 3);
+  await provider.tvdbEpisodesByType("", 42, "default", "tur");
+  assert.equal(requests, 3, "cached responses are reused");
+});
+
+test("ordering preserves original fallback provenance without extra requests", async () => {
+  const requests: string[] = [];
+  const original = { id: 213, seasonNumber: 2, number: 13, name: "鬼の血", overview: "物語の説明", nameLanguage: "und", overviewLanguage: "und" };
+  const { fetchTvdbOrderBySeriesId } = load("src/lib/providers/tvdb-order.ts", {
+    "./tvdb": {
+      tvdbSeasonNames: async () => new Map(),
+      tvdbEpisodesByType: async (_key: string, _id: number, type: string, lang?: string) => {
+        requests.push(`${type}:${lang ?? "default"}`);
+        return lang === "eng" ? [] : [original];
+      },
+    },
+    "./tvdb-order-cache": { isStaleTvdbOrder, readOrderCache: () => null, writeOrderCache: () => {} },
+    "@/lib/episode-text-language": { episodeTextLanguage },
+  });
+  const ordering = await fetchTvdbOrderBySeriesId("", 42, "aired", "eng");
+  const selected = ordering.bySeason.get(2)[0];
+  assert.equal(selected.nameEn, original.name);
+  assert.equal(selected.overviewEn, original.overview);
+  assert.equal(selected.nameEnLanguage, "und");
+  assert.equal(selected.overviewEnLanguage, "und");
+  assert.deepEqual(requests, ["default:default", "default:eng"]);
+  await fetchTvdbOrderBySeriesId("", 42, "aired", "eng");
+  assert.equal(requests.length, 2);
+});
+
+test("English titles and descriptions survive original-language fallbacks in anime ordering and the panel", () => {
+  const ep = episode();
+  const originalOrder = order("鬼の血", "鬼の血", "物語の説明", "und");
+  Object.assign(originalOrder.bySeason.get(2)![0], { overviewEn: "物語の説明", nameEnLanguage: "und", overviewEnLanguage: "und" });
+  const { buildAnimeOrder } = load("src/views/detail/anime-episodes/anime-order-utils.ts", {
+    "@/lib/localized-text": text,
+    "@/lib/providers/tvdb-order": { seasonDateRange: () => ({}) },
+    "./anime-slot-match": { resolveAnimeSlotMatch },
+  });
+  assert.deepEqual(buildAnimeOrder(originalOrder, [ep], "Specials", "en").subsetByKey.get("2"), [ep]);
+  const { useAnimeTvdbPanel } = load("src/views/detail/anime-episodes/use-anime-tvdb-panel.ts", {
+    react: hooks([1, originalOrder, [], "aired", "2", true, "has", null]),
+    "@/lib/i18n": { useT: () => (s: string) => s },
+    "@/lib/providers/anime-mapping": {},
+    "@/lib/providers/anime-detail": {},
+    "@/lib/providers/tvdb": {},
+    "@/lib/providers/tmdb/tmdb-client": { tmdbLanguageIso: () => "en" },
+    "@/lib/localized-text": text,
+    "@/lib/providers/harbor-imdb": {},
+    "@/lib/providers/tvdb-order": { seasonDateRange: () => ({}) },
+    "@/lib/streams/anime-identity": {},
+    "./anime-slot-match": { resolveAnimeSlotMatch },
+  });
+  assert.deepEqual(useAnimeTvdbPanel(49372, null, [ep], "aired", "", true).panel.visibleEpisodes, [ep]);
+  assert.equal(episodeTextLanguage("鬼の血", "en", "鬼の血"), "und");
+  assert.equal(pickPreferredEpisodeOverview([{ text: "物語の説明", language: "en" }], [{ text: finaleOverview, language: "en" }], "en"), finaleOverview);
+});
+
+test("legacy order caches retain their data but downgrade unreliable language evidence", () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const entries = new Map<string, string>();
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+    getItem: (key: string) => entries.get(key) ?? null,
+    setItem: (key: string, value: string) => entries.set(key, value),
+  } });
+  try {
+    const cache = load("src/lib/providers/tvdb-order-cache.ts", {});
+    cache.writeOrderCache(42, "aired:tur", order("Le début", "物語", "Une description", "tr"));
+    const key = "harbor.tvdbo.v8.42:aired:tur";
+    const legacy = JSON.parse(entries.get(key)!);
+    delete legacy.textEvidenceVersion;
+    entries.set(key, JSON.stringify(legacy));
+    const restored = cache.readOrderCache(42, "aired:tur");
+    assert.ok(restored, "normalizing old evidence must not force another fetch");
+    const ep = restored.bySeason.get(2)[0];
+    assert.equal(ep.name, "Le début");
+    assert.equal(ep.nameLanguage, "und");
+    assert.equal(ep.nameEnLanguage, "und");
+    assert.equal(ep.overviewLanguage, "und");
+    assert.equal(ep.overviewEnLanguage, "und");
+    assert.equal(pickPreferredEpisodeTitle([{ text: ep.name, language: ep.nameLanguage }], [{ text: turkishTitle, language: "tr" }], "tr"), turkishTitle);
+    assert.equal(cache.readOrderCache(42, "aired:eng"), null);
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "localStorage", previous);
+    else delete (globalThis as any).localStorage;
+  }
+});
+
+test("built-in series enrichment retains real text when TVDB supplies placeholders or Japanese", () => {
+  for (const provider of ["TBA", "物語の説明"]) {
+    const { useEpisodeEnrich } = load("src/views/detail/series-episodes/use-episode-enrich.ts", {
+      react: hooks([new Map([[":en:2", new Map([[13, { name: provider, overview: provider, nameLanguage: "und", overviewLanguage: "und" }]])]]), new Map()]),
+      "@/lib/localized-text": text,
+      "@/lib/meta-resource": { PREFERRED_TEXT_SCORE: 1000, preferredVideoName: () => "", preferredVideoOverview: () => "" },
+      "../use-episode-imdb-ratings": { useEpisodeImdbRatings: () => new Map() },
+      "@/lib/providers/tmdb/tmdb-client": { tmdbLanguageIso: () => "en" },
+      "@/lib/providers/tvdb": {},
+    });
+    const ep = { seasonNumber: 2, episodeNumber: 13, name: finaleTitle, overview: finaleOverview, nameLanguage: "en", overviewLanguage: "en", runtime: 24, airDate: null };
+    assert.deepEqual(useEpisodeEnrich({ episodes: [ep], active: 2, preferCustomMeta: false }).episodes, [ep]);
+  }
 });
