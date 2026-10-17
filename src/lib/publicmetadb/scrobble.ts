@@ -1,5 +1,6 @@
 import { PmdbApiError, pmdbRequest } from "./client";
 import { markPmdbWatched } from "./history";
+import { getTmdbForExternal } from "./mappings";
 import { isAuthenticated } from "./session";
 import type { PmdbResumeResponse, PmdbSaveResumeResponse, PmdbTarget } from "./types";
 
@@ -35,20 +36,24 @@ function isSameResumePoint(
   isMovie: boolean,
 ): (i: { tmdb_id: number; media_type: string; season?: number | null; episode?: number | null }) => boolean {
   return (i) => {
-    if (i.media_type !== mediaType) return false;
+    if (tmdbId == null || i.tmdb_id !== tmdbId || i.media_type !== mediaType) return false;
     const iSeason = Number(i.season ?? 0);
     const iEpisode = Number(i.episode ?? 0);
-    if (tmdbId && i.tmdb_id === tmdbId) {
-      return isMovie ? iSeason === 0 && iEpisode === 0 : iSeason === season && iEpisode === episode;
-    }
     return isMovie ? iSeason === 0 && iEpisode === 0 : iSeason === season && iEpisode === episode;
   };
 }
 
 async function findResumeId(target: PmdbTarget): Promise<string | null> {
+  let tmdbId = target.tmdb_id;
+  if (tmdbId == null) {
+    if (!target.id_type || !target.id_value) return null;
+    const found = await getTmdbForExternal(target.id_type, target.id_value).catch(() => null);
+    if (!found || (found.media_type && found.media_type !== target.media_type)) return null;
+    tmdbId = found.tmdb_id;
+  }
   const { season, episode } = resumeSeasonEpisode(target);
   const isMovie = target.media_type === "movie";
-  const match = isSameResumePoint(target.tmdb_id, target.media_type, season, episode, isMovie);
+  const match = isSameResumePoint(tmdbId, target.media_type, season, episode, isMovie);
   for (let page = 1; page <= RESUME_LOOKUP_MAX_PAGES; page++) {
     try {
       const list = await pmdbRequest<PmdbResumeResponse>(

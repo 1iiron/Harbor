@@ -33,6 +33,7 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
   const lastSaveTimeRef = useRef(0);
   const lastSavedPosRef = useRef(-1);
   const endedHandledRef = useRef(false);
+  const completionRef = useRef({ inFlight: false, done: false, retryAt: 0 });
   const seekTrackRef = useRef({ pos: 0, at: 0 });
   const pendingSeekTimerRef = useRef<number | null>(null);
 
@@ -73,15 +74,27 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
     const durMs = Math.round(durSec * 1000);
 
     if (ratio >= COMPLETION_RATIO) {
+      const completion = completionRef.current;
+      if (completion.done || completion.inFlight) return;
+      if (mode === "live" && Date.now() < completion.retryAt) return;
       const key = recordPendingResume(target, posMs, durMs);
       if (mode === "unload") return;
+      completion.inFlight = true;
+      completion.retryAt = Date.now() + MIN_SAVE_INTERVAL_MS;
+      lastSaveTimeRef.current = Date.now();
+      lastSavedPosRef.current = clampedPos;
       // A completed flush replays as a 100% resume save, which the server
       // answers as completed and converts to watched + resume cleanup.
-      void markPmdbWatched(target).then((ok) => {
-        void pmdbDeleteResumeForTarget(target).finally(() => {
-          if (ok && key) removePendingResume(key);
+      void markPmdbWatched(target)
+        .then(async (ok) => {
+          if (!ok) return;
+          await pmdbDeleteResumeForTarget(target);
+          completion.done = true;
+          if (key) removePendingResume(key);
+        })
+        .finally(() => {
+          completion.inFlight = false;
         });
-      });
       return;
     }
 
@@ -127,6 +140,7 @@ export function usePublicMetaDbScrobble({ src, snap }: { src: PlayerSrc; snap: S
     durationRef.current = snap.durationSec >= STUB_MAX_SEC ? snap.durationSec : 0;
     maxPosRef.current = 0;
     endedHandledRef.current = false;
+    completionRef.current = { inFlight: false, done: false, retryAt: 0 };
     lastSaveTimeRef.current = 0;
     lastSavedPosRef.current = -1;
 

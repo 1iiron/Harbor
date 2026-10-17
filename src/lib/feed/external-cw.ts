@@ -204,28 +204,26 @@ export function subscribeExternalCw(fn: () => void): () => void {
   };
 }
 
-function connSignature(): string {
-  const sm = sourceMask.simkl && getSimklSession() ? "s" : "-";
-  const tm = sourceMask.trakt && getTraktSession() ? "t" : "-";
-  const pm = sourceMask.publicmetadb && getPmdbSession() ? "p" : "-";
-  return `${sm}${tm}${pm}`;
-}
-
-let lastConn = "";
+let lastSimkl = getSimklSession();
+let lastTrakt = getTraktSession();
+let lastPmdb = getPmdbSession();
 
 function onSessionChange(): void {
   const simkl = getSimklSession();
   const trakt = getTraktSession();
-  if (simkl === lastSimkl && trakt === lastTrakt) return;
+  const pmdb = getPmdbSession();
+  if (simkl === lastSimkl && trakt === lastTrakt && pmdb === lastPmdb) return;
   setItems(
     items.filter(
       (i) =>
         (i.external !== "simkl" || simkl === lastSimkl) &&
-        (i.external !== "trakt" || trakt === lastTrakt),
+        (i.external !== "trakt" || trakt === lastTrakt) &&
+        (i.external !== "publicmetadb" || pmdb === lastPmdb),
     ),
   );
   lastSimkl = simkl;
   lastTrakt = trakt;
+  lastPmdb = pmdb;
   fetchedAt = 0;
   if (!externalCwConnected()) setItems(EMPTY);
   void refreshExternalCw(true);
@@ -234,6 +232,7 @@ function onSessionChange(): void {
 function onProfileChange(): void {
   lastSimkl = getSimklSession();
   lastTrakt = getTraktSession();
+  lastPmdb = getPmdbSession();
   fetchedAt = 0;
   setItems(EMPTY);
   void refreshExternalCw(true);
