@@ -51,3 +51,11 @@ pub fn install_features() -> InstallFeatures {
         manga: on("manga"),
     }
 }
+
+pub(crate) fn require_plugins() -> Result<(), String> {
+    if install_features().plugins {
+        Ok(())
+    } else {
+        Err("Plugins are disabled for this installation. Use Modify installation in Settings to enable them.".into())
+    }
+}

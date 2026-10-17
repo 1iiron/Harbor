@@ -16,6 +16,16 @@ let snapshot: InstallFeatures = ALL_ON;
 let loading: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
+export async function readInstallFeatures(): Promise<InstallFeatures> {
+  const value = await invoke<Partial<InstallFeatures>>("install_features");
+  return { ...ALL_ON, ...value };
+}
+
+export function getInstallFeatures(): InstallFeatures {
+  ensureLoaded();
+  return snapshot;
+}
+
 function publish(next: InstallFeatures) {
   snapshot = next;
   listeners.forEach((listener) => listener());
@@ -25,8 +35,8 @@ function publish(next: InstallFeatures) {
  * every feature on, so gating only ever removes what the installer was told to remove. */
 function ensureLoaded() {
   if (loading) return;
-  loading = invoke<Partial<InstallFeatures>>("install_features")
-    .then((value) => publish({ ...ALL_ON, ...value }))
+  loading = readInstallFeatures()
+    .then(publish)
     .catch(() => {
       loading = null; // web preview or an older build: let the next mount try again
     });
