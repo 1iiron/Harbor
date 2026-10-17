@@ -287,19 +287,23 @@ export async function syncAnimeProgress(
     if (!media) return;
 
     // Never overwrite an entry the user deliberately moved to Completed or
-    // Re-watching; auto-sync would otherwise flip it back to CURRENT.
+    // Re-watching; auto-sync would otherwise flip it back to CURRENT. A split
+    // franchise is the exception: the episode is beyond this entry, and the
+    // write goes to the later cour that aired it (resolved below).
     const entryStatus = media.mediaListEntry?.status;
-    if (entryStatus === "COMPLETED" || entryStatus === "REPEATING") {
+    const current = media.mediaListEntry?.progress ?? 0;
+    const total = media.episodes ?? 0;
+    const episodeBeyondEntry = total > 0 && ep > total;
+    if ((entryStatus === "COMPLETED" || entryStatus === "REPEATING") && !episodeBeyondEntry) {
       return;
     }
 
-    const current = media.mediaListEntry?.progress ?? 0;
-    const total = media.episodes ?? 0;
     // The caller resolves entry-relative numbering before reaching this layer.
     let target = ep;
     let writeId = mediaId;
     let entryProgress = current;
     let entryTotal = total;
+    let splitWrite = false;
     if (total > 0 && target > total) {
       // A split franchise: the mapped entry is an earlier cour than the one
       // that aired this episode. Never silently drop it.
@@ -312,9 +316,12 @@ export async function syncAnimeProgress(
       target = split.episode;
       entryTotal = split.total;
       entryProgress = split.entry?.progress ?? 0;
+      splitWrite = true;
     }
     if (target <= entryProgress) {
-      rememberSent(sent, sentKey, Math.max(prevSent?.p ?? 0, entryProgress));
+      // A split write is recorded against the requested episode: the sent cache
+      // above compares in the caller's numbering, not the cour's own.
+      rememberSent(sent, sentKey, Math.max(prevSent?.p ?? 0, splitWrite ? ep : entryProgress));
       saveSent(sent);
       return;
     }
@@ -330,7 +337,9 @@ export async function syncAnimeProgress(
 
     if (!owned()) return;
     if (saved?.SaveMediaListEntry?.progress === target) {
-      rememberSent(sent, sentKey, target);
+      // Split writes advance the sent cache in the caller's numbering so the
+      // next autosave tick collapses instead of re-walking the franchise.
+      rememberSent(sent, sentKey, splitWrite ? ep : target);
       saveSent(sent);
       emit({ kind: "ok", title, episode: target });
     } else {

@@ -10,9 +10,10 @@ import ts from "typescript";
 const STAGE_1 = 190327;
 const STAGE_2_3 = 210482;
 
-function harness({ firstStatus = "FINISHED", firstEpisodes = 1 } = {}) {
+function harness({ firstStatus = "FINISHED", firstEpisodes = 1, firstEntryStatus = "CURRENT" } = {}) {
   const profile = "a";
   let session = { userName: "a" };
+  const storage = new Map();
   const writes = [];
   const queries = [];
   const request = async (query, options) => {
@@ -29,7 +30,7 @@ function harness({ firstStatus = "FINISHED", firstEpisodes = 1 } = {}) {
           id: STAGE_1,
           episodes: firstEpisodes,
           status: firstStatus,
-          mediaListEntry: { id: 1, progress: 0, status: "CURRENT" },
+          mediaListEntry: { id: 1, progress: 0, status: firstEntryStatus },
           relations: {
             edges: [
               {
@@ -68,7 +69,7 @@ function harness({ firstStatus = "FINISHED", firstEpisodes = 1 } = {}) {
       return deps[id];
     },
     exports,
-    { getItem: () => null, setItem: () => {} },
+    { getItem: (key) => storage.get(key), setItem: (key, value) => storage.set(key, value) },
   );
   return { exports, writes, queries };
 }
@@ -104,4 +105,21 @@ test("the finale of the sequel cour completes that entry", async () => {
   assert.equal(h.writes[0].mediaId, STAGE_2_3);
   assert.equal(h.writes[0].progress, 11);
   assert.equal(h.writes[0].status, "COMPLETED");
+});
+
+test("an episode past a completed cour still lands on the sequel that aired it", async () => {
+  const h = harness({ firstEntryStatus: "COMPLETED" });
+  await h.exports.syncAnimeProgress("kitsu:49847", 2, "Steel Ball Run");
+  assert.equal(h.writes.length, 1, "the completed cour must not swallow the sequel episode");
+  assert.equal(h.writes[0].mediaId, STAGE_2_3);
+  assert.equal(h.writes[0].progress, 1);
+  assert.equal(h.writes[0].status, "CURRENT");
+});
+
+test("a replayed split tick collapses against the sent cache", async () => {
+  const h = harness();
+  await h.exports.syncAnimeProgress("kitsu:49847", 2, "Steel Ball Run");
+  assert.equal(h.writes.length, 1);
+  await h.exports.syncAnimeProgress("kitsu:49847", 2, "Steel Ball Run");
+  assert.equal(h.writes.length, 1, "the sent cache must remember the requested episode");
 });
