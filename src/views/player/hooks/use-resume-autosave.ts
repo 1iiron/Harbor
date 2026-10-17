@@ -86,6 +86,10 @@ export function useResumeAutosave(params: ResumeAutosaveParams) {
   anilistAutoSyncRef.current = settings.anilistAutoSync;
   const malAutoSyncRef = useRef(settings.malAutoSync);
   malAutoSyncRef.current = settings.malAutoSync;
+  const anilistCountRewatchesRef = useRef(settings.anilistCountRewatches);
+  anilistCountRewatchesRef.current = settings.anilistCountRewatches;
+  const malCountRewatchesRef = useRef(settings.malCountRewatches);
+  malCountRewatchesRef.current = settings.malCountRewatches;
   // Cleanup must retain the outgoing source, duration and position together.
   // A new episode can render before the bridge publishes its loading reset.
   const sourceIdentity = playerLoadIdentity(src, src.url, season, episode);
@@ -279,11 +283,12 @@ export function useResumeAutosave(params: ResumeAutosaveParams) {
       // Resolution may finish after a profile switch or tracker reconnect.
       if (activeProfileId() !== profile || activeSessionRef.current.ownerId !== current.ownerId) return;
       if (anilistAutoSyncRef.current && getAnilistSession() === anilistSession) {
-        if (syncReady) void syncAnimeProgress(tid, tep, s.meta.name, cs);
+        if (syncReady)
+          void syncAnimeProgress(tid, tep, s.meta.name, cs, anilistCountRewatchesRef.current);
         else void markAnimeWatching(tid, s.meta.name);
       }
       if (malAutoSyncRef.current && getMalSession() === malSession) {
-        if (syncReady) void syncMalProgress(tid, tep, s.meta.name, cs);
+        if (syncReady) void syncMalProgress(tid, tep, s.meta.name, cs, malCountRewatchesRef.current);
         else void markMalWatching(tid, s.meta.name);
       }
     };

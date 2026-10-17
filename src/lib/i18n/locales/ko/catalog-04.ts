@@ -622,8 +622,8 @@ const catalog04: Record<string, string> = {
     "Harbor 순위는 한 번의 성공이 아닌 전체 경력을 평가합니다. 순위에는 작품의 평균 완성도, 널리 호평받은 작품의 비중, 주요 수상 실적, 주연으로 작품을 이끈 빈도라는 네 가지 요소가 반영됩니다. 각 축에 가중치를 적용해 합산한 다음, 작품 경력의 폭과 최근성을 기준으로 조정합니다. 점수에 반영되는 모든 수치는 카드에 표시되므로 그 이유를 언제든 확인할 수 있습니다.",
   "Harbor Reader": "Harbor 리더",
   "Harbor Relay": "Harbor Relay",
-  "Harbor Setup did not finish updating Harbor. Nothing was changed.":
-    "Harbor Setup에서 Harbor 업데이트를 완료하지 못했습니다. 변경된 사항이 없습니다.",
+  "Harbor Shipyard did not finish updating Harbor. Nothing was changed.":
+    "Harbor Shipyard에서 Harbor 업데이트를 완료하지 못했습니다. 변경된 사항이 없습니다.",
   "Harbor Staff": "Harbor 스태프",
   "Harbor Voyages": "Harbor Voyages",
   "Harbor accepted that but returned no session. Try again.":

@@ -1,4 +1,13 @@
-import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { needsImdbForPoster, needsTmdbForPoster, rpdbPoster } from "@/lib/providers/rpdb";
 import { useTitlePoster } from "@/lib/title-poster";
 import {
@@ -16,6 +25,18 @@ import { useProxiedImageSrc } from "@/lib/remote-image-proxy";
 import { observeResize, observeWithin } from "@/lib/visibility";
 
 type Ratio = "portrait" | "landscape" | "wide" | "square";
+
+// URLs whose image has already decoded at least once this session. A virtualized
+// grid remounts cards while scrolling (and when leaving/returning from another
+// view), which would otherwise re-flash the shimmer while the image decodes
+// again. The bytes are already in the HTTP cache, so reveal those posters on the
+// first paint instead.
+const decodedPosters = new Set<string>();
+const DECODED_POSTER_CAP = 20000;
+function rememberDecoded(url: string) {
+  if (decodedPosters.size >= DECODED_POSTER_CAP) decodedPosters.clear();
+  decodedPosters.add(url);
+}
 
 export function useLocalizedPoster(metaId: string): {
   url: string | undefined;
@@ -362,6 +383,9 @@ function PosterBody({
     if (failedRef.current.has(url)) return;
     failedRef.current.add(url);
     setLoaded(false);
+    // An early-revealed candidate may now fail; drop it so the plate/shimmer and
+    // the next candidate take over instead of pinning a broken image.
+    setDisplayed((d) => (d === url ? undefined : d));
     setIdx((i) => i + 1);
   }, []);
   const currentRef = useRef(current);
@@ -373,6 +397,7 @@ function PosterBody({
       if (!el) return;
       if (el.complete) {
         if (el.naturalWidth > 0) {
+          if (currentRef.current) rememberDecoded(currentRef.current);
           setLoaded(true);
           setDisplayed(currentRef.current);
         } else if (currentRef.current) fail(currentRef.current);
@@ -382,6 +407,7 @@ function PosterBody({
       el.decode().then(
         () => {
           if (imgElRef.current === el && currentRef.current === target && target) {
+            rememberDecoded(target);
             setLoaded(true);
             setDisplayed(target);
           }
@@ -399,6 +425,16 @@ function PosterBody({
       setDisplayed(current);
     }
   }, [loaded, current, sig]);
+  // Poster already decoded earlier this session (remounted while scrolling or on
+  // returning from another view): reveal it now instead of waiting for decode,
+  // which would flash the shimmer even though the bytes are cached.
+  useLayoutEffect(() => {
+    if (loaded || displayed || exhausted) return;
+    if (current && decodedPosters.has(current)) {
+      setLoaded(true);
+      setDisplayed(current);
+    }
+  }, [current, loaded, displayed, exhausted]);
   const showShimmer = !displayed && !loaded && !exhausted;
   const showPlate = !displayed && exhausted;
   const hasBase = !!displayed && displayed !== current;

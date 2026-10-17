@@ -86,6 +86,7 @@ mod harbor_lan;
 mod hdr_overlay;
 #[cfg(desktop)]
 mod installer_handoff;
+mod install_features;
 #[cfg(desktop)]
 mod media_controls;
 #[cfg(target_os = "windows")]
@@ -1215,6 +1216,9 @@ pub fn run() {
             installer_handoff::handoff_launch,
             installer_handoff::handoff_confirm,
             installer_handoff::handoff_save_backup,
+    installer_handoff::modify_probe,
+    installer_handoff::modify_open,
+    install_features::install_features,
             power::power_inhibit,
             harbor_set_webview_memory_low,
             harbor_set_webview_visible,
@@ -1265,6 +1269,10 @@ pub fn run() {
             music::music_source_candidates,
             music::music_spotify_status,
             music::music_spotify_connect,
+            music::music_spotify_device_start,
+            music::music_spotify_device_poll,
+            music::music_spotify_device_cancel,
+            music::music_spotify_browse_connect,
             music::music_spotify_disconnect,
             music::music_spotify_devices,
             music::music_spotify_set_device,
@@ -1272,6 +1280,9 @@ pub fn run() {
             music::music_spotify_library_page,
             music::music_spotify_create_playlist,
             music::music_spotify_add_to_playlist,
+            music::music_spotify_remove_from_playlist,
+            music::music_spotify_rename_playlist,
+            music::music_spotify_set_playlist_cover,
             music::music_lastfm_auth,
             music::music_lastfm_complete_auth,
             music::music_lastfm_status,
@@ -1301,6 +1312,7 @@ pub fn run() {
             music::music_import_m3u,
             music::music_export_m3u,
             music::music_play_track,
+            music::music_spotify_preload,
             music::music_engine_pause,
             music::music_paused_for_video,
             music::music_resume_after_video,
@@ -1339,6 +1351,7 @@ pub fn run() {
             dj_deck::dj_deck_open,
             dj_deck::dj_deck_close,
             music::music_engine_stop,
+            music::music_engine_state,
             music::music_home_rows,
             music::music_browse_connector,
             music::music_album_tracks,

@@ -120,6 +120,7 @@ lofty = "0.22"
 # Spotify Premium playback. Keep librespot component crates in lockstep.
 parking_lot = "0.12"
 librespot-core = "0.8"
+librespot-metadata = "0.8"
 librespot-playback = "0.8"
 librespot-oauth = "0.8"
 

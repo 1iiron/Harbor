@@ -10,6 +10,7 @@ import {
   type MusicIconComponent,
 } from "@/components/icons/music-icons";
 import { MusicServiceLogo } from "../music-service-logo";
+import { SpotifyBrowsingApp } from "./spotify-browsing-app";
 import { SpotifyPlaybackTarget } from "./spotify-devices";
 import { SpotifySetupFields } from "./spotify-setup";
 import { MusicLastFm } from "@/components/music/music-lastfm";
@@ -24,7 +25,7 @@ import {
   requestMusicSourceConsent,
   setMusicSourceEnabled,
 } from "@/lib/music/source-consent";
-import { spotifySetupErrorKey } from "@/lib/music/spotify-setup";
+import { spotifySetupErrorKey, connectSpotifyBrowsing } from "@/lib/music/spotify-setup";
 import type {
   MusicConnection,
   MusicConnectionField,
@@ -127,6 +128,22 @@ export function MusicConnectionRow({
         }
         setBusy("scan");
         setScanned(await scanLocalFolder(folder));
+        onRefresh();
+        window.dispatchEvent(new Event("harbor:music-library-changed"));
+      })
+      .catch((reason) => setFailure(errorText(reason)))
+      .finally(() => setBusy(null));
+  };
+
+  // Spotify playback comes from device pairing, so this form's sign in only gives browsing
+  // its own rate quota through the listener's own app.
+  const connectBrowsing = (clientId: string) => {
+    setBusy("connect");
+    setFailure(null);
+    setScanned(null);
+    void connectSpotifyBrowsing(clientId)
+      .then(() => {
+        setOpen(false);
         onRefresh();
         window.dispatchEvent(new Event("harbor:music-library-changed"));
       })
@@ -270,7 +287,15 @@ export function MusicConnectionRow({
       )}
 
       {connection.id === "spotify" && connection.status === "connected" && (
-        <SpotifyPlaybackTarget />
+        <>
+          <SpotifyPlaybackTarget />
+          <SpotifyBrowsingApp
+            onDone={() => {
+              onRefresh();
+              window.dispatchEvent(new Event("harbor:spotify-library-changed"));
+            }}
+          />
+        </>
       )}
 
       {open && connection.needs.length > 0 && (
@@ -278,8 +303,9 @@ export function MusicConnectionRow({
           className="border-t border-edge-soft bg-elevated/25 px-4 py-4"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!incomplete && busy === null)
-              connect(spotifySetup ? { clientId: values.clientId.trim() } : values);
+            if (incomplete || busy !== null) return;
+            if (spotifySetup) connectBrowsing(values.clientId.trim());
+            else connect(values);
           }}
         >
           {spotifySetup ? (
@@ -287,6 +313,11 @@ export function MusicConnectionRow({
               clientId={values.clientId ?? ""}
               onChange={(clientId) => setValues({ clientId })}
               disabled={busy !== null}
+              onPaired={() => {
+                setOpen(false);
+                onRefresh();
+                window.dispatchEvent(new Event("harbor:music-library-changed"));
+              }}
             />
           ) : (
             <div className="grid gap-3">
@@ -324,7 +355,7 @@ export function MusicConnectionRow({
               <button
                 type="button"
                 disabled={busy !== null}
-                onClick={() => connect({})}
+                onClick={() => connectBrowsing("")}
                 className="inline-flex min-h-11 items-center text-[12px] font-medium text-ink hover:underline disabled:opacity-40"
               >
                 {t("music.spotifySetup.saved")}

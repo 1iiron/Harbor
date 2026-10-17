@@ -103,6 +103,7 @@ import { catalogBands } from "./music/music-catalog-bands";
 import { splitHomeRows } from "./music/music-home-rows";
 import { madeForYouBand } from "./music/music-made-for-you-band";
 import { jumpBackInBand } from "./music/music-jump-back-in";
+import { pinnedPlaylistsBand } from "./music/music-pinned-playlists";
 import { newReleaseCtaBand } from "./music/music-new-release-ctas";
 import { personalBands } from "./music/music-personal-bands";
 import { spotifyBands } from "./music/music-spotify-band";
@@ -689,7 +690,8 @@ function MusicViewContent({ active }: { active: boolean }) {
   const openLibrary = useCallback((target?: { view?: string; playlistId?: string; spotifyKind?: "playlists" | "liked" }) => {
     similarRun.current += 1;
     setLibraryTarget(target ?? null);
-    setCollectionPage(target?.playlistId
+    const spotify = target?.view === "spotify";
+    setCollectionPage(!spotify && target?.playlistId
       ? { kind: "playlist", id: target.playlistId }
       : target?.view === "saved" || target?.view === "liked"
         ? { kind: "liked", id: "liked" }
@@ -1066,6 +1068,9 @@ function MusicViewContent({ active }: { active: boolean }) {
   const spotifyRows = spotifyBands(context);
   const catalog = catalogBands(context);
   const bands: MusicBand[] = [];
+  // Sits between the hero's source options and Jump back in, so pinned
+  // playlists read as part of the home page rather than a library away.
+  bands.push(pinnedPlaylistsBand(context));
   const jumpBackIn = jumpBackInBand(context);
   if (jumpBackIn) bands.push(jumpBackIn);
   if (tasteRows.loading && !tasteRows.rows.length)
@@ -1365,6 +1370,16 @@ function MusicViewContent({ active }: { active: boolean }) {
                     ])}><MusicQuickListenIcon /></button>
                   </HoverTooltip>}
                   {tab === "forYou" && <MusicSurpriseButton genres={tastes} homeRows={data.homeRows} spotifyConnected={connections.some(connection => connection.id === "spotify" && connection.status === "connected")} onChooseTastes={() => openDiscovery("tastes")} />}
+                  <HoverTooltip label={t("music.audio.title")} align="end">
+                    <button
+                      type="button"
+                      className="music-quick-entry"
+                      aria-label={t("music.audio.title")}
+                      onClick={() => openConnections("__audio")}
+                    >
+                      <MusicGlyph name="audio-settings" size={20} aria-hidden="true" />
+                    </button>
+                  </HoverTooltip>
                   {tab === "forYou" && (
                     <CatalogCustomizeBar
                       editMode={pageRows.editMode}
@@ -1440,6 +1455,12 @@ function MusicViewContent({ active }: { active: boolean }) {
                       onTastes={() => openDiscovery("tastes")}
                       initialView={libraryTarget?.view}
                       initialSpotifyKind={libraryTarget?.spotifyKind}
+                      initialSpotifyPlaylistId={libraryTarget?.playlistId}
+                      onSpotifyFocused={() =>
+                        setLibraryTarget((current) =>
+                          current?.playlistId ? { ...current, playlistId: undefined } : current,
+                        )
+                      }
                     />
                   ) : tab === "explore" ? null : stalled ? (
                     <MusicStalled message={data.homeError} onRetry={retry} />

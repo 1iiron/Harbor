@@ -74,6 +74,7 @@ export type TmdbDetail = {
   logo?: string;
   year?: string;
   rating?: string;
+  ratingSource?: "imdb" | "tmdb";
   voteCount: number;
   runtime?: string;
   status: string;

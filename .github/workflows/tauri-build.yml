@@ -228,6 +228,7 @@ jobs:
             --config "$CONFIG_PATH" \
             --target "${{ matrix.platform.target }}"
           echo "HARBOR_MACOS_FRAMEWORKS_DIR=$FRAMEWORKS_DIR" >> "$GITHUB_ENV"
+          echo "HARBOR_MACOS_LIB_DIR=$FRAMEWORKS_DIR/link" >> "$GITHUB_ENV"
           echo "config=--config $CONFIG_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Tauri build
@@ -262,15 +263,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Payload creation failed' }
           node scripts/verify-managed-payload.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Payload verification failed' }
-          cargo build --manifest-path installer/src-tauri/Cargo.toml --release --features tauri/custom-protocol --bin harbor-setup --locked
+          cargo build --manifest-path installer/src-tauri/Cargo.toml --release --features tauri/custom-protocol --bin harbor-shipyard --locked
           if ($LASTEXITCODE -ne 0) { throw 'Managed installer build failed' }
           node scripts/verify-managed-payload.mjs --embedded
           if ($LASTEXITCODE -ne 0) { throw 'Embedded payload verification failed' }
-          foreach ($releaseExe in @('src-tauri/target/release/harbor.exe', 'installer/src-tauri/target/release/harbor-uninstall.exe', 'installer/src-tauri/target/release/harbor-setup.exe')) {
+          foreach ($releaseExe in @('src-tauri/target/release/harbor.exe', 'installer/src-tauri/target/release/harbor-uninstall.exe', 'installer/src-tauri/target/release/harbor-shipyard.exe')) {
             if ((Get-Item -LiteralPath $releaseExe).VersionInfo.FileVersion -ne $releaseVersion) { throw "Wrong version: $releaseExe" }
           }
           New-Item -ItemType Directory -Force -Path "$releaseRoot/bundle/managed" | Out-Null
-          Copy-Item -LiteralPath 'installer/src-tauri/target/release/harbor-setup.exe' -Destination "$releaseRoot/bundle/managed/Harbor_${releaseVersion}_x64-installer.exe"
+          Copy-Item -LiteralPath 'installer/src-tauri/target/release/harbor-shipyard.exe' -Destination "$releaseRoot/bundle/managed/Harbor_${releaseVersion}_x64-installer.exe"
 
       - name: Verify macOS app dependencies
         if: contains(matrix.platform.runner, 'macos')

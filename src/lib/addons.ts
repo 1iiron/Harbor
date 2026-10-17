@@ -285,22 +285,6 @@ export function torrentioBareAddon(): Addon {
   };
 }
 
-export function torboxAddonFor(tbKey: string): Addon | null {
-  const k = tbKey.trim();
-  if (!k) return null;
-  return {
-    transportUrl: `https://stremio.torbox.app/${k}/manifest.json`,
-    manifest: {
-      id: "app.torbox.stremio",
-      name: "TorBox",
-      logo: "https://torbox.app/android-chrome-512x512.png",
-      resources: ["stream"],
-      types: ["movie", "series", "anime"],
-      idPrefixes: ["tt", "kitsu", "mal", "tmdb", "anidb", "anilist", "anime-planet"],
-    },
-  };
-}
-
 export function withDebridKeys(addons: Addon[], keys: DebridKeySet): Addon[] {
   const config = torrentioConfigFor(keys);
   const torrentioCount = addons.filter(

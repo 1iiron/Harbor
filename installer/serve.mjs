@@ -42,5 +42,5 @@ createServer(async (req, res) => {
     res.end('404 ' + url);
   }
 }).listen(PORT, () => {
-  console.log('Harbor installer prototype: http://127.0.0.1:' + PORT + '/');
+  console.log('Harbor Shipyard prototype: http://127.0.0.1:' + PORT + '/');
 });

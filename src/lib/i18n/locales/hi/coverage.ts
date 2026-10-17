@@ -369,8 +369,8 @@ const coverage: Record<string, string> = {
   "Harbor found episode sources, but none was a downloadable package for {season}. Try another addon or refresh the sources.":
     "Harbor को एपिसोड स्रोत मिले, लेकिन उनमें से कोई भी {season} के लिए डाउनलोड योग्य पैकेज नहीं था। कोई दूसरा ऐडऑन आज़माएँ या स्रोतों को रिफ़्रेश करें।",
   "Harbor in a browser": "ब्राउज़र में Harbor",
-  "Harbor is closing. Harbor Setup will finish and reopen it.":
-    "Harbor बंद हो रहा है। Harbor Setup प्रक्रिया पूरी करके इसे फिर से खोलेगा।",
+  "Harbor is closing. Harbor Shipyard will finish and reopen it.":
+    "Harbor बंद हो रहा है। Harbor Shipyard प्रक्रिया पूरी करके इसे फिर से खोलेगा।",
   "Harbor {version} downloaded but did not install on its own.":
     "Harbor {version} डाउनलोड हो गया, लेकिन अपने आप इंस्टॉल नहीं हुआ।",
   "Harbor's full video engine. Plays anything you throw at it.":

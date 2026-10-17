@@ -119,6 +119,8 @@ export type PlayerSrc = {
   attempt?: number;
   autoFired?: boolean;
   resume?: boolean;
+  /** Play without creating or updating a Stremio cloud-library entry. */
+  suppressCloudSync?: boolean;
   startFromZero?: boolean;
   streamRef?: PlayerStreamRef;
   liveProgram?: string;
