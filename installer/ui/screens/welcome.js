@@ -253,7 +253,10 @@ export function render(mount, ctx) {
   });
 
 
-  mount.append(grid, loc);
+  const scroll = document.createElement('div');
+  scroll.className = 'hb-welcome-scroll';
+  scroll.append(grid, loc);
+  mount.append(scroll);
 
   const zone = document.getElementById('hb-consequence');
   const line = document.createElement('p');
