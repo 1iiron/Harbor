@@ -26,14 +26,36 @@ function autosave(episode, metaId = "kitsu:45619", resolveIdentity) {
   return h;
 }
 
-function tracker(service, { total = 13, current = 0, status, rewatching = false, switchDuring } = {}) {
+function tracker(service, { total = 13, current = 0, status, rewatching = false, switchDuring, stateful = false } = {}) {
   let profile = "a", session = {};
   const store = new Map(), writes = [], events = [];
+  const state = {
+    current,
+    status: status ?? (service === "anilist" ? "CURRENT" : "watching"),
+    rewatching,
+    repeat: 0,
+    times: 0,
+  };
   const request = async (query, options) => {
     const write = service === "anilist" ? query.startsWith("mutation") : options?.method === "PATCH";
     if (write) {
       const fields = service === "anilist" ? options : Object.fromEntries(options.body);
       writes.push(fields);
+      if (stateful) {
+        if (service === "anilist") {
+          if (fields.progress != null) state.current = Number(fields.progress);
+          if (fields.status != null) state.status = fields.status;
+          // AniList auto-completes an entry whose progress reaches its episode
+          // count, even when the mutation does not carry a status.
+          else if (total > 0 && state.current >= total) state.status = "COMPLETED";
+          if (fields.repeat != null) state.repeat = Number(fields.repeat);
+        } else {
+          if (fields.num_watched_episodes != null) state.current = Number(fields.num_watched_episodes);
+          if (fields.status != null) state.status = fields.status;
+          if (fields.is_rewatching != null) state.rewatching = fields.is_rewatching === "true";
+          if (fields.num_times_rewatched != null) state.times = Number(fields.num_times_rewatched);
+        }
+      }
       return service === "anilist"
         ? { SaveMediaListEntry: { id: 1, progress: fields.progress, status: fields.status } }
         : { num_episodes_watched: Number(fields.num_watched_episodes), status: fields.status };
@@ -41,8 +63,8 @@ function tracker(service, { total = 13, current = 0, status, rewatching = false,
     if (switchDuring === "profile") profile = "b";
     if (switchDuring === "account") session = {};
     return service === "anilist"
-      ? { Media: { id: 1, episodes: total, mediaListEntry: { progress: current, status: status ?? "CURRENT" } } }
-      : { num_episodes: total, my_list_status: { num_episodes_watched: current, status: status ?? "watching", is_rewatching: rewatching } };
+      ? { Media: { id: 1, episodes: total, mediaListEntry: { progress: stateful ? state.current : current, status: stateful ? state.status : status ?? "CURRENT", repeat: stateful ? state.repeat : 0 } } }
+      : { num_episodes: total, my_list_status: { num_episodes_watched: stateful ? state.current : current, status: stateful ? state.status : status ?? "watching", is_rewatching: stateful ? state.rewatching : rewatching, num_times_rewatched: stateful ? state.times : 0 } };
   };
   const dependencies = {
     "@/lib/active-profile-id": { activeProfileId: () => profile },
@@ -134,6 +156,42 @@ for (const service of ["anilist", "mal"]) {
       await off.sync("kitsu:1", 2, "Fixture", undefined, false);
       assert.equal(off.writes.length, 0, "counting off leaves the entry exactly as the user set it");
     }
+  });
+
+  test(`${service}: a first-watch finale is not re-counted as a rewatch`, async () => {
+    const api = tracker(service, { total: 13, current: 12, stateful: true });
+    const args = ["kitsu:45619", 13, "Test series", 1, true];
+    await api.sync(...args);
+    assert.equal(api.writes.length, 1);
+    assert.equal(api.writes[0].status, service === "anilist" ? "COMPLETED" : "completed");
+    await api.sync(...args);
+    await api.sync(...args);
+    assert.equal(api.writes.length, 1, "completing must not be mistaken for a finished rewatch");
+    assert.equal(api.events.filter((e) => e.rewatch).length, 0, "no phantom rewatch");
+  });
+
+  test(`${service}: a finished rewatch still counts exactly once`, async () => {
+    const api = tracker(service, {
+      total: 13,
+      current: 13,
+      status: service === "anilist" ? "COMPLETED" : "completed",
+      stateful: true,
+    });
+    await api.sync("kitsu:45619", 1, "Test series", 1, true);
+    assert.equal(api.writes.length, 1);
+    assert.equal(api.writes[0].status, service === "anilist" ? "REPEATING" : "watching");
+    if (service === "mal") assert.equal(api.writes[0].is_rewatching, "true");
+    await api.sync("kitsu:45619", 13, "Test series", 1, true);
+    assert.equal(api.writes.length, 2);
+    if (service === "anilist") {
+      assert.equal(Number(api.writes[1].repeat), 1);
+      assert.equal(Number(api.writes[1].progress), 13);
+    } else {
+      assert.equal(api.writes[1].status, "completed");
+      assert.equal(Number(api.writes[1].num_times_rewatched), 1);
+    }
+    await api.sync("kitsu:45619", 13, "Test series", 1, true);
+    assert.equal(api.writes.length, 2, "the trailing finale ticks must not re-count");
   });
 
   for (const switchDuring of ["profile", "account"]) {

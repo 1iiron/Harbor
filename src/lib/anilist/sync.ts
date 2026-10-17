@@ -355,6 +355,10 @@ export async function syncAnimeProgress(
     if (saved?.SaveMediaListEntry?.progress === target) {
       rememberSent(sent, sentKey, target);
       saveSent(sent);
+      // A first-watch completion is not a finished rewatch: remember where it
+      // happened so the finale's trailing progress ticks read COMPLETED and stop
+      // instead of flipping the entry into a phantom rewatch.
+      if (status === "COMPLETED") rewatchCompleted.set(harborId, target);
       emit({ kind: "ok", title, episode: target });
     } else {
       // Unconfirmed writes stay retryable; recording them as sent would suppress retries.
