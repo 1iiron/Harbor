@@ -4,6 +4,9 @@ import { safeFetch } from "./safe-fetch";
 
 const CAP_PER_CATALOG = 20;
 const MAX_CATALOGS = 24;
+// AIOMetadata caps its own search at 12-30 per catalog (TMDB and TVDB 25, Kitsu and Simkl 20, IMDb
+// suggestions and LumiereDB 12). A group merges every search catalog of the addon before the cap is
+// applied, so this is a ceiling for that aggregate rather than a size any single response reaches.
 const AIOMETADATA_SEARCH_CAP = 100;
 
 function isAioMetadataAddon(id: string | undefined): boolean {

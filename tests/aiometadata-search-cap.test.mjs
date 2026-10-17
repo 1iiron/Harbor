@@ -9,6 +9,7 @@ function provider() {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const exports = {};
+  // 150 is only here to exercise the caps; no single AIOMetadata catalog search returns more than 30.
   const metas = Array.from({ length: 150 }, (_, i) => ({
     id: `tt${i}`,
     name: `Result ${i}`,
