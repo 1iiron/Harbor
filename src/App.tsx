@@ -38,6 +38,7 @@ import { flushCloudSync } from "@/views/player/hooks/use-stremio-sync";
 import { startWriteQueueFlusher } from "@/lib/stremio-write-queue";
 import {
   mediaServerConnections,
+  mediaServerRefreshIntervalMs,
   mediaServerSyncDue,
   updateMediaServerConnection,
 } from "@/lib/media-server/connections";
@@ -156,6 +157,7 @@ import { useWatchShare } from "@/lib/social/watch-presence";
 import { usePluginCataloguesAvailable } from "@/lib/streams/plugins/available";
 import { SpooktoberHome } from "@/views/spooktober/spooktober-home";
 import { MusicDock } from "@/components/music/music-dock";
+import { useInstallFeatures } from "@/lib/features/install";
 import { MusicSurprisePrompt } from "@/components/music/music-surprise-prompt";
 import { ParentalProvider } from "@/lib/parental";
 import { TraktProvider } from "@/lib/trakt/provider";
@@ -589,8 +591,25 @@ function MediaServerSyncRunner() {
     const onWake = () => {
       if (document.visibilityState === "visible") void refresh();
     };
-    const timer = window.setInterval(() => void refresh(), MEDIA_SERVER_SYNC_MS);
-    const initial = window.setTimeout(() => void refresh(), 2500);
+    // Wake when the soonest configured interval is due (or the base cadence),
+    // so custom minute-level intervals are honored instead of a fixed 15-minute poll.
+    let timer: number | undefined;
+    const nextDelay = () => {
+      const now = Date.now();
+      let soonest = MEDIA_SERVER_SYNC_MS;
+      for (const entry of mediaServerConnections()) {
+        const interval = mediaServerRefreshIntervalMs(entry);
+        if (interval == null) continue;
+        const due = entry.lastSyncAt == null ? 0 : entry.lastSyncAt + interval - now;
+        soonest = Math.min(soonest, Math.max(0, due));
+      }
+      return Math.min(MEDIA_SERVER_SYNC_MS, Math.max(30_000, soonest));
+    };
+    const schedule = () => {
+      if (cancelled) return;
+      timer = window.setTimeout(() => void refresh().finally(schedule), nextDelay());
+    };
+    const initial = window.setTimeout(() => void refresh().finally(schedule), 2500);
     const onProfile = () => {
       launchSynced.clear();
       void refresh();
@@ -600,7 +619,7 @@ function MediaServerSyncRunner() {
     document.addEventListener("visibilitychange", onWake);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearTimeout(timer);
       window.clearTimeout(initial);
       window.removeEventListener("harbor:active-profile-changed", onProfile);
       window.removeEventListener("online", refresh);
@@ -1398,8 +1417,9 @@ function Shell({ onReady }: { onReady?: () => void }) {
   const moviesTop = topKind === "movies";
   const kidsTop = topKind === "kids";
   const showsTop = topKind === "shows";
-  const musicTop = topKind === "music";
-  const gamesTop = topKind === "games";
+  const installFeatures = useInstallFeatures();
+  const musicTop = topKind === "music" && installFeatures.music;
+  const gamesTop = topKind === "games" && installFeatures.games;
   const [gamesNavigationOpen, setGamesNavigationOpen] = useState(false);
 
   useEffect(() => { if (!gamesTop) setGamesNavigationOpen(false); }, [gamesTop]);
@@ -1411,18 +1431,33 @@ function Shell({ onReady }: { onReady?: () => void }) {
     if (!sportsEnabled && (topKind === "sports" || topKind === "match-detail")) setView("live");
   }, [sportsEnabled, topKind, setView]);
   const pluginCatalogues = usePluginCataloguesAvailable();
-  const pluginsTop = topKind === "plugins" && pluginCatalogues;
+  const pluginsTop = topKind === "plugins" && pluginCatalogues && installFeatures.plugins;
   useEffect(() => {
-    if (!pluginCatalogues && topKind === "plugins") setView("home");
-  }, [pluginCatalogues, topKind, setView]);
+    if ((!pluginCatalogues || !installFeatures.plugins) && topKind === "plugins") setView("home");
+  }, [pluginCatalogues, installFeatures.plugins, topKind, setView]);
+  // A feature the installer was told to leave out hides its tab and cannot be reached by deep
+  // links or search results either; the choice lives in harbor-install.json, not here.
+  useEffect(() => {
+    if (!installFeatures.music && topKind === "music") setView("home");
+    if (!installFeatures.games && topKind === "games") setView("home");
+    if (!installFeatures.manga && topKind === "manga") setView("home");
+    if (!installFeatures.ebook && topKind === "ebook") setView("home");
+  }, [
+    installFeatures.music,
+    installFeatures.games,
+    installFeatures.manga,
+    installFeatures.ebook,
+    topKind,
+    setView,
+  ]);
   const liveTop = topKind === "live";
   const liveHasSources = usePlaylists().length > 0;
   const standaloneLive = liveTop && liveHasSources;
   const matchDetailTop = topKind === "match-detail";
   const vodTop = topKind === "vod";
   const downloadsTop = topKind === "downloads";
-  const mangaTop = topKind === "manga";
-  const ebookTop = topKind === "ebook";
+  const mangaTop = topKind === "manga" && installFeatures.manga;
+  const ebookTop = topKind === "ebook" && installFeatures.ebook;
   const peopleTop = topKind === "people";
 
   const [immersive, setImmersive] = useState(false);
@@ -1594,7 +1629,7 @@ function Shell({ onReady }: { onReady?: () => void }) {
             <WindowControls />
           </div>
         )}
-        <MusicDock />
+        {installFeatures.music && <MusicDock />}
         <MusicSurprisePrompt />
         {!playerActive && <WindowResizeEdges />}
         <HybridTitleBar suppressed={playerActive || immersive || chromeHidden} />

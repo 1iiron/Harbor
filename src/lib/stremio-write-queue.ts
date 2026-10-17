@@ -90,7 +90,10 @@ export async function flushWriteQueue(): Promise<void> {
         drop();
         continue;
       }
-      await libraryPut(pending.authKey, pending.item);
+      // Queued playback progress must preserve the current explicit bookmark state.
+      const removed = remote ? remote.removed === true : true;
+      const temp = removed || (remote ? remote.temp === true : true);
+      await libraryPut(pending.authKey, { ...pending.item, removed, temp });
       drop();
     } catch {}
   }

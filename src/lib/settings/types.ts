@@ -249,6 +249,8 @@ export type Settings = {
   harborColor: string;
   anilistAutoSync: boolean;
   malAutoSync: boolean;
+  anilistCountRewatches: boolean;
+  malCountRewatches: boolean;
   anilistBlurComments: boolean;
   showAnilistComments: boolean;
   useAnilistAvatar: boolean;
@@ -508,6 +510,7 @@ export type Settings = {
   stillWatchingAfter: number;
   keyboardPauseShowsControls: boolean;
   hideWatchedInCatalogs: boolean;
+  hideWatchedInHero: boolean;
   hideUnreleased: boolean;
   localEpisodeSortDesc: boolean;
   /** Review count when the banner was last dismissed; it returns only if more turn up. */
@@ -686,7 +689,8 @@ export type Settings = {
   simklUpNextRailEnabled: boolean;
   simklTrendingRailEnabled: boolean;
   simklScrobbleEnabled: boolean;
-  simklAnimeTitleLanguage: "english" | "romaji" | "native";
+  /** Preferred language for anime titles across the app (cards, picker, presence). */
+  animeTitleLanguage: "english" | "romaji" | "native";
   publicmetadbScrobbleEnabled: boolean;
   weekStartsMonday: boolean;
   calendarPosterSize: CalendarPosterSize;

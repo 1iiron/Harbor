@@ -8,7 +8,10 @@
     powershell -File scripts/build-shipyard.ps1 -RebuildApp # force a fresh app release build
     powershell -File scripts/build-shipyard.ps1 -Channel beta   # stamp the build as beta
 
-  Or through pnpm:  pnpm shipyard   /   pnpm shipyard -- -Run
+  Or through pnpm for a plain build: pnpm shipyard. Pass switches straight through
+  (pnpm shipyard -Run), but a literal "--" reaching PowerShell is rejected as a parameter
+  name, so when in doubt call the script directly:
+  powershell -File scripts/build-shipyard.ps1 -Run
 
   The frontend stamps itself from HARBOR_CHANNEL at build time: only "stable" clears the
   Beta label the app shows in About. -Channel sets it when this script builds the app;
@@ -60,6 +63,13 @@ if (-not (Test-Path -LiteralPath 'src-tauri/resources/capstan/capstan.jar')) {
   $noLayer = Join-Path $env:TEMP 'harbor-no-capstan-layer'
   Remove-Item -LiteralPath $noLayer -Recurse -Force -ErrorAction SilentlyContinue
   $env:HARBOR_CAPSTAN_SRC = $noLayer
+}
+
+# No staged game engine means this build ships tab-only games, which the payload script would
+# otherwise refuse. Mirror the capstan fallback.
+if (-not (Test-Path -LiteralPath 'src-tauri/resources/pokemon-engine/Harbor.PokemonEngine.exe') -and -not $env:HARBOR_POKEMON_OPTIONAL) {
+  Write-Host 'No game engine staged; shipping tab-only games (HARBOR_POKEMON_OPTIONAL=1).' -ForegroundColor Yellow
+  $env:HARBOR_POKEMON_OPTIONAL = '1'
 }
 
 if (-not $SkipApp) {

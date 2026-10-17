@@ -1,6 +1,6 @@
 import { downloadText } from "@/lib/download-text";
 import { markLimitReached } from "./limit-signal";
-import { providerSubtitleDownloadHeaders, type SubtitleDownloadAuth } from "./provider-auth";
+import { subtitleTrackDownloadHeaders, type SubtitleDownloadAuth } from "./provider-auth";
 import {
   prepareSubtitle,
   prepareSubtitleBytes,
@@ -17,6 +17,8 @@ export type SaveSubtitleOptions = {
   format?: string;
   label: string;
   downloadAuth?: SubtitleDownloadAuth;
+  /** See SubResult.localTrusted: same-origin subtitle of a user-installed local addon. */
+  localTrusted?: boolean;
 };
 
 function localPathFromUrl(url: string): string {
@@ -71,7 +73,12 @@ export async function prepareSubtitleForSave(
     ? prepareSubtitle({
         url,
         ...hints,
-        requestHeaders: providerSubtitleDownloadHeaders(opts.downloadAuth, url),
+        allowLocalNetwork: opts.localTrusted === true,
+        requestHeaders: subtitleTrackDownloadHeaders(
+          opts.downloadAuth,
+          url,
+          opts.localTrusted !== true,
+        ),
       })
     : prepareNonNetworkSubtitle(url, hints);
 }
