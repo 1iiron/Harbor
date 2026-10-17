@@ -178,22 +178,17 @@ export function TorboxTab() {
           const playable = selected
             ? []
             : item.files.filter((candidate) => isPlayableVideoPath(candidate.name));
+          const target = file ?? (playable.length === 1 ? playable[0] : null);
           return (
             <button
               key={selected ? file!.id : `${item.kind}:${item.id}`}
               type="button"
-              onClick={() =>
-                file
-                  ? void play(item, file)
-                  : playable.length === 1
-                    ? void play(item, playable[0])
-                    : (setSelected(item), setQuery(""))
-              }
+              onClick={() => (target ? void play(item, target) : (setSelected(item), setQuery("")))}
               className="flex items-center gap-4 rounded-xl bg-elevated/40 px-4 py-3 text-left text-ink transition-colors hover:bg-elevated"
             >
-              {playing === `${item.kind}:${item.id}:${file?.id}` ? (
+              {playing === `${item.kind}:${item.id}:${target?.id}` ? (
                 <LoaderCircle size={20} className="shrink-0 animate-spin" />
-              ) : file || playable.length === 1 ? (
+              ) : target ? (
                 <Play size={20} className="shrink-0" />
               ) : (
                 <Folder size={20} className="shrink-0" />
