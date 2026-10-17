@@ -472,12 +472,14 @@ async function writeLibraryItem(
   const baseType = base?.type === "series" || base?.type === "movie" ? base.type : null;
 
   return withItemLock(canonicalId, async () => {
-    // Progress saves must not undo a bookmark removal made during playback.
-    let membership: LibraryItem | null;
+    // Progress saves must not undo a bookmark removal made during playback. If the server cannot
+    // be read, keep the snapshot we have: the write must still reach cloudLibraryPut so the queue
+    // can replay it, and the queue re-reads the live item when it flushes.
+    let membership: LibraryItem | null = base;
     try {
       membership = await libraryGetOneStrict(authKey, canonicalId);
     } catch {
-      return null;
+      /* keep the membership from the session */
     }
     let removed = membership ? membership.removed === true : true;
     let temp = membership ? membership.temp === true : true;

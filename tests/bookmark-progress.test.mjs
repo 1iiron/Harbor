@@ -118,3 +118,45 @@ for (const membership of [
     assert.equal(writes[0].state.timeOffset, 300000);
   });
 }
+
+test("an unreachable membership read still reaches the write so the queue can replay it", async () => {
+  const writes = [];
+  const code = ts.transpileModule(
+    read("src/views/player/hooks/use-stremio-sync.ts").replaceAll(
+      "import.meta.env",
+      "({DEV:false})",
+    ) + "\nexport {writeLibraryItem};",
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } },
+  ).outputText;
+  const mocks = {
+    "@/lib/stremio": {
+      libraryGetOneStrict: async () => {
+        throw Error("offline");
+      },
+    },
+    "@/lib/stremio-item-lock": { withItemLock: async (id, fn) => fn() },
+    "@/lib/stremio-write-queue": {
+      cloudLibraryPut: async (auth, item) => {
+        writes.push(item);
+        return true;
+      },
+    },
+  };
+  const exports = {};
+  new Function("require", "exports", code)((id) => mocks[id] ?? {}, exports);
+  await exports.writeLibraryItem(
+    "fixture",
+    { meta: { id: "tt1", name: "Fixture", type: "movie" } },
+    { durationSec: 3600, status: "playing" },
+    { _id: "tt1", removed: false, temp: false, state: {} },
+    "tt1",
+    300,
+    false,
+  );
+  // Dropping the write here would lose the progress outright, since the queue is the only thing
+  // that replays it once the server answers again.
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].removed, false);
+  assert.equal(writes[0].temp, false);
+  assert.equal(writes[0].state.timeOffset, 300000);
+});
