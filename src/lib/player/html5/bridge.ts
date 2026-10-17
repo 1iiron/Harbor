@@ -603,6 +603,7 @@ export function createHtml5Bridge(): PlayerBridge {
             metadata: {
               originalUrl: s.url,
               providerDerived: s.trustedSource !== true,
+              localTrusted: s.trustedSource === true,
               autoSelectionEligible: false,
             },
           };

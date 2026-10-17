@@ -24,8 +24,23 @@ test("only same-origin subtitles of a user-installed local addon are locally tru
   assert.equal(isLocalAddonSubtitleUrl(`${localBase}/subtitles/a.srt`, localBase), true);
   assert.equal(isLocalAddonSubtitleUrl("http://localhost:7000/a.srt", "http://localhost:7000"), true);
   assert.equal(isLocalAddonSubtitleUrl("http://192.168.1.5:7000/a.srt", "http://192.168.1.5:7000"), true);
-  assert.equal(isLocalAddonSubtitleUrl("http://myaddon.local:7000/a.srt", "http://myaddon.local:7000"), true);
+  assert.equal(isLocalAddonSubtitleUrl("http://10.0.0.5:7000/a.srt", "http://10.0.0.5:7000"), true);
   assert.equal(isLocalAddonSubtitleUrl("http://[::1]:7000/a.srt", "http://[::1]:7000"), true);
+  // The loopback aliases are one host: an addon installed as one alias can serve
+  // subtitles under another.
+  assert.equal(isLocalAddonSubtitleUrl("http://127.0.0.1:7000/a.srt", "http://localhost:7000"), true);
+  assert.equal(isLocalAddonSubtitleUrl("http://[::1]:7000/a.srt", "http://127.0.0.1:7000"), true);
+
+  // DNS names cannot be judged from their shape - `.local`/`.lan`/`.internal`
+  // may resolve anywhere - so they never grant the local-network exemption.
+  assert.equal(isLocalAddonSubtitleUrl("http://myaddon.local:7000/a.srt", "http://myaddon.local:7000"), false);
+  assert.equal(
+    isLocalAddonSubtitleUrl("http://media.home.arpa:7000/a.srt", "http://media.home.arpa:7000"),
+    false,
+  );
+  // Routable-but-reserved ranges are not the user's local network either.
+  assert.equal(isLocalAddonSubtitleUrl("http://100.64.0.5:7000/a.srt", "http://100.64.0.5:7000"), false);
+  assert.equal(isLocalAddonSubtitleUrl("http://198.18.0.1:7000/a.srt", "http://198.18.0.1:7000"), false);
 
   // The addon must itself be non-public: a public addon never gains local reach.
   assert.equal(
@@ -165,4 +180,11 @@ test("the local-addon trust path is wired through every fetch choke point", () =
 
   const bridge = read("src/lib/player/html5/bridge.ts");
   assert.match(bridge, /allowLocalNetwork: track\.metadata\?\.localTrusted === true/);
+
+  const resolve = read("src/lib/streams/resolve.ts");
+  assert.match(resolve, /streamSubtitles\(stream\)/);
+  const streamSeeds = read("src/lib/streams/stream-subtitles.ts");
+  assert.match(streamSeeds, /isLocalAddonSubtitleUrl\(s\.url, stream\.addonUrl\)/);
+  assert.match(mpv, /allowLocalNetwork: subtitle\.trustedSource === true/);
+  assert.match(bridge, /localTrusted: s\.trustedSource === true/);
 });

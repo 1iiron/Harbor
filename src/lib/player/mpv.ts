@@ -360,6 +360,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
               mpvUrl,
               subtitle.trustedSource !== true,
             ),
+            allowLocalNetwork: subtitle.trustedSource === true,
           });
           mpvUrl = prepared.playableUrl;
           cleanup = prepared.cleanup;
@@ -383,6 +384,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         cues: preparedCues,
         originalUrl,
         format: preparedFormat,
+        ...(subtitle.trustedSource === true ? { localTrusted: true } : {}),
         prepared: cleanup != null,
         autoSelectionEligible: false,
       };
