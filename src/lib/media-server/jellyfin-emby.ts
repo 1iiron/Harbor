@@ -307,14 +307,14 @@ export class JellyfinEmbyAdapter implements MediaServerAdapter {
     const items = raw
       .map((x) => normalized(connection.id, library, x))
       .filter((x): x is MediaServerItem => !!x);
-    // Only advance when every page came back full; a short or empty page ends
-    // the library (some servers report a TotalRecordCount larger than the items
-    // they return, which would otherwise loop forever).
-    const consumed = pages.length * PAGE;
-    const full = pages.every((page) => page.raw.length === PAGE);
+    // Advance by what the server actually returned. A batch with no items at
+    // all ends the library (some servers report a TotalRecordCount larger than
+    // the items they return, which would otherwise loop forever), while a short
+    // page keeps the index moving instead of truncating it.
+    const consumed = pages.reduce((sum, page) => sum + page.raw.length, 0);
     return {
       items,
-      cursor: full && start + consumed < total ? String(start + consumed) : undefined,
+      cursor: consumed > 0 && start + consumed < total ? String(start + consumed) : undefined,
       processed: Math.min(total, start + raw.length),
       total,
     };
