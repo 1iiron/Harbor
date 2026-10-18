@@ -39,14 +39,6 @@ jobs:
             runner: macos-15-intel
             target: x86_64-apple-darwin
             bundle: dmg
-          - name: Linux-x86_64
-            runner: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bundle: deb,appimage
-          - name: Linux-aarch64
-            runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            bundle: deb,appimage
 
     steps:
       - uses: actions/checkout@v4
@@ -60,30 +52,6 @@ jobs:
             *beta*) echo "HARBOR_CHANNEL=beta" >> "$GITHUB_ENV" ;;
             *)      echo "HARBOR_CHANNEL=stable" >> "$GITHUB_ENV" ;;
           esac
-
-      - name: Install Linux deps
-        if: contains(matrix.platform.runner, 'ubuntu')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libasound2-dev \
-            libudev-dev \
-            libmpv-dev \
-            libgtk-3-dev \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-bad \
-            gstreamer1.0-libav \
-            patchelf \
-            xdg-utils
-
-      - name: Install AppImage FUSE runtime
-        if: contains(matrix.platform.runner, 'ubuntu')
-        run: sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
 
       - name: Install Mac deps
         if: contains(matrix.platform.runner, 'macos')
@@ -265,12 +233,6 @@ jobs:
       - name: Build app (Windows, no bundle)
         if: matrix.platform.target == 'x86_64-pc-windows-msvc'
         run: pnpm tauri build --no-bundle --target ${{ matrix.platform.target }}
-
-      - name: Build Linux system packages
-        if: contains(matrix.platform.runner, 'ubuntu')
-        env:
-          APPIMAGE_EXTRACT_AND_RUN: "1"
-        run: pnpm tauri:build:linux-system --target ${{ matrix.platform.target }} --bundles deb,appimage -v
 
       - name: Build verified Windows managed installer
         if: matrix.platform.target == 'x86_64-pc-windows-msvc'
