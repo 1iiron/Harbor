@@ -2,9 +2,9 @@
 <a name="readme-top"></a>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="/docs/harbor-wordmark-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="/docs/harbor-wordmark-dark.svg">
-  <img src="/docs/harbor-wordmark-dark.svg" width="320">
+  <source media="(prefers-color-scheme: dark)" srcset="/docs/media/harbor-wordmark-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="/docs/media/harbor-wordmark-light.svg">
+  <img src="/docs/media/harbor-wordmark-light.svg" width="320">
 </picture>
 
 ### A Stremio Client Built for Adventure!
@@ -27,21 +27,18 @@ Offering things like a native player, a stream ranking engine, Wikidata, watch p
 
 </div>
 
-<br/>
-<h4 align="center">💬 New: By popular demand, join our community discord for support and help (https://discord.gg/yvafyeZmXh)!</h4>
-
 > [!NOTE]
-> Some information in this README is outdated. Please visit our [community Discord](https://discord.gg/yvafyeZmXh) for the latest updates and project information.
+> Some information in this README is outdated. Please visit our [community Discord](https://discord.gg/yvafyeZmXh) for the latest updates and project information. It will be updated later.
 
 <p align="center">
-  <img src="https://harbor.site/readme-media/hero.png" width="900">
+  <img src="/docs/media/hero.png" width="900">
   <br/>
   <sub>Harbor on launch: a rotating hero, Continue Watching, and full width rails. Works on Cinemeta out of the box; richer with a free TMDB key.</sub>
 </p>
 
 > [!IMPORTANT]
 > Harbor is a media player and a client for the open Stremio addon protocol. It hosts, indexes, and ships no media, and it bundles no content addons. Use it with your own media and sources you are authorized to access. See the [Disclaimer](#disclaimer).
-> Harbor is not for-profit and is a passion project. Please leave an ssue if you have feedback or a bug, so we can better address you. It is HIGHLY reccomended that you build your OWN Harbor from the latest source when available, as our bundled releases will not include windows/os certification/sig (it is a free project) so to avoid any popups we suggest building it yourself. We will try to push updates frequently but we are sometimes segmented by our timezones so it may take some time for your bugs to be rolled into the update endpoint and for us to test it! Thank you for trying it out and helping us make it a better project!
+> Harbor is not for-profit and is a passion project. Please leave an issue if you have feedback or a bug, so we can better address you. It is HIGHLY recommended that you build your OWN Harbor from the latest source when available, as our bundled releases will not include windows/os certification/sig (it is a free project) so to avoid any popups we suggest building it yourself. We will try to push updates frequently but we are sometimes segmented by our timezones so it may take some time for your bugs to be rolled into the update endpoint and for us to test it! Thank you for trying it out and helping us make it a better project!
 > **Mobile and TV apps are on the horizon.** Follow our [community Discord](https://discord.gg/yvafyeZmXh) for updates on their progress and availability.
 > <br/>
 
@@ -51,7 +48,7 @@ Offering things like a native player, a stream ranking engine, Wikidata, watch p
 ATTENTION: HARBOR DOES NOT AND WILL NOT ASK YOU FOR DONATIONS! If someone claims to be us and asks you for donations, IT IS NOT US. Have an issue? Open it on GitHub so everyone can see the report and follow its resolution. Want to donate to a good cause? Consider the National Pediatric Cancer Foundation (https://nationalpcf.org/), Electronic Frontier Foundation (https://www.eff.org/), or St. Jude's (https://www.stjude.org/). You can also find a charity at https://www.charitynavigator.org/.
 <br/>
 <br/>
-HARBOR IS A OPEN CONCEPT AND NOT A ENTITY. WE DO NOT PROFIT OR ACCEPT MONEY FOR IT. WE DO NOT PROVIDE ANY CONTENT OR TELL YOU HOW TO DO IT. IT IS JUST CODE ON A REPO. IT'S CONTRIBUTORS ARE NOT RESPONSIBLE FOR WHAT YOU DO WITH IT OR WHAT STREMIO ADDONS AND SOURCES YOU ALREADY HAVE. FOLLOW ALL LAWS OF YOUR JURIDSTICTION.
+HARBOR IS AN OPEN CONCEPT AND NOT AN ENTITY. WE DO NOT PROFIT OR ACCEPT MONEY FOR IT. WE DO NOT PROVIDE ANY CONTENT OR TELL YOU HOW TO DO IT. IT IS JUST CODE ON A REPO. ITS CONTRIBUTORS ARE NOT RESPONSIBLE FOR WHAT YOU DO WITH IT OR WHAT STREMIO ADDONS AND SOURCES YOU ALREADY HAVE. FOLLOW ALL LAWS OF YOUR JURISDICTION.
 <br/>
 <br/>
 
@@ -92,22 +89,22 @@ HARBOR IS A OPEN CONCEPT AND NOT A ENTITY. WE DO NOT PROFIT OR ACCEPT MONEY FOR 
 
 ## Why Harbor
 
-**Harbor** is a self contained desktop client for the Stremio ecosystem. Out of the box it runs on Cinemeta. Add a free TMDB key and it blossoms into your ultimate companion for discovering and watching content. Harbor was built around the Stremio addon ecosystem with deep native integration of popular services and features into the UI.
+**Harbor** is a self-contained desktop client for the Stremio ecosystem. Out of the box it runs on Cinemeta. Add a free TMDB key and it blossoms into your ultimate companion for discovering and watching content. Harbor was built around the Stremio addon ecosystem with deep native integration of popular services and features into the UI.
 
 - **A native player.** libmpv decodes virtually any codec and container, with HDR passthrough, skip intro/outro, Anime4K upscaling shaders, and more. Delivering the same quality you are used to, but on a native custom player.
-- **Customize it your way.** Harbor is built in rust and tauri, allowing full on demand customization of the entire application. Harbor does not inject into stremio web, it is its own from scratch shell, layered over the stremio ecosystem, allowing you to go beyond the traditional themeing. Customize the player's UI, your fonts, seek bar, colors or the entire thing!
+- **Customize it your way.** Harbor is built in Rust and Tauri, allowing full on-demand customization of the entire application. Harbor does not inject into Stremio Web; it is its own from-scratch shell, layered over the Stremio ecosystem, allowing you to go beyond traditional theming. Customize the player's UI, your fonts, seek bar, colors or the entire thing!
 - **Theme Studio & Editor** Noob friendly theme studio lets anyone create their own custom theme with no code. Those that want control over every file can use a built in code editor for your themes.
 - **Intelligent stream ranking.** A pure Rust engine (compiled to WASM, with a TypeScript fallback) that parses every stream, filters out scams and fakes, and ranks high quality sources first.
 - **Stream consistency checks.** Harbor compares file size, quality signals, year, and metadata across results to help identify mislabeled or unreliable sources.
 - **Go Deep.** Dive deep into your favorite shows, actors, genres and more. View lists of award recipients for the Oscars, BAFTA, Cannes, SAG, and more. Anime cast and award metadata, along with Episode/Season Deduplication and Merge. Your rows learn from your watch history and likes, to always suggest you your next best watch.
-- **Robust Appstore.** Harbor allows you to configure and install addons without leaving the desktop client by allowing you to natively install third party addons via a built in viewport. Easily manage your installed Addons and Browse for new ones in a bespoke experience that merges the Stremio Community addons API with the [Stremio-addons.net](https://stremio-addons.net) API, giving you wide coverage and custom reccomendations.
+- **Robust Appstore.** Harbor allows you to configure and install addons without leaving the desktop client by allowing you to natively install third-party addons via a built-in viewport. Easily manage your installed addons and browse for new ones in a bespoke experience that merges the Stremio Community Addons API with the [Stremio-addons.net](https://stremio-addons.net) API, giving you wide coverage and custom recommendations.
 - **Stremio-addons.net Integration.** The first platform with direct community ratings, top trending, and manifest feed to the [Stremio-addons.net](https://stremio-addons.net) API
-- **Watch together, on your own relay.** A synced watch party with live on screen cursors and drawing, on a relay that deploys to your own Cloudflare account in one click. No central server.
-- **Live TV and Multiview.** Bring M3U or Xtream playlists and get a real EPG grid guide, favorites, catchup, and up to four channels at once in a grid. Missed the show? play a rerun or record the next episode using built in DVR. Switch channels while in the live player at any time with the TV Guide
-- **Stream switcher** In player switcher allows you to hop streams if you get served a bad one without leaving the player and going through results again. Play next episodes with ease on the player UI controls or in a full "Next Up" sidebar.
+- **Watch together, on your own relay.** A synced watch party with live on-screen cursors and drawing, on a relay that deploys to your own Cloudflare account in one click. No central server.
+- **Live TV and Multiview.** Bring M3U or Xtream playlists and get a real EPG grid guide, favorites, catch-up, and up to four channels at once in a grid. Missed the show? Play a rerun or record the next episode using built-in DVR. Switch channels in the live player at any time with the TV Guide.
+- **Stream switcher.** Switch streams in the player if a source is bad, without leaving playback to search results again. Start the next episode from the player controls or the full "Next Up" sidebar.
 - **Casts across the room.** DLNA/UPnP, Chromecast, AirPlay, and Roku via a bundled Rust cast server and a web cast receiver.
 - **Your home servers, in one player.** Connect Plex, Jellyfin, or Emby to browse their libraries, choose a server copy alongside local files and online streams, and keep progress in sync.
-- **Integrations.** Feature rich discord rich presence integration, webhooks for Discord and Telegram, Trakt Sync, and native integrations to TMDB, OMDB, Fanart.Tv, RPDB and more! Customize the location and what badges are shown.
+- **Integrations.** Feature-rich Discord Rich Presence, webhooks for Discord and Telegram, Trakt Sync, and native integrations with TMDB, OMDB, Fanart.tv, RPDB, and more. Customize the location and which badges are shown.
 - **And much more! (seriously this would be very long)**
 
 <p align="right"><a href="#readme-top">&#9650; back to top</a></p>
@@ -127,7 +124,7 @@ Ten primary rooms: Home, Discover, Movies, Shows, Anime, Live TV, Calendar, My L
 
 **Play anything**
 
-Native libmpv with HDR passthrough, skip intro/outro, Anime4K shaders, custom subtitles , picture in picture, frame grab, A/B loop, sleep timer, fully remappable hotkeys and more.
+Native libmpv with HDR passthrough, skip intro/outro, Anime4K shaders, custom subtitles, picture-in-picture, frame grab, A/B loop, sleep timer, fully remappable hotkeys, and more.
 
 </td>
 <td width="33%" valign="top">
@@ -143,37 +140,37 @@ Eleven themes and seven font pairings, a live theme studio for every token, cust
 <table>
 <tr>
 <td width="50%" align="center">
-<img src="https://harbor.site/readme-media/detail.png" width="100%"><br/>
+<img src="/docs/media/detail.png" width="100%"><br/>
 <sub><b>Detail page</b> &middot; ratings from IMDb, Rotten Tomatoes, and MAL, award laurels, cast and crew, episodes, and region aware Watch on chips.</sub>
 </td>
 <td width="50%" align="center">
-<img src="https://harbor.site/readme-media/discover.png" width="100%"><br/>
+<img src="/docs/media/discover.png" width="100%"><br/>
 <sub><b>Discover</b> &middot; up to 14 rotating daily rails tuned by what you open, play, and save, plus a daily Critics Pick.</sub>
 </td>
 </tr>
 <tr>
 <td width="50%" align="center">
-<img src="https://harbor.site/readme-media/player.png" width="100%"><br/>
+<img src="/docs/media/player.png" width="100%"><br/>
 <sub><b>Player</b> &middot; native libmpv, trickplay seek previews, skip intro/outro, and a customizable seek bar.</sub>
 </td>
 <td width="50%" align="center">
-<img src="https://harbor.site/readme-media/live-tv.png" width="100%"><br/>
+<img src="/docs/media/live-tv.png" width="100%"><br/>
 <sub><b>Live TV</b> &middot; M3U and Xtream playlists rendered as a real EPG grid guide with favorites and catchup.</sub>
 </td>
 </tr>
 <tr>
 <td width="50%" align="center">
-<img src="https://harbor.site/readme-media/multiview.png" width="100%"><br/>
+<img src="/docs/media/multiview.png" width="100%"><br/>
 <sub><b>Multiview</b> &middot; one, two, three, or 2x2 streams at once, with independent audio focus per tile.</sub>
 </td>
 <td width="50%" align="center">
-<img src="https://harbor.site/readme-media/together.jpg" width="100%"><br/>
+<img src="/docs/media/together.jpg" width="100%"><br/>
 <sub><b>Together</b> &middot; synced playback, a live chat overlay, on screen cursors, and collaborative drawing.</sub>
 </td>
 </tr>
 <tr>
 <td colspan="2" align="center">
-<img src="https://harbor.site/readme-media/themes.png" width="80%"><br/>
+<img src="/docs/media/themes.png" width="80%"><br/>
 <sub><b>Themes</b> &middot; eleven presets and a full visual studio. Colors, fonts, card and button shapes, backgrounds, and the entire nav layout.</sub>
 </td>
 </tr>
@@ -201,7 +198,7 @@ Harbor is organized into ten primary rooms, each with its own cinematic hero and
 Per title flows add **Detail**, **Person**, **Award**, **Service**, and **Filter** views on top of the rooms above, each with full backdrops, clickable award laurels, drill down modals, and per key scroll memory.
 
 > [!NOTE]
-> Sports page will be rolled out in upcoming releases, Parental Controls being reworked (if you see parental controls stub itll be pruned we are gonna leave some temp stubs for parity sake (this note will be removed in upcoming releases)
+> The Sports page will roll out in an upcoming release. Parental Controls are being reworked; any temporary stubs will be removed for parity. This note will be removed in a future release.
 
 > [!TIP]
 > Scroll position is remembered per view, per title, per person, and per filter. Navigate back and you land exactly where you left off.
@@ -379,13 +376,13 @@ Awards laurels surface across detail pages, covering Oscar, Emmy, BAFTA, Golden 
 - **Trickplay scrub previews** decoded on the fly for torrents and local files, so the seek bar shows the exact frame you are hovering.
 
 <p align="left">
-  <img src="https://harbor.site/readme-media/trickplay.jpg" width="720">
+  <img src="/docs/media/trickplay.jpg" width="720">
   <br/>
   <sub>Trickplay seek previews, generated live for torrents and local files.</sub>
 </p>
 
 <p align="left">
-  <img src="https://harbor.site/readme-media/richactivity.gif" width="320">
+  <img src="/docs/media/richactivity.gif" width="320">
   <br/>
   <sub>Discord Rich Presence, cycling live as you browse and watch.</sub>
 </p>
@@ -659,8 +656,8 @@ Thank you to everyone, named and unnamed, whose open work Harbor builds upon.
 
 <div align="center">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://harbor.site/readme-media/harbor-mark.svg">
-  <img src="https://harbor.site/readme-media/harbor-mark.svg" width="48">
+  <source media="(prefers-color-scheme: dark)" srcset="/docs/media/harbor-mark.svg">
+  <img src="/docs/media/harbor-mark.svg" width="48">
 </picture>
 <br/><br/>
 <sub>Built with care for the people who love good cinema and an open web. <a href="#readme-top">&#9650; back to top</a></sub>
