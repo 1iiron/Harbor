@@ -50,7 +50,7 @@ export async function install(options) {
     await T.core.invoke("run_install", {
       dest: dest,
       desktopShortcut: desktopShortcut,
-      disabledFeatures: disabledFeatures
+      disabledFeatures: disabledFeatures,
     });
     taskbarProgress(null);
   } catch (e) {
@@ -76,7 +76,7 @@ export async function repair(options) {
   try {
     const report = await T.core.invoke("run_repair", {
       dest: dest,
-      disabledFeatures: disabledFeatures
+      disabledFeatures: disabledFeatures,
     });
     taskbarProgress(null);
     return report;
@@ -120,11 +120,18 @@ export async function openExternal(url) {
 
 export async function fetchChangelog() {
   if (!isNative()) {
-    const res = await fetch("https://harborcommunity.site/updates/versions-beta.json", {
-      cache: "no-store",
-    });
-    if (!res.ok) throw new Error("changelog " + res.status);
-    return await res.json();
+    try {
+      const res = await fetch("https://harborcommunity.site/updates/versions-beta.json", {
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("changelog " + res.status);
+      return await res.json();
+    } catch {
+      // The dev server exposes the embedded copy at /changelog.json (see serve.mjs).
+      const fallback = await fetch("changelog.json", { cache: "no-store" });
+      if (!fallback.ok) throw new Error("changelog " + fallback.status);
+      return await fallback.json();
+    }
   }
   const raw = await T.core.invoke("fetch_changelog");
   return JSON.parse(raw);

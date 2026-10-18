@@ -24,7 +24,7 @@
     4. Harbor Shipyard build + embedded-payload verification
 
   The build lands in installer/src-tauri/target/release/ as
-  harbor-shipyard-<version>-<channel>.exe (for example harbor-shipyard-1.0.0-beta.exe),
+  harbor-shipyard-v<version>-<channel>.exe (for example harbor-shipyard-v1.0.0-beta.exe),
   alongside the raw harbor-shipyard.exe the release scripts consume.
 
   No signing, no staging, no publishing. For release artifacts use
@@ -116,7 +116,7 @@ Invoke-Tool 'cargo' @('build', '--manifest-path', 'installer/src-tauri/Cargo.tom
 Invoke-Tool 'node' @('scripts/verify-managed-payload.mjs', '--embedded')
 
 $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-$named = "installer/src-tauri/target/release/harbor-shipyard-$version-$nameChannel.exe"
+$named = "installer/src-tauri/target/release/harbor-shipyard-v$version-$nameChannel.exe"
 Copy-Item -LiteralPath $shipyard -Destination $named -Force
 Write-Host "`nHarbor Shipyard $version ($nameChannel) ready:" -ForegroundColor Green
 Write-Host "  $((Resolve-Path $named).Path)"

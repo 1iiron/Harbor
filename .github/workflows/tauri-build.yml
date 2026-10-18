@@ -108,7 +108,7 @@ jobs:
       - name: Set up Pokémon engine SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.401'
+          dotnet-version: "10.0.401"
 
       - name: Build Pokémon engine and corresponding source bundle
         run: node tools/pokemon-engine/build.mjs --fetch-source "${{ runner.temp }}/harbor-pokemon-source" --output src-tauri/resources/pokemon-engine --artifacts "${{ runner.temp }}/harbor-pokemon-build"
@@ -241,8 +241,8 @@ jobs:
           echo "HARBOR_MACOS_LIB_DIR=$FRAMEWORKS_DIR/link" >> "$GITHUB_ENV"
           echo "config=--config $CONFIG_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Tauri build
-        if: "!contains(matrix.platform.runner, 'ubuntu')"
+      - name: Tauri build (macOS)
+        if: contains(matrix.platform.runner, 'macos')
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -251,6 +251,10 @@ jobs:
         with:
           tauriScript: pnpm tauri
           args: --target ${{ matrix.platform.target }} ${{ steps.sign.outputs.config }} ${{ steps.macos-libraries.outputs.config }}
+
+      - name: Build app (Windows, no bundle)
+        if: matrix.platform.target == 'x86_64-pc-windows-msvc'
+        run: pnpm tauri build --no-bundle --target ${{ matrix.platform.target }}
 
       - name: Build Linux system packages
         if: contains(matrix.platform.runner, 'ubuntu')
@@ -280,10 +284,31 @@ jobs:
           foreach ($releaseExe in @('src-tauri/target/release/harbor.exe', 'installer/src-tauri/target/release/harbor-uninstall.exe', 'installer/src-tauri/target/release/harbor-shipyard.exe')) {
             if ((Get-Item -LiteralPath $releaseExe).VersionInfo.FileVersion -ne $releaseVersion) { throw "Wrong version: $releaseExe" }
           }
-          New-Item -ItemType Directory -Force -Path "$releaseRoot/bundle/managed" | Out-Null
-          Copy-Item -LiteralPath 'installer/src-tauri/target/release/harbor-shipyard.exe' -Destination "$releaseRoot/bundle/managed/Harbor_${releaseVersion}_x64-installer.exe"
           $channel = if ($env:HARBOR_CHANNEL -eq 'beta') { 'beta' } else { 'stable' }
-          Copy-Item -LiteralPath 'installer/src-tauri/target/release/harbor-shipyard.exe' -Destination "$releaseRoot/bundle/managed/harbor-shipyard-${releaseVersion}-${channel}.exe"
+          New-Item -ItemType Directory -Force -Path "$releaseRoot/bundle/managed" | Out-Null
+          Copy-Item -LiteralPath 'installer/src-tauri/target/release/harbor-shipyard.exe' -Destination "$releaseRoot/bundle/managed/harbor-shipyard-v${releaseVersion}-${channel}.exe"
+
+      - name: Sign the Shipyard installer
+        if: matrix.platform.target == 'x86_64-pc-windows-msvc' && steps.sign.outputs.config != ''
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          exe="$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/managed -type f -name 'harbor-shipyard-v*.exe' -print -quit)"
+          if [ -z "$exe" ]; then
+            echo "::error::The Windows leg produced no Shipyard installer to sign"
+            exit 1
+          fi
+          # An empty password still has to be passed explicitly or the signer prompts and hangs.
+          if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+            pnpm tauri signer sign "$exe"
+          else
+            pnpm tauri signer sign "$exe" --password=
+          fi
+          test -s "$exe.sig"
+          echo "::notice::Signed $(basename "$exe")"
 
       - name: Verify macOS app dependencies
         if: contains(matrix.platform.runner, 'macos')

@@ -407,7 +407,7 @@ Download the latest build for macOS or Windows from the [Releases page][releases
 | Platform    | Format                                                                                                   |
 | ----------- | -------------------------------------------------------------------------------------------------------- |
 | **macOS**   | `.dmg` (macOS 15.0 or newer, Apple silicon)                                                              |
-| **Windows** | `.exe` NSIS installer (current user install), or `winget install HarborStremio.Harbor`                   |
+| **Windows** | Harbor Shipyard installer (current user install), or `winget install HarborStremio.Harbor`               |
 | **Web**     | Open in any modern browser, nothing to install                                                           |
 | **Linux**   | [Unofficial `.deb`, `.rpm`, and Flatpak packages](https://github.com/AdityaHebballe/harbor-linux-builds) |
 
@@ -481,10 +481,11 @@ pnpm dev
 ```bash
 pnpm install
 pnpm run setup
-pnpm tauri build
+pnpm tauri build --no-bundle   # the app binary
+pnpm shipyard                  # Harbor Shipyard, the Windows installer
 ```
 
-Bundles are emitted for your platform (dmg on macOS, NSIS on Windows, and deb, rpm, and AppImage on Linux).
+Bundles are emitted for macOS and Linux (dmg, deb, rpm, and AppImage). Windows installs through Harbor Shipyard.
 
 </details>
 

@@ -14,10 +14,10 @@
   If the updater key is protected by a password, set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
   first; without it the signer stops and prompts interactively, which hangs a script.
 
-  The Shipyard build is also copied into the staging folder as
-  harbor-shipyard-<version>-<channel>.exe for identification. The uploaded name stays
-  Harbor_<version>_x64-installer.exe, because the release API reads the version and
-  platform from that name.
+  The Shipyard installer is staged twice: as Harbor_<version>_x64-installer.exe, the name the
+  release API parses, and as harbor-shipyard-v<version>-<channel>.exe for identification.
+  installer/changelog/<version>-changelog.json must exist with this channel's notes, or the
+  script refuses to build the release.
 
   Mac artifacts are optional. Drop Harbor_<version>_aarch64.app.tar.gz(.sig) and
   Harbor_<version>_aarch64.dmg into the staging folder before -Publish to include them.
@@ -64,6 +64,7 @@ function Run($file, $arguments) {
 
 $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
 if ($version -notmatch '^\d+\.\d+\.\d+$') { Fail "Bad version in tauri.conf.json: $version" }
+$nameChannel = if ($Channel -eq 'stable') { 'stable' } else { 'beta' }
 Step "Harbor $version -> $Channel"
 
 Step 'Version consistency'
@@ -90,13 +91,26 @@ foreach ($lock in @(@{ File = 'src-tauri/Cargo.lock'; Name = 'harbor' }, @{ File
   Write-Host "  ok  $($lock.File) ($($lock.Name))"
 }
 
+Step 'Installer changelog'
+$changelogFile = "installer/changelog/$version-changelog.json"
+if (-not (Test-Path -LiteralPath $changelogFile)) {
+  Fail "No $changelogFile. Add the patch notes for $version before releasing."
+}
+$changelog = Get-Content -LiteralPath $changelogFile -Raw | ConvertFrom-Json
+$note = $changelog.notes.PSObject.Properties[$version]
+$changelogChannel = if ($changelog.channel) { $changelog.channel } else { 'stable' }
+if (-not $note -or $changelogChannel -ne $nameChannel -or -not $note.Value.title -or -not $note.Value.sections) {
+  Fail "$changelogFile must hold notes for $version, channel $nameChannel, with a title and sections."
+}
+Write-Host "  ok  $changelogFile"
+
 if (-not $SkipApp) {
   Step 'App build'
   # The frontend reads HARBOR_CHANNEL at build time; only "stable" clears the Beta label the
   # app shows in About. Tie the stamp to the channel this release is cut for.
   $env:HARBOR_CHANNEL = $Channel
   Write-Host "  channel stamp: $Channel"
-  Run 'pnpm' @('tauri', 'build')
+  Run 'pnpm' @('tauri', 'build', '--no-bundle')
 } else {
   Step 'App build skipped'
 }
@@ -115,8 +129,7 @@ Run 'cargo' @('build', '--manifest-path', 'installer/src-tauri/Cargo.toml', '--r
 Run 'node' @('scripts/verify-managed-payload.mjs', '--embedded')
 
 Step 'Name the build'
-$nameChannel = if ($Channel -eq 'stable') { 'stable' } else { 'beta' }
-$namedShipyard = "installer/src-tauri/target/release/harbor-shipyard-${version}-${nameChannel}.exe"
+$namedShipyard = "installer/src-tauri/target/release/harbor-shipyard-v${version}-${nameChannel}.exe"
 Copy-Item -LiteralPath 'installer/src-tauri/target/release/harbor-shipyard.exe' -Destination $namedShipyard -Force
 Write-Host "  $namedShipyard"
 
@@ -136,21 +149,19 @@ foreach ($exe in $exes) {
 Step 'Stage artifacts'
 $stage = Join-Path $StageRoot $version
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
-$setup = "src-tauri/target/release/bundle/nsis/Harbor_${version}_x64-setup.exe"
-if (-not (Test-Path -LiteralPath $setup)) { Fail "Missing NSIS bundle $setup" }
+$shipyard = 'installer/src-tauri/target/release/harbor-shipyard.exe'
+if (-not (Test-Path -LiteralPath $shipyard)) { Fail "Missing $shipyard" }
 $staged = @{
-  "Harbor_${version}_x64-setup.exe"     = $setup
-  "Harbor_${version}_x64-installer.exe" = 'installer/src-tauri/target/release/harbor-shipyard.exe'
+  # The release API reads version and platform from this name, so the upload keeps it.
+  "Harbor_${version}_x64-installer.exe"            = $shipyard
+  # The channel-named copy marks the channel the folder was cut for and names the GitHub
+  # asset. publish-release.mjs only uploads the Harbor_<version>_* name.
+  "harbor-shipyard-v${version}-${nameChannel}.exe" = $namedShipyard
 }
 foreach ($name in $staged.Keys) {
   Copy-Item -LiteralPath $staged[$name] -Destination (Join-Path $stage $name) -Force
   Write-Host "  staged $name"
 }
-# The channel-named build copy sits beside the upload name so the release folder says which
-# channel it was cut for. publish-release.mjs ignores it: it only matches Harbor_<version>_*.
-$namedBase = Split-Path -Leaf $namedShipyard
-Copy-Item -LiteralPath $namedShipyard -Destination (Join-Path $stage $namedBase) -Force
-Write-Host "  staged $namedBase"
 
 Step 'Sign (each exe gets its own signature)'
 $keyPath = Join-Path $env:USERPROFILE '.tauri\harbor-updater.key'

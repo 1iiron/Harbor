@@ -52,7 +52,7 @@
       }
     ],
     "createUpdaterArtifacts": false,
-    "targets": ["app", "dmg", "deb", "rpm", "appimage", "nsis"],
+    "targets": ["app", "dmg", "deb", "rpm", "appimage"],
     "externalBin": ["binaries/yt-dlp", "binaries/ffmpeg", "binaries/ffprobe"],
     "resources": {
       "fonts/*": "fonts/",
@@ -104,16 +104,6 @@
     "macOS": {
       "minimumSystemVersion": "12.0",
       "entitlements": "Entitlements.plist"
-    },
-    "windows": {
-      "nsis": {
-        "installMode": "currentUser",
-        "installerHooks": "./installer-hooks.nsh",
-        "installerIcon": "icons/icon.ico",
-        "headerImage": "installer/header.bmp",
-        "sidebarImage": "installer/sidebar.bmp",
-        "displayLanguageSelector": false
-      }
     }
   },
   "plugins": {
