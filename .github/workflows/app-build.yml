@@ -35,7 +35,7 @@ jobs:
           - name: Windows
             runner: windows-latest
           - name: macOS
-            runner: macos-latest
+            runner: macos-15
             target: aarch64-apple-darwin
           - name: Linux
             runner: ubuntu-22.04
