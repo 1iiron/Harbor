@@ -1,11 +1,9 @@
-import { HARBOR_API_BASE } from "@/lib/config/endpoints";
 import type { MangaReadingState } from "@/lib/manga-reading-state";
 import { stripColorTag } from "@/lib/manga/title";
 import { mangaDiscordCover, onMangaCoverResolved } from "./manga-cover";
 
 const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-const HARBOR_LOGO = `${HARBOR_API_BASE}/discord/harbordiscord.png`;
 // Discord strips buttons that link to its own invites: discord.gg makes it
 // reject the whole activity (presence vanishes), discord.com/invite is dropped
 // silently. A community-invite button needs a redirect on a domain we own.
@@ -106,6 +104,8 @@ async function call(cmd: string, args?: Record<string, unknown>): Promise<void> 
 type Computed = { payload: Record<string, unknown> | null; key: string };
 type Base = { payload: Record<string, unknown>; key: string } | null;
 
+// Artwork is optional: the native side falls back to the Harbor Discord asset when no
+// poster is supplied, so a presence without an image still carries the logo.
 function computeBase(): Base {
   if (playback && !(playback.paused && !config.showWhenPaused)) {
     if (config.hideTitle) {
@@ -113,7 +113,6 @@ function computeBase(): Base {
         payload: {
           details: "Watching something",
           state: playback.paused ? "Paused" : undefined,
-          posterUrl: HARBOR_LOGO,
           paused: playback.paused,
         },
         key: `hide:${playback.paused}`,
@@ -129,7 +128,7 @@ function computeBase(): Base {
       payload: {
         details: playback.title,
         state,
-        posterUrl: (config.showPoster && playback.posterUrl) || HARBOR_LOGO,
+        posterUrl: config.showPoster ? playback.posterUrl : undefined,
         smallImageUrl: (config.showPoster && playback.smallImageUrl) || undefined,
         largeText: playback.year != null ? `${playback.title} (${playback.year})` : playback.title,
         startTs:
@@ -146,7 +145,6 @@ function computeBase(): Base {
         payload: {
           details: "Listening to something",
           state: music.paused ? "Paused" : undefined,
-          posterUrl: HARBOR_LOGO,
           activityType: "listening",
           paused: music.paused,
         },
@@ -169,7 +167,7 @@ function computeBase(): Base {
         detailsUrl: music.trackUrl,
         state,
         stateUrl: music.artistUrl ?? music.trackUrl,
-        posterUrl: (config.showPoster && music.artwork) || HARBOR_LOGO,
+        posterUrl: config.showPoster ? music.artwork : undefined,
         largeText: music.album,
         largeUrl: music.albumUrl ?? music.trackUrl,
         smallUrl: STATIC_BUTTONS[0].url,
@@ -188,7 +186,6 @@ function computeBase(): Base {
         payload: {
           details: "Reading something",
           state: reading.page > 0 ? `Page ${reading.page}/${reading.totalPages}` : undefined,
-          posterUrl: HARBOR_LOGO,
         },
         key: `read:hide:${reading.page}/${reading.totalPages}`,
       };
@@ -202,7 +199,7 @@ function computeBase(): Base {
       payload: {
         details: title,
         state,
-        posterUrl: poster || HARBOR_LOGO,
+        posterUrl: poster,
         largeText: title,
       },
       key: `read:${reading.title}|${state}|${poster ?? ""}`,
@@ -211,7 +208,7 @@ function computeBase(): Base {
   if (browse && config.showWhenBrowsing) {
     if (config.hideTitle)
       return {
-        payload: { details: "Browsing Harbor", posterUrl: HARBOR_LOGO },
+        payload: { details: "Browsing Harbor" },
         key: "browse:hide",
       };
     const isManga = browse.kind === "manga";
@@ -221,10 +218,11 @@ function computeBase(): Base {
     const largeText = isManga
       ? stripColorTag(browse.largeText ?? browse.details ?? "")
       : (browse.largeText ?? browse.details);
-    const poster =
-      (config.showPoster &&
-        (isManga ? mangaDiscordCover(browse.largeImage, largeText, browse.id) : browse.largeImage)) ||
-      HARBOR_LOGO;
+    const poster = config.showPoster
+      ? isManga
+        ? mangaDiscordCover(browse.largeImage, largeText, browse.id)
+        : browse.largeImage
+      : undefined;
     return {
       payload: {
         details,
@@ -232,11 +230,11 @@ function computeBase(): Base {
         posterUrl: poster,
         largeText,
       },
-      key: `browse:${browse.details ?? ""}|${browse.state ?? ""}|${poster}`,
+      key: `browse:${browse.details ?? ""}|${browse.state ?? ""}|${poster ?? ""}`,
     };
   }
   if (party) {
-    return { payload: { details: "In a Watch Party", posterUrl: HARBOR_LOGO }, key: "party-only" };
+    return { payload: { details: "In a Watch Party" }, key: "party-only" };
   }
   return null;
 }
