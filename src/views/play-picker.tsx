@@ -251,6 +251,7 @@ export function PlayPicker({
     meta,
     episode,
     imdbId,
+    imdbIdVerified: resolvedImdb.verified,
     streamIds,
     addons,
     debrids,

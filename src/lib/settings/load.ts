@@ -375,6 +375,7 @@ function parseStoredSettings(raw: string | null): Settings {
       ...DEFAULT,
       ...parsed,
       ...posterCards,
+      animePreferImdbStreams: parsed.animePreferImdbStreams === true,
       showQuickGameLibrary: parsed.showQuickGameLibrary === true,
       topbarAppearance: sanitizeTopbarAppearance(
         parsed.topbarAppearance,

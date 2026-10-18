@@ -478,6 +478,7 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
   const cast = usePlayerCast({ src: castSource, debrids, snapRef, bridgeRef, settings });
   const {
     resolvedImdbId,
+    resolvedImdbVerified,
     subAssNative,
     captureExitSnapshot,
     download,
@@ -1403,6 +1404,7 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     setHideOthersDrawings,
     canPickAnother: !liveOverlay.isLive || !inRoom || isHost,
     resolvedImdbId,
+    resolvedImdbVerified,
     contentAdvisory,
     tmdbKey: settings.tmdbKey ?? null,
     download: isLocalSrc ? undefined : download,

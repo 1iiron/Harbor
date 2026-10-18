@@ -141,7 +141,8 @@ export async function buildPluginRequest(
   const type: "movie" | "series" = req.type === "series" ? "series" : "movie";
   const kind = type === "series" ? "tv" : "movie";
   const ctx = req.context;
-  const imdbId = ctx?.imdbId ?? imdbFromIds(req.ids);
+  const prefersImdb = pickedId === req.preferredAnimeImdbId && /^tt\d+(?::\d+:\d+)?$/.test(pickedId);
+  const imdbId = prefersImdb ? pickedId.split(":")[0] : ctx?.imdbId ?? imdbFromIds(req.ids);
   // A catalogue row addresses itself with the page it came from, so the plugin is asked to open
   // that page rather than to find one by name.
   const listedAt = parseCapstanId(pickedId);
@@ -165,8 +166,8 @@ export async function buildPluginRequest(
     tmdb,
     title,
     year,
-    season: ctx?.season ?? fromId?.season ?? null,
-    episode: ctx?.episode ?? fromId?.episode ?? null,
+    season: prefersImdb ? fromId?.season ?? null : ctx?.season ?? fromId?.season ?? null,
+    episode: prefersImdb ? fromId?.episode ?? null : ctx?.episode ?? fromId?.episode ?? null,
     absoluteEpisode: ctx?.absoluteEpisode ?? null,
     url: listedAt?.url,
     providerId: listedAt?.providerId,

@@ -70,6 +70,7 @@ export async function resolveBestDownload(
     meta,
     episode,
     imdbId,
+    imdbIdVerified: imdbId != null,
     streamIds,
     addons: opts.addons,
     debrids: opts.debrids,

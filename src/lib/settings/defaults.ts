@@ -497,6 +497,7 @@ export const DEFAULT: Settings = {
   cwSnapshotFullQuality: false,
   cwPreferEpisodeStill: false,
   streamFilterLevel: "strict",
+  animePreferImdbStreams: false,
   blockTrackers: true,
   homeRows: {
     order: [],

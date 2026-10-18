@@ -601,6 +601,7 @@ export type Settings = {
   cwSnapshotFullQuality: boolean;
   cwPreferEpisodeStill: boolean;
   streamFilterLevel: "strict" | "balanced" | "off";
+  animePreferImdbStreams: boolean;
   blockTrackers: boolean;
   homeRows: {
     order: string[];

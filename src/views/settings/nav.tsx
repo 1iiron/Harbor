@@ -2679,6 +2679,13 @@ const SETTINGS_OPTIONS: SettingsOption[] = [
     ],
   },
   {
+    label: "Prefer IMDb IDs for anime",
+    section: "streaming",
+    tab: "filters",
+    anchorTitle: "Prefer IMDb IDs for anime",
+    keywords: ["imdb", "anime streams", "stream id", "kitsu", "mal", "anime mapping"],
+  },
+  {
     label: "Smooth motion (interpolation) & SVP",
     section: "anime",
     tab: "smooth",

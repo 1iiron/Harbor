@@ -158,7 +158,7 @@ test("a verified kitsu episode id still leads", () => {
 test("an unverified anime id hands the imdb pair to addons that accept both", () => {
   const src = readFileSync(new URL("../src/lib/streams/addons.ts", import.meta.url), "utf8");
   assert.match(src, /if \(animeIdUnverified\) return \[ttId\];/);
-  assert.match(src, /pickIds\(addon, req\.type, req\.ids, req\.animeIdUnverified === true\)/);
+  assert.match(src, /pickIds\(addon, req\.type, req\.ids, req\.animeIdUnverified === true(?:,|\))/);
 });
 
 test("episode filter drops only confident single-episode mismatches", () => {
