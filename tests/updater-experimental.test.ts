@@ -166,6 +166,8 @@ function harness(
     version?: string;
     dev?: boolean;
     contextReview?: boolean;
+    versions?: { beta?: string | null; stable?: string | null };
+    stableFailure?: boolean;
   } = {},
 ) {
   const localStorage = storage();
@@ -271,6 +273,19 @@ function harness(
         async check(init: unknown) {
           calls.headers.push(init);
           if (config.nativeWait) await config.nativeWait;
+          if (options.versions) {
+            const beta = Boolean(
+              (init as { headers?: Record<string, string> } | undefined)?.headers?.[
+                "x-harbor-channel"
+              ] === "beta",
+            );
+            const version = beta ? options.versions.beta : options.versions.stable;
+            if (!version) {
+              if (!beta && options.stableFailure) throw new Error("stable check failed");
+              return null;
+            }
+            return { ...handle, version };
+          }
           return config.nativeMissing ? null : handle;
         },
       },
@@ -536,11 +551,45 @@ test("existing stable and beta preferences retain their native request headers",
   for (const beta of [false, true]) {
     const h = harness({ beta });
     await h.updater.checkForUpdate();
-    assert.deepEqual(h.calls.headers, [
-      beta ? { headers: { "x-harbor-channel": "beta" } } : undefined,
-    ]);
+    assert.deepEqual(
+      h.calls.headers,
+      beta ? [{ headers: { "x-harbor-channel": "beta" } }, undefined] : [undefined],
+    );
     assert.equal(h.updater.useUpdate().channel, beta ? "beta" : "stable");
   }
+});
+
+test("beta users are offered a stable release that is ahead of beta", async () => {
+  const h = harness({ beta: true, versions: { beta: "1.0.5", stable: "1.1.0" } });
+  await h.updater.checkForUpdate(true);
+  const update = h.updater.useUpdate();
+  assert.equal(update.status, "available");
+  assert.equal(update.version, "1.1.0");
+  assert.equal(update.channel, "stable");
+});
+
+test("beta users keep the newer beta when beta leads stable", async () => {
+  const h = harness({ beta: true, versions: { beta: "1.1.0", stable: "1.0.5" } });
+  await h.updater.checkForUpdate(true);
+  const update = h.updater.useUpdate();
+  assert.equal(update.status, "available");
+  assert.equal(update.version, "1.1.0");
+  assert.equal(update.channel, "beta");
+});
+
+test("a failed stable check keeps the beta result and a failed beta check stays quiet", async () => {
+  const keepsBeta = harness({
+    beta: true,
+    versions: { beta: "1.1.0", stable: null },
+    stableFailure: true,
+  });
+  await keepsBeta.updater.checkForUpdate(true);
+  assert.equal(keepsBeta.updater.useUpdate().version, "1.1.0");
+  assert.equal(keepsBeta.updater.useUpdate().channel, "beta");
+
+  const quiet = harness({ beta: true, versions: { beta: null, stable: null } });
+  await quiet.updater.checkForUpdate(true);
+  assert.equal(quiet.updater.useUpdate().status, "uptodate");
 });
 
 test("consent is durable, restores the previous normal channel, and fails closed on storage failure", () => {

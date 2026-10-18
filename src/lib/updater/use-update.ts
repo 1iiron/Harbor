@@ -373,6 +373,24 @@ export async function checkForUpdate(manual = false): Promise<void> {
       candidate = (await check(BETA_HEADERS)) as UpdateHandle | null;
     }
     if (!currentRequest(request, selected)) return;
+    // Beta users also receive stable releases: consider the stable manifest as well and offer
+    // the newer of the two, so a beta install is never left behind a stable release. The
+    // stable check is optional, so a failure there keeps the beta result.
+    if (wantBeta) {
+      const stable = (await check().catch(() => null)) as UpdateHandle | null;
+      if (!currentRequest(request, selected)) {
+        if (stable) void stable.close().catch(() => {});
+        return;
+      }
+      if (stable && (!candidate || cmpVersion(stable.version, candidate.version) > 0)) {
+        if (candidate) void candidate.close().catch(() => {});
+        candidate = stable;
+        beta = false;
+      } else if (stable) {
+        void stable.close().catch(() => {});
+      }
+    }
+    if (!currentRequest(request, selected)) return;
     const plan = await readHandoffPlan(beta ? BETA_HEADERS : undefined).catch((e) => {
       console.warn("installer handoff unavailable, falling back to nsis", e);
       return null;
@@ -715,15 +733,28 @@ export async function openManualDownload(): Promise<void> {
   let target = HARBOR_API_BASE;
   try {
     const { safeFetch } = await import("@/lib/safe-fetch");
-    const beta =
+    type Manifest = { version?: string; platforms?: Record<string, { url?: string }> };
+    const readManifest = async (beta: boolean): Promise<Manifest | null> => {
+      const res = await safeFetch(
+        `${HARBOR_API_BASE}/updates/latest.json`,
+        beta ? BETA_HEADERS : undefined,
+      );
+      return res.ok ? ((await res.json()) as Manifest) : null;
+    };
+    const wantsBeta =
       selectedUpdateChannel() === "beta" ||
       (!readChannelPreference() && (await runningPrerelease()));
-    const [res, probe] = await Promise.all([
-      safeFetch(`${HARBOR_API_BASE}/updates/latest.json`, beta ? BETA_HEADERS : undefined),
-      probeHandoff(),
-    ]);
-    if (res.ok && probe) {
-      const manifest = (await res.json()) as { platforms?: Record<string, { url?: string }> };
+    // Beta users also receive stable releases, so their manual download follows the newer
+    // of the two channels instead of a beta build stable left behind.
+    const [primary, probe] = await Promise.all([readManifest(wantsBeta), probeHandoff()]);
+    let manifest = primary;
+    if (wantsBeta) {
+      const stable = await readManifest(false);
+      if (stable && (!manifest || cmpVersion(stable.version ?? "0", manifest.version ?? "0") > 0)) {
+        manifest = stable;
+      }
+    }
+    if (manifest && probe) {
       // The probe reports OS and architecture even where installer handoff is unsupported.
       // A missing build must not fall back to a different processor or operating system.
       const url = manifest.platforms?.[probe.platformKey]?.url;
@@ -796,14 +827,13 @@ async function detectFailedHandoff(pending: {
   }
   clearPending();
   const experimental = pending.channel === "experimental";
+  const planChannel = pending.channel ?? selectedUpdateChannel();
   const plan = experimental
     ? null
-    : await readHandoffPlan(selectedUpdateChannel() === "beta" ? BETA_HEADERS : undefined).catch(
-        (e) => {
-          console.warn("installer handoff unavailable, falling back to nsis", e);
-          return null;
-        },
-      );
+    : await readHandoffPlan(planChannel === "beta" ? BETA_HEADERS : undefined).catch((e) => {
+        console.warn("installer handoff unavailable, falling back to nsis", e);
+        return null;
+      });
   set({
     status: "error",
     installFailed: true,
