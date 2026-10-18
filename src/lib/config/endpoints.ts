@@ -29,7 +29,7 @@ export const HARBOR_SYNC_BASE = resolveBase(
 
 export const HARBOR_RELAY_BASE = resolveBase(
   import.meta.env.VITE_HARBOR_RELAY_BASE,
-  "https://app.harborcommunity.site",
+  HARBOR_API_BASE,
 );
 
 export const HARBOR_DISCORD_INVITE = resolveBase(

@@ -41,6 +41,7 @@ import { DEFAULT, STORAGE_KEY } from "./defaults";
 import type { Settings } from "./types";
 import { adoptLegacyPlaylists, readPlaylists } from "@/lib/iptv/playlists-store";
 import { sanitizeDisplaySelection } from "@/lib/monitors";
+import { migratePublicRelayUrl } from "@/lib/together/relay-version";
 
 const HEX_RE = /^#[0-9a-f]{6}$/i;
 
@@ -395,6 +396,9 @@ function parseStoredSettings(raw: string | null): { settings: Settings; cacheabl
     const settings: Settings = {
       ...DEFAULT,
       ...parsed,
+      togetherRelayUrl: migratePublicRelayUrl(
+        typeof parsed.togetherRelayUrl === "string" ? parsed.togetherRelayUrl : DEFAULT.togetherRelayUrl,
+      ),
       ...posterCards,
       animePreferImdbStreams: parsed.animePreferImdbStreams === true,
       showQuickGameLibrary: parsed.showQuickGameLibrary === true,

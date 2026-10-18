@@ -7,6 +7,7 @@ import * as language from "../src/lib/subtitles/language.ts";
 import { sanitizeScreensaverMedia } from "../src/lib/screensaver/media.ts";
 import * as controllerCursor from "../src/lib/gamepad/cursor.ts";
 import * as monitors from "../src/lib/monitors.ts";
+import * as relayVersion from "../src/lib/together/relay-version.ts";
 
 function fixture() {
   const data = new Map<string, string>();
@@ -39,6 +40,7 @@ function fixture() {
     "@/lib/player/buffer-profile": { sanitizeBufferSize: identity },
     "@/lib/gamepad/cursor": controllerCursor,
     "@/lib/monitors": monitors,
+    "@/lib/together/relay-version": relayVersion,
     "@/lib/iptv/playlists-store": {
       readPlaylists: () => playlists,
       adoptLegacyPlaylists: () => {
@@ -93,6 +95,18 @@ function fixture() {
     adoptionAttempts: () => adoptionAttempts,
   };
 }
+
+test("saved official relay URLs migrate while custom relays and disabled settings stay intact", () => {
+  const f = fixture();
+  for (const old of ["wss://pub.harbor.site", "https://pub.harbor.site/", "pub.harbor.site"]) {
+    f.data.set("harbor.settings", f.complete({ togetherRelayUrl: old }));
+    assert.equal(f.settings.loadStoredSettings().togetherRelayUrl, relayVersion.HARBOR_PUBLIC_RELAY);
+  }
+  for (const relay of ["", "wss://custom.example.test/base", "wss://pub.harbor.site.example.test"]) {
+    f.data.set("harbor.settings", f.complete({ togetherRelayUrl: relay }));
+    assert.equal(f.settings.loadStoredSettings().togetherRelayUrl, relay);
+  }
+});
 
 test("unchanged self-contained settings and image priorities reuse their cached values", () => {
   const f = fixture();
