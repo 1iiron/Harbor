@@ -75,7 +75,9 @@ function harness(seed?: string, onChange = () => {}) {
   return {
     api: module.exports as typeof import("../src/lib/cw-dismiss"),
     data,
-    setPrivateProfile: (id: string | null) => { privateProfile = id; },
+    setPrivateProfile: (id: string | null) => {
+      privateProfile = id;
+    },
     setResume: (item: LibraryItem, ms: number, t: number) =>
       resume.set(key(item._id, item.state?.season, item.state?.episode), { ms, t }),
     resume,
@@ -162,8 +164,13 @@ function advanceHarness(
   advanced: Map<string, LibraryItem>,
   extra: LibraryItem[],
 ) {
-  const state = [{ privacyOwner: null, profileId: null, simklSession: null, simklEnabled: false },
-    advanced, extra, new Set<string>(), 0];
+  const state = [
+    { privacyOwner: null, profileId: null, simklSession: null, simklEnabled: false },
+    advanced,
+    extra,
+    new Set<string>(),
+    0,
+  ];
   let slot = 0;
   const mocks: Record<string, unknown> = {
     "@/lib/profiles": { useProfiles: () => ({ activeProfile: null, profiles: [] }) },
@@ -174,7 +181,9 @@ function advanceHarness(
       useSyncExternalStore: () => null,
     },
     "@/lib/cw-dismiss": api,
-    "@/lib/settings": { useSettings: () => ({ settings: { cwHideCaughtUp: false, cwSources: { simkl: false } } }) },
+    "@/lib/settings": {
+      useSettings: () => ({ settings: { cwHideCaughtUp: false, cwSources: { simkl: false } } }),
+    },
     "@/lib/providers/jikan": { franchiseDedupKey: (name: string) => name.toLowerCase() },
   };
   const output = ts.transpileModule(read("src/views/home/hooks/use-cw-advance.ts"), {
@@ -251,7 +260,10 @@ test("external backfills preserve dismissals and save true remote progress only 
       "@/lib/resume": {
         readResumeEntry: () => existing,
         saveResumeMs: (...args: unknown[]) => writes.push(args),
-        saveResumeBatch: (entries: any[]) => entries.forEach((e) => writes.push([e.id, e.ms, e.season, e.episode, undefined, e.pct, e.source])),
+        saveResumeBatch: (entries: any[]) =>
+          entries.forEach((e) =>
+            writes.push([e.id, e.ms, e.season, e.episode, undefined, e.pct, e.source]),
+          ),
       },
       "@/lib/providers/anizip": {
         aniZipByMal: async () => null,
@@ -292,7 +304,7 @@ test("source toggles preserve the shared-profile protection on desktop and mobil
   for (const path of ["src/views/home.tsx", "src/views/mobile/mobile-cw-row.tsx"]) {
     assert.match(
       read(path),
-      /!hideSharedCw && \(settings\.cwSources\.trakt \|\| settings\.cwSources\.simkl\)/,
+      /!hideSharedCw\s*&&\s*\(settings\.cwSources\.trakt \|\| settings\.cwSources\.simkl(?: \|\| settings\.cwSources\.publicmetadb)?\)/,
     );
   }
 });
@@ -305,9 +317,10 @@ test("episode artwork is opt-in and changing candidates retries the first image"
   assert.match(card, /setImgIdx\(0\);\s*\}, \[candidates\]\)/);
 });
 
-
 test("private-store migration preserves old dismissals only for profiles that existed at upgrade", () => {
-  const h = harness(JSON.stringify({ "tt-test": { t: Date.now(), v: "tt-test:1:2", s: 1, e: 2, p: 0.2 } }));
+  const h = harness(
+    JSON.stringify({ "tt-test": { t: Date.now(), v: "tt-test:1:2", s: 1, e: 2, p: 0.2 } }),
+  );
   h.data.set("harbor.profiles.v1", JSON.stringify({ profiles: [{ id: "alice" }, { id: "bob" }] }));
   h.setPrivateProfile("alice");
   assert.equal(h.api.isCwDismissed(item()), true);
@@ -317,7 +330,11 @@ test("private-store migration preserves old dismissals only for profiles that ex
   assert.equal(h.api.isCwDismissed(item()), false);
   const advanced = { ...item(), state: { ...item().state!, episode: 3, video_id: "tt-test:1:3" } };
   h.setPrivateProfile("alice");
-  assert.equal(h.api.isCwDismissed(advanced), false, "migration retains episode progress for resurfacing");
+  assert.equal(
+    h.api.isCwDismissed(advanced),
+    false,
+    "migration retains episode progress for resurfacing",
+  );
 });
 
 test("migration leaves existing private choices intact, including an empty store", () => {

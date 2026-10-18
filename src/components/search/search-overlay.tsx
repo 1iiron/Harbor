@@ -28,11 +28,7 @@ import { matchPersonForQuery, PersonTopMatch } from "./person-top-match";
 import { PeopleRow } from "./people-row";
 import { collectionForTitle, useCollectionHits } from "./use-collection-hits";
 import { MetaList } from "./meta-list";
-import {
-  SearchFilterBar,
-  type SearchFilter,
-  type SearchFilterKey,
-} from "./search-filter-bar";
+import { SearchFilterBar, type SearchFilter, type SearchFilterKey } from "./search-filter-bar";
 import { requestMusicSearch } from "@/lib/music/navigation";
 import { AddonHits } from "./addon-hits";
 import { AddonResults } from "./addon-results";
@@ -49,7 +45,9 @@ import { useWindowFullscreen } from "@/lib/use-window-fullscreen";
 import { isMagnetInput, isDirectVideoUrl } from "@/lib/torrent/magnet";
 import { useProfiles } from "@/lib/profiles";
 import { steamStoreQuery } from "@/lib/games/steam-store-search";
-const SteamStoreSearch = lazy(() => import("./steam-store-search").then(module => ({default:module.SteamStoreSearch})));
+const SteamStoreSearch = lazy(() =>
+  import("./steam-store-search").then((module) => ({ default: module.SteamStoreSearch })),
+);
 
 export function SearchOverlay() {
   const {
@@ -77,9 +75,11 @@ export function SearchOverlay() {
   const [aiMode, setAiMode] = useState(false);
   const [aiRunSignal, setAiRunSignal] = useState(0);
   const [mediaFilter, setMediaFilter] = useState<SearchFilter>("all");
-  const {activeProfile}=useProfiles();
+  const { activeProfile } = useProfiles();
   const { settings, update } = useSettings();
-  const storeQuery=activeProfile?.kid?null:steamStoreQuery(query, settings.steamSearchShortcut);
+  const storeQuery = activeProfile?.kid
+    ? null
+    : steamStoreQuery(query, settings.steamSearchShortcut);
   useEffect(() => {
     setMediaFilter("all");
   }, [query]);
@@ -156,6 +156,7 @@ export function SearchOverlay() {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      if (document.activeElement?.closest("[data-harbor-context-layer]")) return;
       if (e.key !== "Escape") return;
       e.preventDefault();
       e.stopPropagation();
@@ -200,7 +201,9 @@ export function SearchOverlay() {
 
   const trimmedQ = query.trim();
   const collectionsQuery =
-    !trimmedQ || storeQuery !== null || isMagnetInput(trimmedQ) || isDirectVideoUrl(trimmedQ) ? "" : trimmedQ;
+    !trimmedQ || storeQuery !== null || isMagnetInput(trimmedQ) || isDirectVideoUrl(trimmedQ)
+      ? ""
+      : trimmedQ;
   const collectionHits = useCollectionHits(collectionsQuery);
 
   if (!mounted) return null;
@@ -382,7 +385,9 @@ export function SearchOverlay() {
                   }
                   if (e.key === "Enter" && storeQuery !== null) {
                     e.preventDefault();
-                    panelRef.current?.querySelector<HTMLAnchorElement>(".steam-store-result-title")?.focus();
+                    panelRef.current
+                      ?.querySelector<HTMLAnchorElement>(".steam-store-result-title")
+                      ?.focus();
                     return;
                   }
                   if (e.key === "Enter" && e.shiftKey) {
@@ -412,7 +417,13 @@ export function SearchOverlay() {
                     openMeta(meta);
                   }
                 }}
-                placeholder={storeQuery !== null ? t("games.storeSearch.empty") : aiMode ? "" : t("Search movies, shows, people, genres, years...")}
+                placeholder={
+                  storeQuery !== null
+                    ? t("games.storeSearch.empty")
+                    : aiMode
+                      ? ""
+                      : t("Search movies, shows, people, genres, years...")
+                }
                 className="h-16 w-full bg-transparent text-[20px] text-ink placeholder:text-ink-subtle focus:outline-none sm:text-[22px]"
                 spellCheck={false}
                 autoComplete="off"
@@ -463,7 +474,17 @@ export function SearchOverlay() {
             }}
             className="harbor-search-body relative isolate min-h-0 overflow-x-hidden overflow-y-auto px-7 py-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
-            {storeQuery !== null ? <Suspense fallback={<p role="status">{t("common.loading")}</p>}><SteamStoreSearch key={activeProfile?.id ?? "default"} profile={activeProfile?.id ?? "default"} query={storeQuery} active={open&&!closing} onAction={()=>recordRecent(query)}/></Suspense> : explore.length > 0 ? (
+            {storeQuery !== null ? (
+              <Suspense fallback={<p role="status">{t("common.loading")}</p>}>
+                <SteamStoreSearch
+                  key={activeProfile?.id ?? "default"}
+                  profile={activeProfile?.id ?? "default"}
+                  query={storeQuery}
+                  active={open && !closing}
+                  onAction={() => recordRecent(query)}
+                />
+              </Suspense>
+            ) : explore.length > 0 ? (
               <ExplorePane
                 key={explore.length}
                 frame={explore[explore.length - 1]}
@@ -485,9 +506,7 @@ export function SearchOverlay() {
               />
             ) : (
               <>
-                {!trimmed && (
-                  <EmptyState onClose={close} onOpenGuide={() => setGuideOpen(true)} />
-                )}
+                {!trimmed && <EmptyState onClose={close} onOpenGuide={() => setGuideOpen(true)} />}
 
                 {magnetInput && (
                   <div className="harbor-search-section mb-5">
@@ -565,7 +584,8 @@ export function SearchOverlay() {
                           }
                         />
                       ) : (
-                        mediaFilter === "all" && currentResults.topMatch && (
+                        mediaFilter === "all" &&
+                        currentResults.topMatch && (
                           <TopMatch
                             match={currentResults.topMatch}
                             onClose={commit}
@@ -642,11 +662,26 @@ export function SearchOverlay() {
                           }
                         />
                       )}
-                      <AnimeRow items={showKind("anime") ? currentResults.anime : []} onClose={commit} />
-                      <MangaRow items={showKind("manga") ? currentResults.manga : []} onClose={commit} />
-                      <MusicRow items={showKind("music") ? currentResults.music : []} onClose={commit} />
-                      <EBookRow items={showKind("ebooks") ? currentResults.ebooks : []} onClose={commit} />
-                      <SportsRow items={showKind("sports") ? currentResults.sports : []} onClose={commit} />
+                      <AnimeRow
+                        items={showKind("anime") ? currentResults.anime : []}
+                        onClose={commit}
+                      />
+                      <MangaRow
+                        items={showKind("manga") ? currentResults.manga : []}
+                        onClose={commit}
+                      />
+                      <MusicRow
+                        items={showKind("music") ? currentResults.music : []}
+                        onClose={commit}
+                      />
+                      <EBookRow
+                        items={showKind("ebooks") ? currentResults.ebooks : []}
+                        onClose={commit}
+                      />
+                      <SportsRow
+                        items={showKind("sports") ? currentResults.sports : []}
+                        onClose={commit}
+                      />
                       <CharacterGroup items={currentResults.characters} onClose={commit} />
                       <AddonResults groups={shownAddonGroups} onClose={commit} />
                     </div>

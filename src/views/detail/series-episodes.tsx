@@ -98,13 +98,21 @@ export function SeriesEpisodes({
     watched: boolean,
   ) => {
     e.preventDefault();
-    setWatchedMenu({ x: e.clientX, y: e.clientY, season, episode, watched });
+    setWatchedMenu({
+      x: e.clientX,
+      y: e.clientY,
+      season,
+      episode,
+      watched,
+      origin: e.currentTarget instanceof HTMLElement ? e.currentTarget : null,
+    });
   };
   const userPickedRef = useRef(false);
   const scrolledRef = useRef(false);
-  const [active, setActive] = useState<number>(() =>
-    getViewedSeason(meta.id, seasons) ??
-    resumeDefaultSeason(meta.id, seasons, stremioWatched, resumeSeason),
+  const [active, setActive] = useState<number>(
+    () =>
+      getViewedSeason(meta.id, seasons) ??
+      resumeDefaultSeason(meta.id, seasons, stremioWatched, resumeSeason),
   );
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [loading, setLoading] = useState(true);

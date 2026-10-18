@@ -264,6 +264,23 @@ function rememberSimklWatched(watched: Map<string, Set<string>>): void {
   }
 }
 
+/** Explicit mutations require a successful read, never the display cache's empty fallback. */
+export async function readSimklStateStrict(target: SimklTarget) {
+  const generation = sessionGeneration;
+  const data = await pull();
+  if (generation !== sessionGeneration) throw new Error("SIMKL session changed");
+  const keys = targetKeys(target);
+  return {
+    status: keys.map((key) => data.statuses.get(key)).find(Boolean) ?? null,
+    watched: keys.map((key) => data.watched.get(key)).find(Boolean) ?? new Set<string>(),
+  };
+}
+
+export function invalidateSimklListStatus(): void {
+  cache = null;
+  cacheMarker = null;
+}
+
 export function statusForId(map: Map<string, WatchlistStatus>, id: string): WatchlistStatus | null {
   return map.get(id) ?? null;
 }

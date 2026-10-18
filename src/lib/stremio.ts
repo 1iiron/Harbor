@@ -284,12 +284,14 @@ export async function saveStremioBookmark(
   authKey: string,
   id: string,
   input: { type?: string; name?: string; poster?: string },
+  strict = false,
 ): Promise<void> {
   const now = new Date().toISOString();
   let existing: LibraryItem | null;
   try {
     existing = await libraryGetOneStrict(authKey, id);
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return;
   }
   if (existing) {
@@ -326,7 +328,11 @@ export async function saveStremioBookmark(
   await libraryPut(authKey, item as unknown as LibraryItem);
 }
 
-export async function removeStremioBookmark(authKey: string, id: string): Promise<void> {
+export async function removeStremioBookmark(
+  authKey: string,
+  id: string,
+  _strict = true,
+): Promise<void> {
   const existing = await libraryGetOneStrict(authKey, id);
   if (!existing || existing.removed) return;
   await libraryPut(authKey, {

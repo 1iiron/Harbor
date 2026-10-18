@@ -60,7 +60,14 @@ export function CinemetaEpisodes({
     watched: boolean,
   ) => {
     e.preventDefault();
-    setWatchedMenu({ x: e.clientX, y: e.clientY, season, episode, watched });
+    setWatchedMenu({
+      x: e.clientX,
+      y: e.clientY,
+      season,
+      episode,
+      watched,
+      origin: e.currentTarget instanceof HTMLElement ? e.currentTarget : null,
+    });
   };
   const grouped = useMemo(() => groupEpisodes(videos), [videos]);
   const combinedWatched = useMemo(() => {
@@ -93,8 +100,10 @@ export function CinemetaEpisodes({
     [grouped],
   );
 
-  const [active, setActive] = useState<number>(() =>
-    getViewedSeason(meta.id, seasonStats) ?? resumeDefaultSeason(meta.id, seasonStats, combinedWatched, resumeSeason),
+  const [active, setActive] = useState<number>(
+    () =>
+      getViewedSeason(meta.id, seasonStats) ??
+      resumeDefaultSeason(meta.id, seasonStats, combinedWatched, resumeSeason),
   );
   const userPickedRef = useRef(false);
 
@@ -104,7 +113,10 @@ export function CinemetaEpisodes({
 
   useEffect(() => {
     if (userPickedRef.current) return;
-    setActive(getViewedSeason(meta.id, seasonStats) ?? resumeDefaultSeason(meta.id, seasonStats, combinedWatched, resumeSeason));
+    setActive(
+      getViewedSeason(meta.id, seasonStats) ??
+        resumeDefaultSeason(meta.id, seasonStats, combinedWatched, resumeSeason),
+    );
   }, [meta.id, seasonStats, combinedWatched, resumeSeason]);
 
   const imdbRatings = useEpisodeImdbRatings(

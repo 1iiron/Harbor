@@ -10,9 +10,16 @@ import { useSettings } from "@/lib/settings";
 import { useTitleLogo } from "@/lib/title-logo";
 import { useLocalizedOverview } from "@/lib/use-localized-overview";
 import { smartPlayEpisode } from "@/lib/smart-play";
-import { fetchFirstTrailer, resolveTrailerQuality, trailerSrc, type Quality, type TrailerInfo } from "@/lib/trailer";
+import {
+  fetchFirstTrailer,
+  resolveTrailerQuality,
+  trailerSrc,
+  type Quality,
+  type TrailerInfo,
+} from "@/lib/trailer";
 import { useT } from "@/lib/i18n";
 import { useView } from "@/lib/view";
+import { useHeroContext } from "@/lib/context-menu";
 import { observe, usePageVisible } from "@/lib/visibility";
 import { useTrailerVideo } from "@/lib/use-trailer-video";
 
@@ -225,10 +232,14 @@ function CinemaSlide({
   const [logoResolved, setLogoResolved] = useState<boolean>(!!meta.logo);
   const [trailerCandidates, setTrailerCandidates] = useState<string[]>([]);
   const trailerQuality = resolveTrailerQuality(settings.autoplayTrailerQuality);
-  const [trailerResult, setTrailerResult] = useState<{ quality: Quality; info: TrailerInfo } | null>(null);
+  const [trailerResult, setTrailerResult] = useState<{
+    quality: Quality;
+    info: TrailerInfo;
+  } | null>(null);
   const trailerInfo = trailerResult?.quality === trailerQuality ? trailerResult.info : null;
   const pageVisible = usePageVisible();
-  const wantsPlayback = active && !!trailerInfo && pageVisible && inViewport && settings.heroTrailers;
+  const wantsPlayback =
+    active && !!trailerInfo && pageVisible && inViewport && settings.heroTrailers;
   const { slot, ready: videoReady } = useTrailerVideo({
     src: trailerInfo ? trailerSrc(trailerInfo) : null,
     active: !!wantsPlayback,
@@ -239,6 +250,7 @@ function CinemaSlide({
     loop: true,
   });
   const bg = upsizeTmdb(meta.background || meta.poster);
+  const onContextMenu = useHeroContext(meta, bg);
 
   useEffect(() => {
     if (!active) return;
@@ -303,10 +315,7 @@ function CinemaSlide({
   }, [active, trailerCandidates, trailerInfo, trailerQuality, settings.heroTrailers]);
 
   return (
-    <div
-      aria-hidden={!active}
-      className="relative h-full w-full"
-    >
+    <div aria-hidden={!active} onContextMenu={onContextMenu} className="relative h-full w-full">
       {bg && (
         <img
           src={bg}
@@ -368,7 +377,9 @@ function CinemaSlide({
           )}
           <div className="mt-2 flex items-center gap-3">
             <button
-              onClick={() => openPicker(meta, smartPlayEpisode(meta), { autoPlay: settings.instantPlay })}
+              onClick={() =>
+                openPicker(meta, smartPlayEpisode(meta), { autoPlay: settings.instantPlay })
+              }
               className="flex h-12 items-center gap-2.5 rounded-md bg-ink px-7 text-[14.5px] font-semibold text-canvas transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97]"
             >
               <Play size={17} fill="currentColor" />

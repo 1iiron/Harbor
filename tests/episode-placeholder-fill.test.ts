@@ -54,19 +54,33 @@ function poolEpisode(overrides: Partial<KitsuEpisode> = {}): KitsuEpisode {
 }
 
 test("placeholder text is detected regardless of casing and spacing", () => {
-  for (const text of ["TBA", "tba", "TBD", "TBC", "N/A", "n/a", "unknown", "To Be Announced", "  TBA  "]) {
+  for (const text of [
+    "TBA",
+    "tba",
+    "TBD",
+    "TBC",
+    "N/A",
+    "n/a",
+    "unknown",
+    "To Be Announced",
+    "  TBA  ",
+  ]) {
     assert.equal(isPlaceholderEpisodeText(text), true, text);
   }
-  for (const text of ["The Desert-Born Outlaws", "Episode 3", "The TBA Story", "", null, undefined]) {
+  for (const text of [
+    "The Desert-Born Outlaws",
+    "Episode 3",
+    "The TBA Story",
+    "",
+    null,
+    undefined,
+  ]) {
     assert.equal(isPlaceholderEpisodeText(text), false, String(text));
   }
 });
 
 test("the first real text wins over a placeholder", () => {
-  assert.equal(
-    firstRealEpisodeText(["TBA", "The Desert-Born Outlaws"]),
-    "The Desert-Born Outlaws",
-  );
+  assert.equal(firstRealEpisodeText(["TBA", "The Desert-Born Outlaws"]), "The Desert-Born Outlaws");
   assert.equal(firstRealEpisodeText([null, undefined, "TBA"]), "TBA");
   assert.equal(firstRealEpisodeText(["", "  "]), undefined);
 });
@@ -79,7 +93,9 @@ test("an aired placeholder takes the real title and synopsis from the pool", () 
     absoluteNumber: 193,
     airdate: "2026-10-02",
   });
-  const pool = [poolEpisode({ tvdbEpisodeId: 11872174, imdbSeason: 6, imdbEpisode: 3, absoluteNumber: 193 })];
+  const pool = [
+    poolEpisode({ tvdbEpisodeId: 11872174, imdbSeason: 6, imdbEpisode: 3, absoluteNumber: 193 }),
+  ];
   const [filled] = fillAiredPlaceholderTitles([row], pool, NOW);
   assert.equal(filled.title, "The Desert-Born Outlaws");
   assert.equal(filled.synopsis, "At camp, Johnny catches a glimpse of Gyro's past.");
@@ -182,7 +198,9 @@ test("a generic pool name is not an improvement over TBA", () => {
     imdbEpisode: 5,
     airdate: "2026-10-01",
   });
-  const pool = [poolEpisode({ tvdbEpisodeId: 11872176, imdbSeason: 6, imdbEpisode: 5, title: "Episode 5" })];
+  const pool = [
+    poolEpisode({ tvdbEpisodeId: 11872176, imdbSeason: 6, imdbEpisode: 5, title: "Episode 5" }),
+  ];
   const [filled] = fillAiredPlaceholderTitles([row], pool, NOW);
   assert.equal(filled.title, "TBA");
   // A real description is still an improvement over the empty one.
@@ -220,8 +238,14 @@ test("the TVDB order falls through placeholders instead of dropping the name", (
 });
 
 test("the anime episode list fills aired placeholders from its pool", () => {
-  const src = readFileSync(new URL("../src/views/detail/anime-episodes.tsx", import.meta.url), "utf8");
-  assert.ok(src.includes("fillAiredPlaceholderTitles(baseDisplay, franchiseEpisodes, Date.now(), tmdbLanguageIso())"));
+  const src = readFileSync(
+    new URL("../src/views/detail/anime-episodes.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    src,
+    /fillAiredPlaceholderTitles\(\s*baseDisplay,\s*franchiseEpisodes,\s*Date\.now\(\),\s*tmdbLanguageIso\(\),?\s*\)/,
+  );
   assert.ok(src.includes("episodeArtworkFor"));
   // Unaired rows must not receive artwork-map stills: providers number their
   // seasons differently, so any hit for an unaired episode is another
@@ -304,7 +328,10 @@ test("both order caches and the TVDB response cache reject stale data", () => {
   );
   assert.ok(persisted.includes("isStaleTvdbOrder(s.bySeason)"));
   assert.ok(persisted.includes('const PREFIX = "harbor.tvdbo.v8."'));
-  const order = readFileSync(new URL("../src/lib/providers/tvdb-order.ts", import.meta.url), "utf8");
+  const order = readFileSync(
+    new URL("../src/lib/providers/tvdb-order.ts", import.meta.url),
+    "utf8",
+  );
   assert.ok(order.includes("isStaleTvdbOrder(cached.order.bySeason)"));
   assert.ok(order.includes("ORDER_CACHE_TTL_MS"));
   const tvdb = readFileSync(new URL("../src/lib/providers/tvdb.ts", import.meta.url), "utf8");

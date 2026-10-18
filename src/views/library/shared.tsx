@@ -262,11 +262,15 @@ export function GroupedGrid<
   onRemove,
   onRemoveLocal,
   scrollRef,
+  removeLabel,
+  removeOpensDialog,
 }: {
   groups: Array<{ label: string; items: T[] }>;
   onRemove?: (stremioId: string) => void;
   onRemoveLocal?: (localId: string) => void;
   scrollRef?: RefObject<HTMLElement | null>;
+  removeLabel?: string;
+  removeOpensDialog?: boolean;
 }) {
   const t = useT();
   return (
@@ -287,6 +291,8 @@ export function GroupedGrid<
               getKey={(it) => it.key}
               renderItem={(it) => (
                 <WatchlistCard
+                  removeLabel={removeLabel}
+                  removeOpensDialog={removeOpensDialog}
                   meta={it.meta}
                   onRemove={
                     onRemove && it.stremioId
@@ -303,6 +309,8 @@ export function GroupedGrid<
               {g.items.map((it) => (
                 <WatchlistCard
                   key={it.key}
+                  removeLabel={removeLabel}
+                  removeOpensDialog={removeOpensDialog}
                   meta={it.meta}
                   onRemove={
                     onRemove && it.stremioId
