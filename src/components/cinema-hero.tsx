@@ -10,7 +10,7 @@ import { useSettings } from "@/lib/settings";
 import { useTitleLogo } from "@/lib/title-logo";
 import { useLocalizedOverview } from "@/lib/use-localized-overview";
 import { smartPlayEpisode } from "@/lib/smart-play";
-import { fetchTrailer, prefetchTrailer, trailerSrc, type TrailerInfo } from "@/lib/trailer";
+import { fetchFirstTrailer, resolveTrailerQuality, trailerSrc, type Quality, type TrailerInfo } from "@/lib/trailer";
 import { useT } from "@/lib/i18n";
 import { useView } from "@/lib/view";
 import { observe, usePageVisible } from "@/lib/visibility";
@@ -224,7 +224,9 @@ function CinemaSlide({
   const [logoLoaded, setLogoLoaded] = useState(false);
   const [logoResolved, setLogoResolved] = useState<boolean>(!!meta.logo);
   const [trailerCandidates, setTrailerCandidates] = useState<string[]>([]);
-  const [trailerInfo, setTrailerInfo] = useState<TrailerInfo | null>(null);
+  const trailerQuality = resolveTrailerQuality(settings.autoplayTrailerQuality);
+  const [trailerResult, setTrailerResult] = useState<{ quality: Quality; info: TrailerInfo } | null>(null);
+  const trailerInfo = trailerResult?.quality === trailerQuality ? trailerResult.info : null;
   const pageVisible = usePageVisible();
   const wantsPlayback = active && !!trailerInfo && pageVisible && inViewport && settings.heroTrailers;
   const { slot, ready: videoReady } = useTrailerVideo({
@@ -265,7 +267,7 @@ function CinemaSlide({
   useEffect(() => {
     if (!active || !settings.heroTrailers) return;
     setTrailerCandidates([]);
-    setTrailerInfo(null);
+    setTrailerResult(null);
     let cancelled = false;
     const isTmdb = meta.id.startsWith("tmdb:");
     const lookup: Promise<string[]> = isTmdb
@@ -282,7 +284,6 @@ function CinemaSlide({
       .then((ids) => {
         if (cancelled) return;
         setTrailerCandidates(ids);
-        if (ids[0]) prefetchTrailer(ids[0], "360p");
       })
       .catch(() => {});
     return () => {
@@ -293,13 +294,13 @@ function CinemaSlide({
   useEffect(() => {
     if (!active || !settings.heroTrailers || trailerCandidates.length === 0 || trailerInfo) return;
     let cancelled = false;
-    fetchTrailer(trailerCandidates[0], "360p").then((info) => {
-      if (!cancelled && info) setTrailerInfo(info);
+    fetchFirstTrailer(trailerCandidates, trailerQuality, () => !cancelled).then((info) => {
+      if (!cancelled && info) setTrailerResult({ quality: trailerQuality, info });
     });
     return () => {
       cancelled = true;
     };
-  }, [active, trailerCandidates, trailerInfo, settings.heroTrailers]);
+  }, [active, trailerCandidates, trailerInfo, trailerQuality, settings.heroTrailers]);
 
   return (
     <div

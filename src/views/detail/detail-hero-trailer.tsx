@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Volume2, VolumeX } from "lucide-react";
-import { fetchTrailer, resolveTrailerQuality, trailerSrc, type TrailerInfo } from "@/lib/trailer";
+import { fetchFirstTrailer, resolveTrailerQuality, trailerSrc, type TrailerInfo } from "@/lib/trailer";
 import { useTrailerVideo } from "@/lib/use-trailer-video";
 import { useSettings } from "@/lib/settings";
 import { usePageVisible } from "@/lib/visibility";
@@ -9,10 +9,10 @@ import { useT } from "@/lib/i18n";
 const VIDEO_CLASS = "absolute inset-0 h-full w-full object-cover";
 
 export function DetailHeroTrailer({
-  candidateId,
+  candidateIds,
   paused = false,
 }: {
-  candidateId: string | null;
+  candidateIds: readonly string[];
   paused?: boolean;
 }) {
   const t = useT();
@@ -35,15 +35,15 @@ export function DetailHeroTrailer({
   useEffect(() => {
     setInfo(null);
     setMuted(!settings.detailTrailerAudio);
-    if (!candidateId) return;
+    if (candidateIds.length === 0) return;
     let cancelled = false;
-    fetchTrailer(candidateId, resolveTrailerQuality(settings.trailerQuality)).then((i) => {
+    fetchFirstTrailer(candidateIds, resolveTrailerQuality(settings.autoplayTrailerQuality), () => !cancelled).then((i) => {
       if (!cancelled) setInfo(i);
     });
     return () => {
       cancelled = true;
     };
-  }, [candidateId, settings.trailerQuality]);
+  }, [candidateIds, settings.autoplayTrailerQuality]);
 
   return (
     <>

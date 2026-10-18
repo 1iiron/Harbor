@@ -476,7 +476,12 @@ export function DetailView({
   const addonNative = liveContext || isAddonNativeMeta(meta);
   const capstanMeta = useCapstanDetail(meta);
   const capstanCanonicalId = capstanMeta?.canonicalId ?? null;
-  const trailerCandidate = detail?.trailerCandidates?.[0] ?? meta.trailerStreams?.[0]?.ytId ?? null;
+  const trailerCandidates = useMemo(() => Array.from(new Set([
+    ...(detail?.trailerCandidates ?? []),
+    ...(meta.trailerStreams?.map((trailer) => trailer.ytId) ?? []),
+    ...(meta.trailers?.map((trailer) => trailer.source) ?? []),
+  ].filter((id): id is string => !!id))), [detail?.trailerCandidates, meta.trailerStreams, meta.trailers]);
+  const trailerCandidate = trailerCandidates[0] ?? null;
 
   useScrollUpTrailer(
     scrollRef,
@@ -1810,7 +1815,7 @@ export function DetailView({
             <div className="absolute inset-0 animate-pulse bg-white/[0.02]" />
           )}
           {settings.detailTrailerAutoplay && trailerCandidate && (
-            <DetailHeroTrailer candidateId={trailerCandidate} paused={trailerOpen} />
+            <DetailHeroTrailer candidateIds={trailerCandidates} paused={trailerOpen} />
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-canvas via-canvas/55 via-45% to-transparent" />
           <div className="absolute inset-0 bg-gradient-to-r rtl:bg-gradient-to-l from-canvas/85 via-canvas/35 to-transparent" />

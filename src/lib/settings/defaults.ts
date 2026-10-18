@@ -109,6 +109,7 @@ export const DEFAULT: Settings = {
   controllerRepeatMs: 140,
   controllerInitialDelayMs: 400,
   trailerQuality: "auto",
+  autoplayTrailerQuality: "auto",
   detailTrailerAutoplay: false,
   heroBackdropCarousel: false,
   detailTrailerAudio: false,

@@ -26,7 +26,7 @@ import { peekCachedLogo, resolveLogo } from "@/lib/logo";
 import { useSettings } from "@/lib/settings";
 import { useTitleLogo } from "@/lib/title-logo";
 import { useLocalizedOverview } from "@/lib/use-localized-overview";
-import { fetchTrailer, prefetchTrailer, trailerSrc, type TrailerInfo } from "@/lib/trailer";
+import { fetchFirstTrailer, resolveTrailerQuality, trailerSrc, type Quality, type TrailerInfo } from "@/lib/trailer";
 import { useView } from "@/lib/view";
 import { useProfiles } from "@/lib/profiles";
 import {
@@ -79,7 +79,9 @@ export const Hero = memo(function Hero({
     ? upsizeTmdb(bgUrl, fullQuality)
     : (meta.background ?? (bgResolved ? meta.poster : undefined));
   const [trailerCandidates, setTrailerCandidates] = useState<string[]>([]);
-  const [trailerInfo, setTrailerInfo] = useState<TrailerInfo | null>(null);
+  const trailerQuality = resolveTrailerQuality(settings.autoplayTrailerQuality);
+  const [trailerResult, setTrailerResult] = useState<{ quality: Quality; info: TrailerInfo } | null>(null);
+  const trailerInfo = trailerResult?.quality === trailerQuality ? trailerResult.info : null;
   const [overControls, setOverControls] = useState(false);
   const audioHero = settings.heroTrailerAudio && playTrailer;
   const muted = useSyncExternalStore(subscribeHeroMuted, getHeroMuted);
@@ -117,7 +119,7 @@ export const Hero = memo(function Hero({
 
   useEffect(() => {
     setTrailerCandidates([]);
-    setTrailerInfo(null);
+    setTrailerResult(null);
     setEnded(getHeroEnded(meta.id));
   }, [meta.id]);
 
@@ -139,7 +141,6 @@ export const Hero = memo(function Hero({
       .then((ids) => {
         if (cancelled) return;
         setTrailerCandidates(ids);
-        if (ids[0]) prefetchTrailer(ids[0], "360p");
       })
       .catch(() => {});
     return () => {
@@ -210,13 +211,13 @@ export const Hero = memo(function Hero({
   useEffect(() => {
     if (!playTrailer || trailerCandidates.length === 0 || trailerInfo) return;
     let cancelled = false;
-    fetchTrailer(trailerCandidates[0], "360p").then((info) => {
-      if (!cancelled && info) setTrailerInfo(info);
+    fetchFirstTrailer(trailerCandidates, trailerQuality, () => !cancelled).then((info) => {
+      if (!cancelled && info) setTrailerResult({ quality: trailerQuality, info });
     });
     return () => {
       cancelled = true;
     };
-  }, [playTrailer, trailerCandidates, trailerInfo]);
+  }, [playTrailer, trailerCandidates, trailerInfo, trailerQuality]);
 
   useEffect(() => {
     syncHeroMutedFromSetting(settings.heroTrailerAudio);

@@ -2081,6 +2081,13 @@ const SETTINGS_OPTIONS: SettingsOption[] = [
     ],
   },
   {
+    label: "Autoplay trailer resolution",
+    section: "player",
+    tab: "trailers",
+    anchorTitle: "Trailer quality",
+    keywords: ["autoplay quality", "auto play resolution", "hero trailer resolution", "background trailer quality"],
+  },
+  {
     label: "Trailer quality",
     section: "player",
     tab: "trailers",

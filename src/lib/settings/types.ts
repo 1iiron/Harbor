@@ -192,6 +192,7 @@ export type Settings = {
   controllerRepeatMs: number;
   controllerInitialDelayMs: number;
   trailerQuality: "auto" | "360p" | "720p" | "1080p" | "best";
+  autoplayTrailerQuality: Settings["trailerQuality"];
   detailTrailerAutoplay: boolean;
   heroBackdropCarousel: boolean;
   detailTrailerAudio: boolean;

@@ -1,3 +1,4 @@
+import { AutoplayTrailerQuality } from "../autoplay-trailer-quality";
 import { SliderRow } from "../theme-panel/display-section";
 import { useEffect, useRef, useState } from "react";
 import harborStyleImg from "@/assets/onboarding/harborstyle.webp";
@@ -98,6 +99,7 @@ export function HomeTab() {
           />
           {settings.heroTrailers && (
             <Nested>
+              <AutoplayTrailerQuality />
               <ToggleRow
                 label={t("Home hero audio")}
                 sub={t(
