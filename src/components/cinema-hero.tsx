@@ -227,9 +227,12 @@ function CinemaSlide({
   const [trailerInfo, setTrailerInfo] = useState<TrailerInfo | null>(null);
   const pageVisible = usePageVisible();
   const wantsPlayback = active && !!trailerInfo && pageVisible && inViewport && settings.heroTrailers;
-  const { slot, video: videoRef, ready: videoReady } = useTrailerVideo({
+  const { slot, ready: videoReady } = useTrailerVideo({
     src: trailerInfo ? trailerSrc(trailerInfo) : null,
     active: !!wantsPlayback,
+    playing: !!wantsPlayback,
+    muted: true,
+    volume: 1,
     className: CINEMA_VIDEO_CLASS,
     loop: true,
   });
@@ -297,16 +300,6 @@ function CinemaSlide({
       cancelled = true;
     };
   }, [active, trailerCandidates, trailerInfo, settings.heroTrailers]);
-
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (wantsPlayback && videoReady) {
-      v.play().catch(() => {});
-    } else if (!wantsPlayback) {
-      v.pause();
-    }
-  }, [wantsPlayback, videoReady, videoRef]);
 
   return (
     <div

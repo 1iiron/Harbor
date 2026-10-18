@@ -21,9 +21,13 @@ export function DetailHeroTrailer({
   const [muted, setMuted] = useState(!settings.detailTrailerAudio);
   const pageVisible = usePageVisible();
   const wantsPlayback = !!info && !paused && pageVisible;
-  const { slot, video, ready } = useTrailerVideo({
+  const { slot, ready } = useTrailerVideo({
     src: info ? trailerSrc(info) : null,
     active: !!info && pageVisible,
+    playing: wantsPlayback,
+    muted,
+    volume: 1,
+    onAutoplayMuted: () => setMuted(true),
     className: VIDEO_CLASS,
     loop: true,
   });
@@ -40,27 +44,6 @@ export function DetailHeroTrailer({
       cancelled = true;
     };
   }, [candidateId, settings.trailerQuality]);
-
-  useEffect(() => {
-    const v = video.current;
-    if (v) v.muted = muted;
-  }, [muted, ready, video]);
-
-  useEffect(() => {
-    const v = video.current;
-    if (!v) return;
-    if (wantsPlayback && ready) {
-      v.play().catch(() => {
-        if (!v.muted) {
-          v.muted = true;
-          setMuted(true);
-          v.play().catch(() => {});
-        }
-      });
-    } else if (!wantsPlayback) {
-      v.pause();
-    }
-  }, [wantsPlayback, ready, video]);
 
   return (
     <>

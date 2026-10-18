@@ -102,6 +102,10 @@ export const Hero = memo(function Hero({
   const { slot, video: videoRef, ready: videoReady } = useTrailerVideo({
     src: trailerInfo ? trailerSrc(trailerInfo) : null,
     active: !!playTrailer && !!trailerInfo && onScreen,
+    playing: wantsPlayback,
+    muted: muted || !audioHero,
+    volume: audioHero && !muted ? Math.max(0, Math.min(1, (visibleRatio - 0.2) / 0.7)) : 0,
+    onAutoplayMuted: () => setHeroMuted(true),
     className: HERO_VIDEO_CLASS,
     loop: !audioHero,
     onEnded: () => {
@@ -219,13 +223,6 @@ export const Hero = memo(function Hero({
   }, [settings.heroTrailerAudio]);
 
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.muted = muted || !audioHero;
-    v.volume = audioHero && !muted ? Math.max(0, Math.min(1, (visibleRatio - 0.2) / 0.7)) : 0;
-  }, [muted, audioHero, visibleRatio, trailerInfo]);
-
-  useEffect(() => {
     const el = sectionRef.current;
     if (!el) return;
     if (!audioHero) {
@@ -256,28 +253,6 @@ export const Hero = memo(function Hero({
     const id = window.setTimeout(() => setLingered(true), 1000);
     return () => window.clearTimeout(id);
   }, [onScreen]);
-
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    let cancelled = false;
-    if (wantsPlayback) {
-      v.muted = muted || !audioHero;
-      v.play().catch(() => {
-        if (cancelled) return;
-        if (!v.muted) {
-          v.muted = true;
-          setHeroMuted(true);
-          v.play().catch(() => {});
-        }
-      });
-    } else {
-      v.pause();
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [wantsPlayback, muted, audioHero]);
 
   const actionRadius = playSquare ? "rounded-md" : "rounded-full";
 
@@ -317,7 +292,6 @@ export const Hero = memo(function Hero({
                 v.currentTime = 0;
                 setEnded(false);
                 setHeroEnded(meta.id, false);
-                v.play().catch(() => {});
               }
             } else {
               setHeroMuted(!muted);
