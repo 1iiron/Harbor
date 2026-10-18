@@ -36,6 +36,7 @@ jobs:
             runner: windows-latest
           - name: macOS
             runner: macos-latest
+            target: aarch64-apple-darwin
           - name: Linux
             runner: ubuntu-22.04
 
@@ -62,6 +63,25 @@ jobs:
       - name: Install macOS build dependencies
         if: matrix.platform.name == 'macOS'
         run: brew install mpv pkg-config
+
+      - name: Prepare bundled macOS libraries
+        if: matrix.platform.name == 'macOS'
+        id: macos-libraries
+        shell: bash
+        run: |
+          FRAMEWORKS_DIR="$RUNNER_TEMP/harbor-macos-frameworks-${{ matrix.platform.target }}"
+          CONFIG_PATH="$RUNNER_TEMP/tauri-macos-libmpv-${{ matrix.platform.target }}.json"
+          python3 tests/test_macos_mpv_bundle.py
+          python3 tests/test_macos_signature.py
+          python3 tests/test_macos_resign.py
+          python3 tests/test_macos_startup.py
+          python3 scripts/macos-bundle-libmpv.py prepare \
+            --frameworks "$FRAMEWORKS_DIR" \
+            --config "$CONFIG_PATH" \
+            --target "${{ matrix.platform.target }}"
+          echo "HARBOR_MACOS_FRAMEWORKS_DIR=$FRAMEWORKS_DIR" >> "$GITHUB_ENV"
+          echo "HARBOR_MACOS_LIB_DIR=$FRAMEWORKS_DIR/link" >> "$GITHUB_ENV"
+          echo "config=--config $CONFIG_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -102,5 +122,10 @@ jobs:
       - name: Prepare build assets
         run: pnpm run setup
 
+      - name: Build app without installers (macOS)
+        if: matrix.platform.name == 'macOS'
+        run: pnpm tauri build --no-bundle --target ${{ matrix.platform.target }} ${{ steps.macos-libraries.outputs.config }}
+
       - name: Build app without installers
+        if: matrix.platform.name != 'macOS'
         run: pnpm tauri build --no-bundle
