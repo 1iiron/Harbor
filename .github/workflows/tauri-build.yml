@@ -81,6 +81,10 @@ jobs:
             patchelf \
             xdg-utils
 
+      - name: Install AppImage FUSE runtime
+        if: contains(matrix.platform.runner, 'ubuntu')
+        run: sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
+
       - name: Install Mac deps
         if: contains(matrix.platform.runner, 'macos')
         run: |
@@ -264,7 +268,9 @@ jobs:
 
       - name: Build Linux system packages
         if: contains(matrix.platform.runner, 'ubuntu')
-        run: pnpm tauri:build:linux-system --target ${{ matrix.platform.target }} --bundles deb,appimage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: pnpm tauri:build:linux-system --target ${{ matrix.platform.target }} --bundles deb,appimage -v
 
       - name: Build verified Windows managed installer
         if: matrix.platform.target == 'x86_64-pc-windows-msvc'
