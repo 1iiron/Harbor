@@ -1293,7 +1293,14 @@ export function useKeyboardNavigation(options: TVNavigationOptions = {}) {
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       // These portals own their nearest-layer Back behavior. App's capture
       // listener mounts first, so even Escape must reach the owning surface.
-      if (document.querySelector(CONTEXT_INPUT_SELECTOR)) return;
+      if (document.querySelector(CONTEXT_INPUT_SELECTOR)) {
+        if (isBackKey(e) && e.key !== "Escape") {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          dispatchTvNav("back", e.repeat);
+        }
+        return;
+      }
 
       // Tab is native keyboard navigation, but does not call moveFocus().
       // Restore keyboard modality so its focus cues are not hidden after mouse use.

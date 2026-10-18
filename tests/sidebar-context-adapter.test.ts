@@ -176,28 +176,45 @@ test("the actual shell capture listener yields Escape to submenu, root and viewe
         },
       ],
     };
-    const press = (key: string) =>
+    const press = (key: string, keyCode?: number) =>
       React.act(async () => {
         document.activeElement!.dispatchEvent(
-          new h.dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+          new h.dom.window.KeyboardEvent("keydown", {
+            key,
+            keyCode,
+            bubbles: true,
+            cancelable: true,
+          }),
         );
         await new Promise((resolve) => window.setTimeout(resolve, 0));
       });
     await h.render(React.createElement(ActionItems, { source, onClose() {} }), () => {
       rootCloses++;
     });
-    await press("ArrowRight");
-    assert.equal(document.activeElement?.textContent, "First");
-    await press("Escape");
-    assert.equal(
-      !!document.querySelector("[data-context-submenu]"),
-      false,
-      "Escape closes only the focused submenu",
-    );
-    assert.equal((document.activeElement as HTMLElement).dataset.contextAction, "destinations");
-    assert.equal(rootCloses, 0);
-    assert.equal(h.backgroundBacks(), 0, "the page Back handler must not receive submenu Escape");
-    await press("Escape");
+    for (const [key, keyCode] of [
+      ["Escape", 27],
+      ["Esc", 27],
+      ["BrowserBack", 166],
+      ["GoBack", 0],
+      ["Back", 0],
+      ["", 10009],
+      ["", 4],
+      ["", 461],
+      ["", 166],
+    ] as const) {
+      await press("ArrowRight");
+      assert.equal(document.activeElement?.textContent, "First");
+      await press(key, keyCode);
+      assert.equal(
+        !!document.querySelector("[data-context-submenu]"),
+        false,
+        `${key || keyCode} closes only the focused submenu`,
+      );
+      assert.equal((document.activeElement as HTMLElement).dataset.contextAction, "destinations");
+      assert.equal(rootCloses, 0);
+      assert.equal(h.backgroundBacks(), 0, "the page Back handler must not receive submenu Back");
+    }
+    await press("BrowserBack", 166);
     assert.equal(rootCloses, 1);
     assert.equal(h.backgroundBacks(), 0);
     await React.act(() =>
@@ -210,7 +227,7 @@ test("the actual shell capture listener yields Escape to submenu, root and viewe
         }),
       ),
     );
-    await press("Escape");
+    await press("", 4);
     assert.equal(h.backgroundBacks(), 0, "the closing portal still owns input until removed");
     await React.act(() =>
       h.root.render(
@@ -226,7 +243,37 @@ test("the actual shell capture listener yields Escape to submenu, root and viewe
         }),
       ),
     );
-    await press("Escape");
+    await press("", 10009);
+    assert.equal(viewerCloses, 1);
+    assert.equal(h.backgroundBacks(), 0);
+    let upperMenuCloses = 0;
+    await React.act(() =>
+      h.root.render(
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(ContextImageViewer, {
+            image: {
+              src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+              label: "Fixture",
+            },
+            onClose: () => {
+              viewerCloses++;
+            },
+            returnFocus: h.origin,
+          }),
+          React.createElement(MenuSurface, {
+            point: { x: 20, y: 20 },
+            onClose: () => {
+              upperMenuCloses++;
+            },
+            children: React.createElement("button", { role: "menuitem" }, "Upper command"),
+          }),
+        ),
+      ),
+    );
+    await press("BrowserBack", 166);
+    assert.equal(upperMenuCloses, 1, "raw remote Back closes only the menu over the image viewer");
     assert.equal(viewerCloses, 1);
     assert.equal(h.backgroundBacks(), 0);
     await React.act(() => h.root.render(null));
