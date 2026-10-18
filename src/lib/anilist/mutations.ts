@@ -84,7 +84,7 @@ export async function deleteListEntry(id: number): Promise<boolean> {
   return data.DeleteMediaListEntry?.deleted ?? false;
 }
 
-export async function fetchListEntry(mediaId: number): Promise<ListEntryInfo> {
+export async function fetchListEntry(mediaId: number, strict = false): Promise<ListEntryInfo> {
   const data = await anilistRequest<{
     Media: {
       episodes: number | null;
@@ -98,7 +98,22 @@ export async function fetchListEntry(mediaId: number): Promise<ListEntryInfo> {
     } | null;
     Viewer: { mediaListOptions: { animeList: { customLists: unknown } | null } | null } | null;
   }>(LIST_ENTRY, { mediaId });
-  const raw = data.Media?.mediaListEntry;
+  const media = data?.Media;
+  if (
+    strict &&
+    (!media ||
+      !Object.hasOwn(media, "mediaListEntry") ||
+      (media.episodes !== null && (!Number.isInteger(media.episodes) || media.episodes < 0)) ||
+      (media.mediaListEntry !== null &&
+        (!media.mediaListEntry ||
+          !["CURRENT", "PLANNING", "COMPLETED", "DROPPED", "PAUSED", "REPEATING"].includes(
+            media.mediaListEntry.status,
+          ) ||
+          !Number.isInteger(media.mediaListEntry.progress) ||
+          media.mediaListEntry.progress < 0)))
+  )
+    throw new Error("The current AniList watched state could not be read safely.");
+  const raw = media?.mediaListEntry;
   return {
     episodes: data.Media?.episodes ?? null,
     entry: raw

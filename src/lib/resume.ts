@@ -33,14 +33,14 @@ function readAll(key = readKey()): Record<string, Entry> {
   }
 }
 
-function writeAll(all: Record<string, Entry>, key: string): void {
+function writeAll(all: Record<string, Entry>, key: string, acknowledged = false): void {
   try {
     const raw = JSON.stringify(all);
     localStorage.setItem(key, raw);
     parsedResume.set(key, { raw, entries: all });
-  } catch {
+  } catch (error) {
     parsedResume.delete(key);
-    /* noop */
+    if (acknowledged) throw error;
   }
 }
 
@@ -137,11 +137,18 @@ export function readResumeSource(
   return readAll()[entryKey(id, season, episode)]?.source;
 }
 
-export function clearResume(id: string, season?: number, episode?: number, ownerId?: string): void {
+export function clearResume(
+  id: string,
+  season?: number,
+  episode?: number,
+  ownerOrOptions?: string | { acknowledged?: boolean; ownerId?: string },
+): void {
+  const ownerId = typeof ownerOrOptions === "string" ? ownerOrOptions : ownerOrOptions?.ownerId;
+  const acknowledged = typeof ownerOrOptions === "object" && ownerOrOptions.acknowledged === true;
   for (const key of ownerId ? [KEY, PRIVATE_PREFIX + ownerId] : [readKey()]) {
     const all = readAll(key);
     delete all[entryKey(id, season, episode)];
-    writeAll(all, key);
+    writeAll(all, key, acknowledged);
   }
 }
 

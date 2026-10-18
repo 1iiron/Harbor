@@ -77,13 +77,16 @@ function readAll(key: string): Record<string, LocalCwEntry> {
   return next;
 }
 
-function writeAll(key: string, all: Record<string, LocalCwEntry>): void {
-  cache.set(key, all);
+function writeAll(key: string, all: Record<string, LocalCwEntry>, acknowledged = false): void {
   try {
     localStorage.setItem(key, JSON.stringify(all));
-  } catch {
-    /* noop */
+  } catch (error) {
+    if (acknowledged)
+      throw new Error("Could not save the change. Check available storage and try again.", {
+        cause: error,
+      });
   }
+  cache.set(key, all);
 }
 
 function emit(): void {
@@ -130,7 +133,14 @@ export function localCwEntry(
   return readAll(storeKey(privateOnly, ownerId))[id] ?? null;
 }
 
-export function clearLocalCw(id: string, ownerId?: string): void {
+export function clearLocalCw(
+  id: string,
+  ownerOrOptions?: string | { acknowledged?: boolean },
+  options: { acknowledged?: boolean } = {},
+): void {
+  const ownerId = typeof ownerOrOptions === "string" ? ownerOrOptions : undefined;
+  const acknowledged =
+    typeof ownerOrOptions === "object" ? ownerOrOptions.acknowledged : options.acknowledged;
   const keys = ownerId
     ? [storeKey(true, ownerId), storeKey(false, ownerId)]
     : [storeKey(!!privateCwProfileId())];
@@ -140,7 +150,7 @@ export function clearLocalCw(id: string, ownerId?: string): void {
     if (!(id in all)) continue;
     const next = { ...all };
     delete next[id];
-    writeAll(key, next);
+    writeAll(key, next, acknowledged);
     changed = true;
   }
   if (changed) emit();

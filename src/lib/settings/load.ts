@@ -131,19 +131,22 @@ let cachedSettings: Settings | null = null;
 export function loadStoredSettings(rawKey: string = STORAGE_KEY): Settings {
   const raw = localStorage.getItem(rawKey);
   if (cachedSettings && cachedKey === rawKey && cachedRaw === raw) return cachedSettings;
-  const settings = parseStoredSettings(raw);
+  const { settings, cacheable } = parseStoredSettings(raw);
   cachedKey = rawKey;
   cachedRaw = raw;
-  cachedSettings = settings;
+  cachedSettings = cacheable ? settings : null;
   return settings;
 }
 
-function parseStoredSettings(raw: string | null): Settings {
+function parseStoredSettings(raw: string | null): { settings: Settings; cacheable: boolean } {
   if (!raw) {
     return {
-      ...DEFAULT,
-      seekBackStepSec: sanitizeSeekStep(legacySeekStep("back"), DEFAULT.seekBackStepSec),
-      seekForwardStepSec: sanitizeSeekStep(legacySeekStep("forward"), DEFAULT.seekForwardStepSec),
+      settings: {
+        ...DEFAULT,
+        seekBackStepSec: sanitizeSeekStep(legacySeekStep("back"), DEFAULT.seekBackStepSec),
+        seekForwardStepSec: sanitizeSeekStep(legacySeekStep("forward"), DEFAULT.seekForwardStepSec),
+      },
+      cacheable: false,
     };
   }
   try {
@@ -182,6 +185,13 @@ function parseStoredSettings(raw: string | null): Settings {
       _playbackSourcePreferenceV1?: boolean;
       _playbackSourcePreferenceV2?: boolean;
     };
+    // Legacy defaults and playlist adoption depend on other stores. Re-read them
+    // until a self-contained settings blob has been persisted by the normal flow.
+    const cacheable =
+      parsed.seekBackStepSec != null &&
+      parsed.seekForwardStepSec != null &&
+      parsed._playlistsTabV1 === true &&
+      (!Array.isArray(parsed.iptvPlaylists) || parsed.iptvPlaylists.length === 0);
     if (!parsed._playbackSourcePreferenceV1) {
       parsed.playbackSourcePreference = parsed.localPlaybackMode === "local" ? "local" : "online";
       parsed.preferredMediaServerId = null;
@@ -267,11 +277,16 @@ function parseStoredSettings(raw: string | null): Settings {
       parsed.songIdAiModel = DEFAULT.songIdAiModel;
     }
     if (parsed.aiSearchModel) parsed.aiSearchModel = migrateModelId(parsed.aiSearchModel);
-    if (typeof parsed.steamSearchShortcut !== "boolean") parsed.steamSearchShortcut = DEFAULT.steamSearchShortcut;
-    if (!["first", "random", "manual"].includes(parsed.gameArtworkSelection as string)) parsed.gameArtworkSelection = DEFAULT.gameArtworkSelection;
-    if (typeof parsed.gameArtworkScreenshots !== "boolean") parsed.gameArtworkScreenshots = DEFAULT.gameArtworkScreenshots;
-    if (typeof parsed.gameArtworkCoverIcon !== "boolean") parsed.gameArtworkCoverIcon = DEFAULT.gameArtworkCoverIcon;
-    if (parsed.gameAgeRatingAgency !== "ESRB" && parsed.gameAgeRatingAgency !== "PEGI") parsed.gameAgeRatingAgency = DEFAULT.gameAgeRatingAgency;
+    if (typeof parsed.steamSearchShortcut !== "boolean")
+      parsed.steamSearchShortcut = DEFAULT.steamSearchShortcut;
+    if (!["first", "random", "manual"].includes(parsed.gameArtworkSelection as string))
+      parsed.gameArtworkSelection = DEFAULT.gameArtworkSelection;
+    if (typeof parsed.gameArtworkScreenshots !== "boolean")
+      parsed.gameArtworkScreenshots = DEFAULT.gameArtworkScreenshots;
+    if (typeof parsed.gameArtworkCoverIcon !== "boolean")
+      parsed.gameArtworkCoverIcon = DEFAULT.gameArtworkCoverIcon;
+    if (parsed.gameAgeRatingAgency !== "ESRB" && parsed.gameAgeRatingAgency !== "PEGI")
+      parsed.gameAgeRatingAgency = DEFAULT.gameAgeRatingAgency;
     if (parsed.aiSearchProvider !== "groq" && parsed.aiSearchProvider !== "openrouter") {
       parsed.aiSearchProvider = parsed.aiSearchModel
         ? providerTabFor(parsed.aiSearchModel)
@@ -368,10 +383,16 @@ function parseStoredSettings(raw: string | null): Settings {
     }
     if (parsed.cwSources == null) {
       const ext = parsed.externalContinueWatching === true;
-      parsed.cwSources = { library: true, trakt: ext, simkl: ext, local: true, publicmetadb: false };
+      parsed.cwSources = {
+        library: true,
+        trakt: ext,
+        simkl: ext,
+        local: true,
+        publicmetadb: false,
+      };
     }
     const posterCards = normalizePosterCardSettings(parsed);
-    return {
+    const settings: Settings = {
       ...DEFAULT,
       ...parsed,
       ...posterCards,
@@ -558,7 +579,8 @@ function parseStoredSettings(raw: string | null): Settings {
         ? parsed.tmdbImageLangs.filter((l): l is string => typeof l === "string")
         : DEFAULT.tmdbImageLangs,
     };
+    return { settings, cacheable };
   } catch {
-    return DEFAULT;
+    return { settings: DEFAULT, cacheable: false };
   }
 }

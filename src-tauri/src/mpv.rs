@@ -192,6 +192,29 @@ impl MpvState {
         let guard = self.inner.lock().await;
         guard.as_ref().map(|session| session.mpv.ctx.as_ptr() as usize)
     }
+
+    pub(crate) async fn active_file_path(&self) -> Result<Option<String>, String> {
+        let session = self.inner.lock().await;
+        let Some(session) = session.as_ref() else {
+            return Ok(None);
+        };
+        let path = session
+            .mpv
+            .get_property::<String>("path")
+            .map_err(|_| "Could not verify the file currently in playback.".to_string())?;
+        if let Ok(url) = url::Url::parse(&path) {
+            if url.scheme() == "file" {
+                return Ok(url
+                    .to_file_path()
+                    .ok()
+                    .map(|path| path.to_string_lossy().into_owned()));
+            }
+            if !std::path::Path::new(&path).is_absolute() {
+                return Ok(None);
+            }
+        }
+        Ok(Some(path))
+    }
 }
 
 #[cfg(target_os = "macos")]

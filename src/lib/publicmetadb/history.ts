@@ -56,11 +56,18 @@ export function watchedItemMatchesTarget(item: PmdbWatchedItem, target: PmdbTarg
   return true;
 }
 
-export async function fetchPmdbWatchedKeySet(target?: PmdbTarget): Promise<Set<string>> {
-  if (!isAuthenticated()) return new Set();
+export async function fetchPmdbWatchedKeySet(
+  target?: PmdbTarget,
+  options: { strict?: boolean; assertCurrent?: () => void } = {},
+): Promise<Set<string>> {
+  options.assertCurrent?.();
+  if (!isAuthenticated()) {
+    if (options.strict) throw new Error("PublicMetaDB is disconnected.");
+    return new Set();
+  }
 
   const now = Date.now();
-  if (!target && cachedWatchedSet && now - lastFetchAt < CACHE_TTL_MS) {
+  if (!options.strict && !target && cachedWatchedSet && now - lastFetchAt < CACHE_TTL_MS) {
     return cachedWatchedSet;
   }
 
@@ -69,27 +76,74 @@ export async function fetchPmdbWatchedKeySet(target?: PmdbTarget): Promise<Set<s
   // A global fetch spans shows, so only scoped keys may be added.
   const scopedOnly = !target;
   const effective = target ? await resolveTargetTmdb(target).catch(() => null) : undefined;
-  if (target && !effective) return set;
+  options.assertCurrent?.();
+  if (target && !effective) {
+    if (options.strict) throw new Error("No verified PublicMetaDB identity is available.");
+    return set;
+  }
 
   try {
     const first = await fetchWatchedPage(target, 1);
+    options.assertCurrent?.();
+    if (options.strict && !Array.isArray(first?.items))
+      throw new Error("PublicMetaDB watched history could not be read safely.");
     const items = Array.isArray(first?.items) ? first.items : [];
+    const assertItems = (rows: PmdbWatchedItem[]) => {
+      if (
+        options.strict &&
+        rows.some(
+          (item) =>
+            !item ||
+            !Number.isInteger(item.tmdb_id) ||
+            item.tmdb_id <= 0 ||
+            (item.media_type !== "movie" && item.media_type !== "tv") ||
+            (item.media_type === "tv" &&
+              (!Number.isInteger(item.season) ||
+                item.season! < 0 ||
+                !Number.isInteger(item.episode) ||
+                item.episode! < 1)),
+        )
+      )
+        throw new Error("PublicMetaDB watched history contains an invalid identity.");
+    };
+    assertItems(items);
     for (const item of items) {
       if (effective && !watchedItemMatchesTarget(item, effective)) continue;
       addWatchedKeys(set, item, target, scopedOnly);
     }
-    const totalPages = Math.max(1, Number(first?.totalPages ?? 1) || 1);
+    const reportedPages = Number(first?.totalPages ?? 1);
+    const totalPages = Math.max(1, reportedPages || 1);
+    if (
+      options.strict &&
+      (!Number.isInteger(reportedPages) ||
+        reportedPages < 0 ||
+        (reportedPages === 0 && items.length > 0) ||
+        totalPages > WATCHED_MAX_PAGES ||
+        (first.totalPages == null && items.length >= WATCHED_PER_PAGE))
+    )
+      throw new Error("The complete PublicMetaDB watched history could not be checked.");
     const pages = Math.min(totalPages, WATCHED_MAX_PAGES);
+    const pageSignatures = new Set([JSON.stringify(items)]);
     for (let page = 2; page <= pages; page++) {
       try {
+        options.assertCurrent?.();
         const data = await fetchWatchedPage(target, page);
+        options.assertCurrent?.();
+        if (options.strict && (!Array.isArray(data?.items) || !data.items.length))
+          throw new Error("PublicMetaDB returned an incomplete watched history.");
         if (!Array.isArray(data?.items)) break;
+        assertItems(data.items);
+        const signature = JSON.stringify(data.items);
+        if (options.strict && pageSignatures.has(signature))
+          throw new Error("PublicMetaDB repeated a watched-history page.");
+        pageSignatures.add(signature);
         for (const item of data.items) {
           if (effective && !watchedItemMatchesTarget(item, effective)) continue;
           addWatchedKeys(set, item, target, scopedOnly);
         }
         if (data.items.length === 0) break;
-      } catch {
+      } catch (error) {
+        if (options.strict) throw error;
         break;
       }
     }
@@ -98,7 +152,8 @@ export async function fetchPmdbWatchedKeySet(target?: PmdbTarget): Promise<Set<s
       cachedWatchedSet = set;
       lastFetchAt = now;
     }
-  } catch {
+  } catch (error) {
+    if (options.strict) throw error;
     // Return empty or cached set on network failure
     return cachedWatchedSet ?? set;
   }
@@ -155,10 +210,13 @@ function watchedBody(target: PmdbTarget, watchedAt?: string) {
 export async function markPmdbWatched(
   target: PmdbTarget,
   watchedAt?: string,
+  options: { assertCurrent?: () => void } = {},
 ): Promise<boolean> {
+  options.assertCurrent?.();
   if (!isAuthenticated()) return false;
   // Mark-watched requires a TMDB id; resolve ID-only targets first.
   const resolved = await resolveTargetTmdb(target).catch(() => null);
+  options.assertCurrent?.();
   if (!resolved) return false;
   invalidatePmdbWatchedCache();
 
@@ -189,10 +247,15 @@ function unmarkQuery(target: PmdbTarget): string {
   return `/api/external/watched?${params.toString()}`;
 }
 
-export async function unmarkPmdbWatched(target: PmdbTarget): Promise<boolean> {
+export async function unmarkPmdbWatched(
+  target: PmdbTarget,
+  options: { assertCurrent?: () => void } = {},
+): Promise<boolean> {
+  options.assertCurrent?.();
   if (!isAuthenticated()) return false;
   // Bulk delete requires a TMDB id; resolve ID-only targets first.
   const resolved = await resolveTargetTmdb(target).catch(() => null);
+  options.assertCurrent?.();
   if (!resolved) return false;
   invalidatePmdbWatchedCache();
 

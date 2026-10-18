@@ -26,6 +26,7 @@ export function useEpisodeEnrich({
   omdbKey,
   metaId,
   preferCustomMeta,
+  ratings = true,
 }: {
   episodes: Episode[];
   active: number;
@@ -34,6 +35,7 @@ export function useEpisodeEnrich({
   omdbKey: string;
   metaId: string;
   preferCustomMeta: boolean;
+  ratings?: boolean;
 }): {
   episodes: Episode[];
   imdbRatings: Map<string, number>;
@@ -44,7 +46,11 @@ export function useEpisodeEnrich({
   const [tvdbBySeason, setTvdbBySeason] = useState<Map<string, Map<number, TvdbEpisode>>>(
     new Map(),
   );
-  const imdbRatings = useEpisodeImdbRatings(imdbId, active, omdbKey);
+  const imdbRatings = useEpisodeImdbRatings(
+    ratings ? imdbId : null,
+    active,
+    ratings ? omdbKey : "",
+  );
   const [preferredVideos, setPreferredVideos] = useState<Map<string, PreferredVideo>>(new Map());
 
   useEffect(() => {
@@ -68,12 +74,7 @@ export function useEpisodeEnrich({
     void (async () => {
       const seriesId = await tvdbSeriesByImdb(tvdbKey, imdbId);
       if (!seriesId || cancelled) return;
-      const eps = await tvdbEpisodes(
-        tvdbKey,
-        seriesId,
-        active,
-        tvdbLangFromIso1(language),
-      );
+      const eps = await tvdbEpisodes(tvdbKey, seriesId, active, tvdbLangFromIso1(language));
       if (cancelled) return;
       const map = new Map<number, TvdbEpisode>();
       for (const e of eps) map.set(e.number, e);
@@ -94,20 +95,36 @@ export function useEpisodeEnrich({
       if (tv || pref) {
         // pickLocalizedText keys script tests by ISO-1 ("ko"), not TVDB codes ("kor").
         const lang = language;
-        const name = pickPreferredEpisodeTitle(
-          [{ text: preferredVideoName(pref), score: PREFERRED_TEXT_SCORE }, { text: tv?.name, language: tv?.nameLanguage }],
-          [{ text: next.name, language: next.nameLanguage }], lang,
-        ) ?? next.name;
-        const overview = pickPreferredEpisodeOverview(
-          [{ text: preferredVideoOverview(pref), score: PREFERRED_TEXT_SCORE }, { text: tv?.overview, language: tv?.overviewLanguage }],
-          [{ text: next.overview, language: next.overviewLanguage }], lang,
-        ) ?? next.overview;
+        const name =
+          pickPreferredEpisodeTitle(
+            [
+              { text: preferredVideoName(pref), score: PREFERRED_TEXT_SCORE },
+              { text: tv?.name, language: tv?.nameLanguage },
+            ],
+            [{ text: next.name, language: next.nameLanguage }],
+            lang,
+          ) ?? next.name;
+        const overview =
+          pickPreferredEpisodeOverview(
+            [
+              { text: preferredVideoOverview(pref), score: PREFERRED_TEXT_SCORE },
+              { text: tv?.overview, language: tv?.overviewLanguage },
+            ],
+            [{ text: next.overview, language: next.overviewLanguage }],
+            lang,
+          ) ?? next.overview;
         next = {
           ...next,
           name,
           overview,
-          nameLanguage: name === next.name ? next.nameLanguage : name === tv?.name ? tv.nameLanguage : "und",
-          overviewLanguage: overview === next.overview ? next.overviewLanguage : overview === tv?.overview ? tv.overviewLanguage : "und",
+          nameLanguage:
+            name === next.name ? next.nameLanguage : name === tv?.name ? tv.nameLanguage : "und",
+          overviewLanguage:
+            overview === next.overview
+              ? next.overviewLanguage
+              : overview === tv?.overview
+                ? tv.overviewLanguage
+                : "und",
           runtime: next.runtime ?? tv?.runtime ?? null,
           airDate: next.airDate ?? tv?.aired ?? null,
         };

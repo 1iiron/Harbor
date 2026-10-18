@@ -500,7 +500,7 @@ async function writeLibraryItem(
         bestWatched = cached.watched;
         bestMtime = cached.mtime;
       }
-      const queued = queuedWatched(canonicalId);
+      const queued = queuedWatched(canonicalId, authKey);
       if (queued && queued.watched != null && queued.mtime >= bestMtime) {
         bestWatched = queued.watched;
         bestMtime = queued.mtime;

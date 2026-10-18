@@ -1,5 +1,14 @@
 import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Check, ChevronRight, Info, Plus, RotateCcw, TrendingUp, Volume2, VolumeX } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  Info,
+  Plus,
+  RotateCcw,
+  TrendingUp,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { Play } from "@/components/icons/play-filled";
 import { ImdbIcon } from "@/components/icons/imdb-icon";
 import tmdbIcon from "@/assets/addon-logos/tmdb.png";
@@ -26,7 +35,13 @@ import { peekCachedLogo, resolveLogo } from "@/lib/logo";
 import { useSettings } from "@/lib/settings";
 import { useTitleLogo } from "@/lib/title-logo";
 import { useLocalizedOverview } from "@/lib/use-localized-overview";
-import { fetchFirstTrailer, resolveTrailerQuality, trailerSrc, type Quality, type TrailerInfo } from "@/lib/trailer";
+import {
+  fetchFirstTrailer,
+  resolveTrailerQuality,
+  trailerSrc,
+  type Quality,
+  type TrailerInfo,
+} from "@/lib/trailer";
 import { useView } from "@/lib/view";
 import { useProfiles } from "@/lib/profiles";
 import {
@@ -39,6 +54,7 @@ import { getHeroEnded, setHeroEnded } from "@/lib/hero-ended";
 import { usePageVisible } from "@/lib/visibility";
 import { useTrailerVideo } from "@/lib/use-trailer-video";
 import { toggleWatchlist, useInWatchlist } from "@/lib/watchlist";
+import { useHeroContext } from "@/lib/context-menu";
 
 const HERO_VIDEO_CLASS =
   "absolute left-1/2 top-1/2 h-[110%] w-[110%] -translate-x-1/2 -translate-y-1/2 object-cover";
@@ -74,13 +90,17 @@ export const Hero = memo(function Hero({
   const resolvedImdb = useTmdbImdbId(meta.id);
   const inWatchlist = useInWatchlist(meta.id, [resolvedImdb]);
   const [bgUrl, setBgUrl] = useState<string | undefined>(meta.background);
+  const onContextMenu = useHeroContext(meta, bgUrl);
   const [bgResolved, setBgResolved] = useState<boolean>(!!meta.background);
   const bg = bgUrl
     ? upsizeTmdb(bgUrl, fullQuality)
     : (meta.background ?? (bgResolved ? meta.poster : undefined));
   const [trailerCandidates, setTrailerCandidates] = useState<string[]>([]);
   const trailerQuality = resolveTrailerQuality(settings.autoplayTrailerQuality);
-  const [trailerResult, setTrailerResult] = useState<{ quality: Quality; info: TrailerInfo } | null>(null);
+  const [trailerResult, setTrailerResult] = useState<{
+    quality: Quality;
+    info: TrailerInfo;
+  } | null>(null);
   const trailerInfo = trailerResult?.quality === trailerQuality ? trailerResult.info : null;
   const [overControls, setOverControls] = useState(false);
   const audioHero = settings.heroTrailerAudio && playTrailer;
@@ -101,7 +121,11 @@ export const Hero = memo(function Hero({
   const onScreen = pageVisible && !overlayed && visibleRatio > 0.12;
   const wantsPlayback =
     !!playTrailer && !!trailerInfo && !overControls && onScreen && lingered && !ended;
-  const { slot, video: videoRef, ready: videoReady } = useTrailerVideo({
+  const {
+    slot,
+    video: videoRef,
+    ready: videoReady,
+  } = useTrailerVideo({
     src: trailerInfo ? trailerSrc(trailerInfo) : null,
     active: !!playTrailer && !!trailerInfo && onScreen,
     playing: wantsPlayback,
@@ -259,6 +283,7 @@ export const Hero = memo(function Hero({
 
   return (
     <section
+      onContextMenu={onContextMenu}
       ref={sectionRef}
       onClick={() => openMeta({ ...meta, logo: logo ?? meta.logo })}
       className={`harbor-hero-stage group relative cursor-pointer overflow-hidden bg-canvas ${full ? "h-[78vh] min-h-[640px] rounded-none" : "h-[560px] rounded-2xl"}`}
@@ -334,10 +359,7 @@ export const Hero = memo(function Hero({
                   </div>
                   <div className="flex flex-col gap-0.5">
                     {rank.sources.map((s) => (
-                      <div
-                        key={s.label}
-                        className="flex items-center justify-between gap-4 py-1.5"
-                      >
+                      <div key={s.label} className="flex items-center justify-between gap-4 py-1.5">
                         <span className="inline-flex items-center gap-2 text-[12.5px] font-medium text-ink">
                           {SOURCE_ICON[s.label] && (
                             <img

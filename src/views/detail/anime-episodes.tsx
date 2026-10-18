@@ -47,7 +47,10 @@ import { useAnimeWatchedRouting } from "./anime-episodes/use-anime-watched-routi
 import { useAnimeFranchiseNav } from "./anime-episodes/use-anime-franchise-nav";
 import { useTvdbProxyImages } from "./anime-episodes/use-tvdb-proxy-images";
 import { pickTvdbImage } from "@/lib/providers/tvdb-proxy";
-import { fillAiredPlaceholderTitles, isPlaceholderEpisodeText } from "@/lib/providers/episode-placeholder";
+import {
+  fillAiredPlaceholderTitles,
+  isPlaceholderEpisodeText,
+} from "@/lib/providers/episode-placeholder";
 import { tmdbLanguageIso } from "@/lib/providers/tmdb/tmdb-client";
 import {
   episodeArtworkFor,
@@ -168,7 +171,7 @@ export function AnimeEpisodes({
     }
     let cancelled = false;
     resolvePmdbTarget(meta.id, "series")
-      .then((target) => (target ?? (trackId ? resolvePmdbTarget(trackId, "series") : null)))
+      .then((target) => target ?? (trackId ? resolvePmdbTarget(trackId, "series") : null))
       .then((target) => {
         if (cancelled) return;
         return fetchPmdbWatchedKeySet(target ?? undefined);
@@ -411,7 +414,12 @@ export function AnimeEpisodes({
     // the entry's own episodes know the real title; fill those in, keep TBA for
     // episodes that have not aired. Missing stills and descriptions come from
     // the artwork map (TMDB first, then Cinemeta).
-    const filled = fillAiredPlaceholderTitles(baseDisplay, franchiseEpisodes, Date.now(), tmdbLanguageIso());
+    const filled = fillAiredPlaceholderTitles(
+      baseDisplay,
+      franchiseEpisodes,
+      Date.now(),
+      tmdbLanguageIso(),
+    );
     let changed = false;
     const out = filled.map((ep) => {
       // An episode that has not aired has no real still or description
@@ -502,6 +510,7 @@ export function AnimeEpisodes({
       watched,
       metaId: sourceMetaId,
       absoluteNumber,
+      origin: e.currentTarget instanceof HTMLElement ? e.currentTarget : null,
     });
   };
 
@@ -785,6 +794,14 @@ export function AnimeEpisodes({
       {watchedMenu && (
         <EpisodeWatchedMenu
           metaId={watchedMenu.metaId ?? meta.id}
+          syncMetaId={
+            (watchedMenu.metaId ?? meta.id) === meta.id &&
+            trackId &&
+            /^(kitsu|mal|anilist|anidb):/.test(trackId) &&
+            !/^(kitsu|mal|anilist|anidb):/.test(meta.id)
+              ? trackId
+              : undefined
+          }
           meta={
             watchedMenu.metaId
               ? routing.manualMetaFor(watchedMenu.metaId)
