@@ -398,9 +398,9 @@ export const ContinueCard = memo(function ContinueCard({
     isAnimeItem && absoluteNumber != null && Number.isFinite(absoluteNumber) && absoluteNumber > 0
       ? `Ep ${absoluteNumber}`
       : animeSeasonMapped
-        ? `S${animeSeasonMapped.season} · E${String(animeSeasonMapped.episode).padStart(2, "0")}`
+        ? `S${animeSeasonMapped.season} E${animeSeasonMapped.episode}`
         : ep
-          ? `S${partSeasonCard ?? ep.season}E${ep.episode}`
+          ? `S${partSeasonCard ?? ep.season} E${ep.episode}`
           : animeEp && Number.isFinite(animeEp) && animeEp > 0
             ? `Ep ${animeEp}`
             : "";
