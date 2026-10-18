@@ -2,9 +2,9 @@
 <a name="readme-top"></a>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://harbor.site/readme-media/harbor-wordmark-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="https://harbor.site/readme-media/harbor-wordmark-light.svg">
-  <img src="/docs/harbor-wordmark-light.svg" width="320">
+  <source media="(prefers-color-scheme: dark)" srcset="/docs/harbor-wordmark-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="/docs/harbor-wordmark-dark.svg">
+  <img src="/docs/harbor-wordmark-dark.svg" width="320">
 </picture>
 
 ### A Stremio Client Built for Adventure!
