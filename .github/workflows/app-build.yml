@@ -13,6 +13,7 @@ permissions:
   contents: read
 
 env:
+  NODE_OPTIONS: --max-old-space-size=6144
   # The extension compat layer is not in this repository, so a runner cannot stage its runtime.
   # This build compiles without it and says so. Drop this line once the layer ships with the
   # checkout, and the build starts refusing to omit it.
@@ -80,10 +81,16 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - name: Set up Pokémon engine SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.401'
+          dotnet-version: "10.0.401"
 
       - name: Build Pokémon engine and corresponding source bundle
         run: node tools/pokemon-engine/build.mjs --fetch-source "${{ runner.temp }}/harbor-pokemon-source" --output src-tauri/resources/pokemon-engine --artifacts "${{ runner.temp }}/harbor-pokemon-build"
