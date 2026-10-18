@@ -305,6 +305,8 @@ test("TVDB ordering preserves translation evidence with the same existing reques
   const { fetchTvdbOrderBySeriesId } = load("src/lib/providers/tvdb-order.ts", {
     "./tvdb": {
       tvdbSeasonNames: async () => new Map([[2, "Season 2"]]),
+      tvdbSeasons: async () => new Map(),
+      tvdbBaseSeasonNames: () => new Map(),
       tvdbEpisodesByType: async (_key: string, _id: number, type: string, lang?: string) => {
         requests.push(`${type}:${lang ?? "default"}`);
         return lang === "tur" ? [{ ...english[0], overview: turkishOverview, overviewLanguage: "tr" }] : english;
@@ -493,6 +495,8 @@ test("ordering preserves original fallback provenance without extra requests", a
   const { fetchTvdbOrderBySeriesId } = load("src/lib/providers/tvdb-order.ts", {
     "./tvdb": {
       tvdbSeasonNames: async () => new Map(),
+      tvdbSeasons: async () => new Map(),
+      tvdbBaseSeasonNames: () => new Map(),
       tvdbEpisodesByType: async (_key: string, _id: number, type: string, lang?: string) => {
         requests.push(`${type}:${lang ?? "default"}`);
         return lang === "eng" ? [] : [original];

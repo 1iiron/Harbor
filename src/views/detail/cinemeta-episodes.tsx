@@ -221,6 +221,7 @@ export function CinemetaEpisodes({
 
   const explorer = useSeasonExplorerView({
     metaId: meta.id,
+    imdbId,
     tvdbKey: settings.tvdbKey,
     seasonType: "official",
     lang: tvdbLangFromIso1(tmdbLanguageIso()),

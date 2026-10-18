@@ -6,6 +6,7 @@ import type { PickerItem } from "./series-episodes/season-arc-picker";
 import type { useSeasonExplorerView } from "./use-season-explorer";
 import { Synopsis } from "./synopsis";
 import { horizontalScrollState } from "@/lib/horizontal-scroll";
+import { observeWithin } from "@/lib/visibility";
 import { useReducedMotion } from "@/lib/use-reduced-motion";
 import { marqueeDurationMs } from "@/components/player/subtitle-menu/marquee-motion";
 import "./season-explorer.css";
@@ -58,15 +59,16 @@ function SeasonCardTitle({ text }: { text: string }) {
   );
 }
 
-function SeasonPoster({ src, name }: { src?: string; name: string }) {
-  const [failedSrc, setFailedSrc] = useState<string>();
-  return src && failedSrc !== src ? (
+function SeasonPoster({ src, fallback, name }: { src?: string; fallback?: string; name: string }) {
+  const [failed, setFailed] = useState<string[]>([]);
+  const source = [src, fallback].find((value) => value && !failed.includes(value));
+  return source ? (
     <img
-      src={src}
+      src={source}
       alt=""
       loading="lazy"
       decoding="async"
-      onError={() => setFailedSrc(src)}
+      onError={() => setFailed((previous) => [...previous, source])}
       className="h-full w-full object-cover"
     />
   ) : (
@@ -113,11 +115,12 @@ export function SeasonExplorer({
   const railRef = useRef<HTMLDivElement>(null);
   const reducedMotion = useReducedMotion();
   const [edges, setEdges] = useState({ left: false, right: false });
-  const { items: pickerItems, seasons, details, loading } = data;
+  const { items: pickerItems, seasons, artwork, details, loading, setVisibleSeasons } = data;
   const items = useMemo(
     () => pickerItems.filter((item) => item.seasonNumber != null && item.seasonNumber >= 0),
     [pickerItems],
   );
+  const cardMembership = JSON.stringify(items.map((item) => [item.key, item.seasonNumber]));
   const activeIndex = items.findIndex((item) => item.key === activeKey);
   const [transition, setTransition] = useState({
     key: activeKey,
@@ -153,10 +156,15 @@ export function SeasonExplorer({
   };
   const active = items.find((item) => item.key === activeKey);
   const detail = active?.seasonNumber == null ? undefined : details.get(active.seasonNumber);
+  const activeArtwork = active?.seasonNumber == null ? undefined : artwork.get(active.seasonNumber);
   const posterFor = (item: PickerItem) =>
     item.seasonNumber == null
       ? undefined
-      : (details.get(item.seasonNumber)?.poster ?? seasons.get(item.seasonNumber)?.image);
+      : artwork.get(item.seasonNumber)?.poster;
+  const fallbackFor = (item: PickerItem) =>
+    item.seasonNumber != null && artwork.has(item.seasonNumber)
+      ? seasons.get(item.seasonNumber)?.image
+      : undefined;
   const titleFor = (item: PickerItem) =>
     item.seasonNumber != null &&
     (item.seasonNumber === 0
@@ -186,6 +194,39 @@ export function SeasonExplorer({
   const dates = from && to ? (from === to ? from : `${from} – ${to}`) : from || to || active?.year;
 
   useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const visible = new Set<number>();
+    let cancelled = false;
+    let scheduled = false;
+    const publish = () => {
+      if (scheduled) return;
+      scheduled = true;
+      queueMicrotask(() => {
+        scheduled = false;
+        if (!cancelled) setVisibleSeasons([...visible]);
+      });
+    };
+    const releases = [...rail.querySelectorAll<HTMLElement>("[data-season-number]")].map((card) =>
+      observeWithin(
+        card,
+        "0px 180px",
+        (entry) => {
+          const number = Number(card.dataset.seasonNumber);
+          if (entry.isIntersecting) visible.add(number);
+          else visible.delete(number);
+          publish();
+        },
+        rail,
+      ),
+    );
+    return () => {
+      cancelled = true;
+      releases.forEach((release) => release());
+    };
+  }, [cardMembership, setVisibleSeasons]);
+
+  useEffect(() => {
     // Keep selection visible without scrolling the overview itself.
     const rail = railRef.current;
     const button = rail?.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
@@ -210,7 +251,7 @@ export function SeasonExplorer({
     });
     observer.observe(rail);
     return () => observer.disconnect();
-  }, [activeKey, items, reducedMotion, syncEdges]);
+  }, [activeKey, cardMembership, reducedMotion, syncEdges]);
 
   if (items.length === 0) return null;
 
@@ -234,6 +275,7 @@ export function SeasonExplorer({
             {items.map((item) => (
               <button
                 key={item.key}
+                data-season-number={item.seasonNumber}
                 type="button"
                 aria-pressed={item.key === activeKey}
                 aria-controls={panelId}
@@ -243,7 +285,7 @@ export function SeasonExplorer({
                 className={`season-explorer-card flex w-[136px] shrink-0 snap-start flex-col items-stretch rounded-xl p-1 text-start transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:w-[164px] ${item.key === activeKey ? "bg-accent/10 text-ink ring-1 ring-accent" : "text-ink-muted hover:bg-ink/5 hover:text-ink"}`}
               >
                 <div className="aspect-[2/3] w-full shrink-0 overflow-hidden rounded-lg">
-                  <SeasonPoster src={posterFor(item)} name={item.name} />
+                  <SeasonPoster src={posterFor(item)} fallback={fallbackFor(item)} name={item.name} />
                 </div>
                 <SeasonCardTitle text={titleFor(item) || labelFor(item) || item.name} />
                 {titleFor(item) && labelFor(item) && (
@@ -296,10 +338,10 @@ export function SeasonExplorer({
               className="season-explorer-transition"
               data-direction={transition.direction}
             >
-              <SeasonBackdrop sources={[detail?.background, background]} />
+              <SeasonBackdrop sources={[activeArtwork?.background, background]} />
               <div className="relative flex min-h-[260px] items-start gap-4 p-5 sm:min-h-[316px] sm:gap-5 sm:p-6">
                 <div className="aspect-[2/3] w-[104px] shrink-0 overflow-hidden rounded-xl shadow-lg sm:w-[164px]">
-                  <SeasonPoster src={posterFor(active)} name={active.name} />
+                  <SeasonPoster src={posterFor(active)} fallback={fallbackFor(active)} name={active.name} />
                 </div>
                 <div className="min-w-0 flex-1 py-1">
                   <div className="flex items-center gap-2.5">

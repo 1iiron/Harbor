@@ -8,7 +8,7 @@ import * as React from "react";
 import * as jsxRuntime from "react/jsx-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
 
-function load(file, dependencies) {
+function load(file, dependencies, globals = {}) {
   const source = readFileSync(new URL("../" + file, import.meta.url), "utf8");
   const code = ts.transpileModule(source, {
     compilerOptions: {
@@ -23,6 +23,8 @@ function load(file, dependencies) {
     exports: module.exports,
     setTimeout,
     clearTimeout,
+    queueMicrotask,
+    ...globals,
     require: (name) => {
       assert.ok(name in dependencies, "unmocked dependency " + name);
       return dependencies[name];
@@ -86,6 +88,14 @@ function providerFixture({ fail = false, localizedOverview = " ", missingEnglish
   return { ...tvdb, ...details, calls, requests };
 }
 
+async function fetchCompleteSeason(f, key, info, lang) {
+  const [text, artwork] = await Promise.all([
+    f.fetchTvdbSeasonDetails(key, info, lang),
+    f.fetchTvdbSeasonArtwork(key, info, lang),
+  ]);
+  return { ...text, ...artwork };
+}
+
 const season = {
   id: 31893,
   number: 1,
@@ -95,7 +105,7 @@ const season = {
 
 test("selected season uses its own TVDB ID, localized poster, and per-field English fallback", async () => {
   const f = providerFixture();
-  const result = await f.fetchTvdbSeasonDetails("test-key", season, "fra");
+  const result = await fetchCompleteSeason(f, "test-key", season, "fra");
   assert.equal(result.name, "English Saga");
   assert.equal(result.overview, "English season synopsis");
   assert.equal(result.poster, "https://artworks.thetvdb.com/french.jpg");
@@ -109,16 +119,16 @@ test("selected season uses its own TVDB ID, localized poster, and per-field Engl
 
 test("revisiting a season reuses cached requests and English requires just one translation", async () => {
   const f = providerFixture();
-  await f.fetchTvdbSeasonDetails("test-key", season, "eng");
+  await fetchCompleteSeason(f, "test-key", season, "eng");
   const callCount = f.calls.length;
-  await f.fetchTvdbSeasonDetails("test-key", season, "eng");
+  await fetchCompleteSeason(f, "test-key", season, "eng");
   assert.equal(f.calls.length, callCount);
   assert.equal(f.calls.filter((path) => path.includes("/translations/")).length, 1);
 });
 
 test("proxy-only users load translated season details and artwork without authentication", async () => {
   const f = providerFixture();
-  const result = await f.fetchTvdbSeasonDetails("", season, "fra");
+  const result = await fetchCompleteSeason(f, "", season, "fra");
   assert.equal(result.name, "English Saga");
   assert.equal(result.overview, "English season synopsis");
   assert.equal(result.poster, "https://artworks.thetvdb.com/french.jpg");
@@ -131,7 +141,7 @@ test("proxy-only users load translated season details and artwork without authen
 
 test("unavailable proxy metadata falls back to the base season", async () => {
   const f = providerFixture({ fail: true });
-  const result = await f.fetchTvdbSeasonDetails("", season, "eng");
+  const result = await fetchCompleteSeason(f, "", season, "eng");
   assert.equal(result.name, undefined);
   assert.equal(result.poster, season.image);
   assert.equal(result.overview, undefined);
@@ -139,7 +149,7 @@ test("unavailable proxy metadata falls back to the base season", async () => {
 
 test("seasons without a TVDB ID preserve base data without requests", async () => {
   const f = providerFixture();
-  const result = await f.fetchTvdbSeasonDetails("", { ...season, id: null }, "eng");
+  const result = await fetchCompleteSeason(f, "", { ...season, id: null }, "eng");
   assert.equal(result.name, undefined);
   assert.equal(result.poster, season.image);
   assert.equal(f.calls.length, 0);
@@ -147,7 +157,7 @@ test("seasons without a TVDB ID preserve base data without requests", async () =
 
 test("missing season metadata degrades to the base poster", async () => {
   const f = providerFixture({ fail: true });
-  const result = await f.fetchTvdbSeasonDetails("test-key", season, "eng");
+  const result = await fetchCompleteSeason(f, "test-key", season, "eng");
   assert.equal(result.poster, season.image);
   assert.equal(result.overview, undefined);
 });
@@ -182,16 +192,19 @@ const flush = async () => {
   await new Promise((resolve) => setImmediate(resolve));
 };
 
-function hookFixture({ catalog, detail } = {}) {
+function hookFixture({ catalog, detail, artwork } = {}) {
   const state = [],
     effects = [],
     cleanups = [],
     dependencies = [];
   const calls = [];
+  const artworkCalls = [];
   let stateIndex = 0,
     effectIndex = 0;
   const react = {
     useMemo: (callback) => callback(),
+    useCallback: (callback) => callback,
+    useRef: (initial) => react.useState({ current: initial })[0],
     useState: (initial) => {
       const index = stateIndex++;
       if (!(index in state)) state[index] = initial;
@@ -212,6 +225,15 @@ function hookFixture({ catalog, detail } = {}) {
       dependencies[index] = deps;
     },
   };
+  const artworkProvider = load("src/lib/providers/tvdb-season-details.ts", {
+    "./tvdb": {
+      pickSeasonPoster: ({ extendedImage, baseImage }) => extendedImage ?? baseImage,
+      tvdbSeasonExtended: async (_key, id) => {
+        artworkCalls.push(id);
+        return artwork ? artwork(id) : { image: `/preferred-${id}.jpg`, artwork: [] };
+      },
+    },
+  });
   const hook = load("src/views/detail/use-season-explorer.ts", {
     react,
     "@/lib/providers/anime-mapping": { kitsuToTvdb: async (id) => id },
@@ -231,6 +253,7 @@ function hookFixture({ catalog, detail } = {}) {
           ])),
     },
     "@/lib/providers/tvdb-season-details": {
+      ...artworkProvider,
       fetchTvdbSeasonDetails: async (_key, info, lang) => {
         calls.push({ id: info.id, number: info.number, lang });
         return detail ? detail(info) : { overview: `Season ${info.number} synopsis` };
@@ -239,6 +262,7 @@ function hookFixture({ catalog, detail } = {}) {
   });
   return {
     calls,
+    artworkCalls,
     englishSeasonItems: hook.englishSeasonItems,
     render: (props) => {
       stateIndex = 0;
@@ -327,14 +351,14 @@ test("extras do not inherit a numbered season synopsis", async () => {
 
 test("season title stays English while the synopsis follows the metadata language", async () => {
   const f = providerFixture({ localizedOverview: "Résumé français" });
-  const result = await f.fetchTvdbSeasonDetails("", season, "fra");
+  const result = await fetchCompleteSeason(f, "", season, "fra");
   assert.equal(result.name, "English Saga");
   assert.equal(result.overview, "Résumé français");
 });
 
 test("missing English translation never falls back to a foreign or original title", async () => {
   const f = providerFixture({ localizedOverview: "Résumé français", missingEnglish: true });
-  const result = await f.fetchTvdbSeasonDetails("", { ...season, name: "日本語" }, "fra");
+  const result = await fetchCompleteSeason(f, "", { ...season, name: "日本語" }, "fra");
   assert.equal(result.name, undefined);
   assert.equal(result.overview, "Résumé français");
 });
@@ -369,9 +393,9 @@ test("hidden explorer views do not request season metadata", async () => {
   f.unmount();
 });
 
-function seasonExplorerComponent() {
+function seasonExplorerComponent({ react = React, visibility = { observeWithin: () => () => {} }, globals = {} } = {}) {
   const { SeasonExplorer } = load("src/views/detail/season-explorer.tsx", {
-    react: React,
+    react,
     "react/jsx-runtime": jsxRuntime,
     "lucide-react": {
       Film: () => null,
@@ -379,6 +403,7 @@ function seasonExplorerComponent() {
       ChevronLeft: () => null,
       ChevronRight: () => null,
     },
+    "@/lib/visibility": visibility,
     "@/lib/horizontal-scroll": {
       horizontalScrollState: () => ({ rtl: false, max: 0, position: 0 }),
     },
@@ -391,7 +416,7 @@ function seasonExplorerComponent() {
     "@/lib/i18n": { useT: () => (key, vars) => key.replace("{n}", String(vars?.n ?? "")) },
     "@/lib/season-name": { isGenericSeasonName: (name, n) => name === `Season ${n}` },
     "./synopsis": { Synopsis: ({ text }) => React.createElement("p", null, text) },
-  });
+  }, globals);
   return SeasonExplorer;
 }
 
@@ -405,6 +430,8 @@ test("English season titles render beside the original dropdown-style number bad
         items: [{ key: "4", seasonNumber: 4, name: "High School DxD HERO", count: 12 }],
         seasons: new Map(),
         names: new Map(),
+        artwork: new Map(),
+        setVisibleSeasons: () => {},
         loading: false,
         details: new Map([[4, { overview: "Résumé français" }]]),
       },
@@ -434,7 +461,7 @@ test("season row excludes Extras while retaining season zero and episode-picker 
     Object.freeze({ key: "specials", name: "Extras", count: 231, extra: true }),
     Object.freeze({ key: "-1", seasonNumber: -1, name: "Other extras", count: 2, extra: true }),
   ]);
-  const data = { items, seasons: new Map(), names: new Map(), details: new Map(), loading: false };
+  const data = { items, seasons: new Map(), names: new Map(), details: new Map(), artwork: new Map(), setVisibleSeasons: () => {}, loading: false };
   for (const activeKey of ["4", "specials"]) {
     const html = renderToStaticMarkup(
       React.createElement(SeasonExplorer, { data, activeKey, onSelect: () => {} }),
@@ -458,4 +485,535 @@ test("season row excludes Extras while retaining season zero and episode-picker 
     ),
     "",
   );
+});
+
+test("artwork and text load independently and concurrent artwork consumers share a request", async () => {
+  const f = providerFixture();
+  const [first, second] = await Promise.all([
+    f.fetchTvdbSeasonArtwork("", season, "fra"),
+    f.fetchTvdbSeasonArtwork("", season, "fra"),
+  ]);
+  assert.equal(first.poster, "https://artworks.thetvdb.com/french.jpg");
+  assert.equal(second.poster, first.poster);
+  assert.equal(f.calls.filter((path) => path.endsWith("/extended")).length, 1);
+  assert.equal(f.calls.filter((path) => path.includes("/translations/")).length, 0);
+  await f.fetchTvdbSeasonDetails("", season, "fra");
+  assert.equal(f.calls.filter((path) => path.endsWith("/extended")).length, 1);
+  assert.equal(f.calls.filter((path) => path.includes("/translations/")).length, 2);
+  const textOnly = providerFixture();
+  await textOnly.fetchTvdbSeasonDetails("", season, "eng");
+  assert.equal(textOnly.calls.filter((path) => path.endsWith("/extended")).length, 0);
+});
+
+test("visible posters resolve before selection and stay stable when clicking and revisiting", async () => {
+  const f = hookFixture();
+  f.render(props);
+  await flush();
+  let result = f.render(props);
+  result.setVisibleSeasons([1, 2]);
+  await flush();
+  f.render(props);
+  await flush();
+  result = f.render(props);
+  const secondPoster = result.artwork.get(2).poster;
+  assert.equal(secondPoster, "/preferred-31894.jpg");
+  assert.equal(result.details.has(2), false);
+  assert.deepEqual(f.calls.map((call) => call.number), [1]);
+  f.render({ ...props, activeSeason: 2 });
+  await flush();
+  result = f.render({ ...props, activeSeason: 2 });
+  assert.equal(result.artwork.get(2).poster, secondPoster);
+  f.render(props);
+  await flush();
+  assert.deepEqual(f.artworkCalls, [31893, 31894]);
+  assert.deepEqual(f.calls.map((call) => call.number), [1, 2]);
+  f.unmount();
+});
+
+test("artwork requests stay bounded, prioritize selection, and skip offscreen seasons and Extras", async () => {
+  const blocked = new Map(Array.from({ length: 8 }, (_, i) => [i, deferred()]));
+  const f = hookFixture({
+    catalog: async () => new Map(Array.from({ length: 9 }, (_, i) => [
+      i - 1, { ...season, number: i - 1, id: i - 1 },
+    ])),
+    artwork: (id) => blocked.get(id).promise,
+  });
+  f.render(props);
+  await flush();
+  let result = f.render(props);
+  result.setVisibleSeasons([-1, 0, 1, 2, 3, 4, 5]);
+  f.render(props);
+  assert.deepEqual(f.artworkCalls, [1, 0, 2]);
+  f.render({ ...props, activeSeason: 5 });
+  assert.equal(f.artworkCalls.length, 3);
+  blocked.get(0).resolve({ image: "/specials.jpg", artwork: [] });
+  await flush();
+  assert.deepEqual(f.artworkCalls, [1, 0, 2, 5]);
+  blocked.get(5).resolve({ image: "/five.jpg", artwork: [] });
+  await flush();
+  result = f.render({ ...props, activeSeason: 5 });
+  assert.equal(result.artwork.get(5).poster, "/five.jpg");
+  assert.equal(result.artwork.get(0).poster, "/specials.jpg");
+  assert.equal(f.artworkCalls.includes(-1), false);
+  assert.equal(f.artworkCalls.includes(6), false);
+  assert.equal(f.artworkCalls.includes(7), false);
+  f.unmount();
+  for (const pending of blocked.values()) pending.resolve({ artwork: [] });
+  await flush();
+  assert.equal(f.artworkCalls.includes(4), false);
+});
+
+test("late artwork is discarded across title, language, order, API mode, and hidden-view changes", async () => {
+  for (const changed of [
+    { metaId: "kitsu:99" },
+    { lang: "fra" },
+    { seasonType: "dvd" },
+    { tvdbKey: "" },
+    { enabled: false },
+  ]) {
+    const pending = deferred();
+    const f = hookFixture({ artwork: () => pending.promise });
+    f.render(props);
+    await flush();
+    f.render(props);
+    const nextProps = { ...props, ...changed };
+    const hidden = f.render(nextProps);
+    assert.equal(hidden.artwork.size, 0);
+    pending.resolve({ image: "/stale.jpg", artwork: [] });
+    await flush();
+    // The replacement catalog has not yet been consumed by an effect.
+    const next = f.render(nextProps);
+    assert.equal(next.artwork.size, 0);
+    f.unmount();
+  }
+});
+
+test("failed artwork resolves to the default once and clicking does not retry it", async () => {
+  const f = hookFixture({ artwork: async () => { throw new Error("unavailable"); } });
+  f.render(props);
+  await flush();
+  f.render(props);
+  await flush();
+  let result = f.render(props);
+  assert.equal(result.artwork.get(1).poster, season.image);
+  result.setVisibleSeasons([1, 2]);
+  f.render(props);
+  await flush();
+  f.render({ ...props, activeSeason: 2 });
+  await flush();
+  result = f.render(props);
+  assert.equal(result.artwork.get(1).poster, season.image);
+  assert.deepEqual(f.artworkCalls, [31893, 31894]);
+  f.unmount();
+});
+
+test("poster cards and the selected panel use the same artwork and hide default posters while pending", () => {
+  const SeasonExplorer = seasonExplorerComponent();
+  const data = {
+    items: [
+      { key: "1", seasonNumber: 1, name: "Season 1", count: 10 },
+      { key: "2", seasonNumber: 2, name: "Season 2", count: 10 },
+    ],
+    seasons: new Map([[1, { image: "/base-one.jpg" }], [2, { image: "/base-two.jpg" }]]),
+    artwork: new Map([[1, { poster: "/preferred-one.jpg" }], [2, { poster: "/preferred-two.jpg" }]]),
+    details: new Map([[1, { poster: "/wrong-detail.jpg", overview: "First synopsis" }]]),
+    setVisibleSeasons: () => {},
+    loading: false,
+  };
+  for (const activeKey of ["1", "2"]) {
+    const html = renderToStaticMarkup(React.createElement(SeasonExplorer, {
+      data, activeKey, onSelect: () => {},
+    }));
+    assert.equal((html.match(new RegExp('src="/preferred-' + (activeKey === "1" ? "one" : "two") + '.jpg"', "g")) ?? []).length, 2);
+    assert.doesNotMatch(html, /base-one|base-two|wrong-detail/);
+  }
+  const pending = renderToStaticMarkup(React.createElement(SeasonExplorer, {
+    data: { ...data, artwork: new Map() }, activeKey: "1", onSelect: () => {},
+  }));
+  assert.doesNotMatch(pending, /base-one|base-two|wrong-detail/);
+});
+
+test("season-strip visibility reports nearby cards to the artwork loader without selecting them", async () => {
+  const f = hookFixture();
+  f.render(props);
+  await flush();
+  const data = f.render(props);
+  const cards = [1, 2].map((n) => ({ dataset: { seasonNumber: String(n) } }));
+  const rail = { querySelectorAll: () => cards };
+  const effects = [], observations = [];
+  let released = 0;
+  const SeasonExplorer = seasonExplorerComponent({
+    react: {
+      ...React,
+      useRef: () => ({ current: rail }),
+      useId: () => "season",
+      useMemo: (compute) => compute(),
+      useState: (initial) => [initial, () => {}],
+      useEffect: (effect) => effects.push(effect),
+      useCallback: (callback) => callback,
+    },
+    visibility: {
+      observeWithin: (card, margin, callback, root) => {
+        observations.push({ card, margin, callback, root });
+        return () => { released++; };
+      },
+    },
+  });
+  SeasonExplorer({
+    data: { ...data, items: cards.map((card) => ({
+      key: card.dataset.seasonNumber,
+      seasonNumber: Number(card.dataset.seasonNumber), name: "Season", count: 10,
+    })) },
+    activeKey: "1",
+    onSelect: () => { throw new Error("visibility must not select a season"); },
+  });
+  const cleanup = effects[0]();
+  assert.equal(observations.length, 2);
+  for (const observation of observations) {
+    assert.equal(observation.root, rail);
+    assert.equal(observation.margin, "0px 180px");
+    observation.callback({ isIntersecting: true });
+  }
+  await flush();
+  f.render(props);
+  await flush();
+  assert.deepEqual(f.artworkCalls, [31893, 31894]);
+  assert.deepEqual(f.calls.map((call) => call.number), [1]);
+  cleanup();
+  assert.equal(released, 2);
+  f.unmount();
+});
+
+test("a failed preferred image falls back once and two failed images leave a placeholder", () => {
+  const state = [];
+  let index = 0;
+  const SeasonExplorer = seasonExplorerComponent({
+    react: {
+      ...React,
+      useRef: () => ({ current: null }),
+      useId: () => "season",
+      useMemo: (compute) => compute(),
+      useState: (initial) => {
+        const position = index++;
+        if (!(position in state)) state[position] = initial;
+        return [state[position], (value) => {
+          state[position] = typeof value === "function" ? value(state[position]) : value;
+        }];
+      },
+      useEffect: () => {},
+      useCallback: (callback) => callback,
+    },
+  });
+  const tree = SeasonExplorer({
+    data: {
+      items: [{ key: "1", seasonNumber: 1, name: "Season 1", count: 10 }],
+      seasons: new Map([[1, { image: "/base.jpg" }]]),
+      artwork: new Map([[1, { poster: "/preferred.jpg" }]]),
+      details: new Map(),
+      setVisibleSeasons: () => {},
+      loading: false,
+    },
+    activeKey: "1",
+    onSelect: () => {},
+  });
+  function findPoster(node) {
+    if (node?.type?.name === "SeasonPoster") return node;
+    for (const child of [node?.props?.children].flat()) {
+      const found = child && findPoster(child);
+      if (found) return found;
+    }
+  }
+  const poster = findPoster(tree);
+  assert.ok(poster);
+  const stateStart = state.length;
+  const render = () => {
+    index = stateStart;
+    return poster.type(poster.props);
+  };
+  let image = render();
+  assert.equal(image.props.src, "/preferred.jpg");
+  image.props.onError();
+  image = render();
+  assert.equal(image.props.src, "/base.jpg");
+  image.props.onError();
+  assert.equal(render().type, "div");
+  assert.equal(render().type, "div");
+});
+
+test("failed synopsis loads retry on revisit without retrying successful empty responses", async () => {
+  for (const failure of ["reject", "unavailable"]) {
+    let attempts = 0;
+    const f = hookFixture({
+      detail: (info) => {
+        if (info.number !== 1) return { overview: "Second synopsis" };
+        if (++attempts === 1) {
+          if (failure === "reject") throw new Error("temporary outage");
+          return null;
+        }
+        return { overview: "Recovered synopsis" };
+      },
+    });
+    f.render(props);
+    await flush();
+    f.render(props);
+    await flush();
+    assert.equal(f.render(props).details.has(1), false);
+    assert.equal(f.render(props).loading, false);
+    assert.equal(attempts, 1);
+    f.render({ ...props, activeSeason: 2 });
+    await flush();
+    f.render(props);
+    await flush();
+    assert.equal(f.render(props).details.get(1).overview, "Recovered synopsis");
+    f.unmount();
+  }
+  const f = hookFixture({ detail: () => ({}) });
+  f.render(props);
+  await flush();
+  f.render(props);
+  await flush();
+  f.render({ ...props, activeSeason: 2 });
+  await flush();
+  f.render(props);
+  assert.equal(f.calls.filter((call) => call.number === 1).length, 1);
+  f.unmount();
+});
+
+test("unavailable season translations remain distinguishable from a successful empty translation", async () => {
+  const unavailable = providerFixture({ fail: true });
+  assert.equal(await unavailable.fetchTvdbSeasonDetails("", season, "eng"), null);
+});
+
+test("English season fallback preserves source provenance without accepting unknown or foreign names", () => {
+  const { englishSeasonItems } = hookFixture();
+  const original = [
+    { key: "4", seasonNumber: 4, name: "The Final Season", nameLanguage: "en", count: 12 },
+    { key: "5", seasonNumber: 5, name: "La dernière saison", nameLanguage: "fr", count: 12 },
+    { key: "6", seasonNumber: 6, name: "Saigo no Kisetsu", nameLanguage: "und", count: 12 },
+  ];
+  const fallback = englishSeasonItems(original, new Map(), new Map());
+  assert.equal(fallback[0].name, "The Final Season");
+  assert.equal(fallback[0].isGenericName, false);
+  assert.equal(fallback[1].name, "Season 5");
+  assert.equal(fallback[2].name, "Season 6");
+  const translated = englishSeasonItems(original, new Map([[4, "TVDB English Arc"]]), new Map());
+  assert.equal(translated[0].name, "TVDB English Arc");
+});
+
+test("TMDB English season names survive both default and TVDB-fallback picker paths", async () => {
+  const seasonNames = load("src/lib/season-name.ts", {});
+  async function metadata(name, lang) {
+    const requests = [];
+    const { tmdbDetails } = load("src/lib/providers/tmdb/tmdb-details.ts", {
+      "./tmdb-client": {
+        IMG: "https://image.invalid",
+        effectiveTmdbLanguage: () => lang,
+        get: async (_key, path) => {
+          requests.push(path);
+          return path === "tv/42" ? {
+            id: 42, name: "Example", images: {},
+            seasons: [{ id: 44, season_number: 4, name, episode_count: 12 }],
+          } : {};
+        },
+      },
+      "./tmdb-image-rungs": { tmdbBackdropUrl: () => undefined, tmdbPosterUrl: () => undefined },
+      "@/lib/settings/load": { loadStoredSettings: () => ({}) },
+      "./tmdb-images": { pickLogo: () => undefined },
+      "./tmdb-image-lang": { imageLangParam: () => "en", imageLangRank: () => 0 },
+      "./tmdb-trailers": { pickTrailers: () => [] },
+      "./tmdb-meta-mappers": { isAnimeItem: () => false },
+      "@/lib/storage-recovery": {},
+      "@/lib/episode-text-language": episodeTextLanguage,
+      "@/lib/season-name": seasonNames,
+    });
+    const detail = await tmdbDetails("test-key", { id: "tmdb:tv:42", type: "series" });
+    return { seasons: detail.seasons, requests };
+  }
+  const english = await metadata("The Final Season", "en-US");
+  assert.equal(english.seasons[0].nameLanguage, "en");
+  assert.equal(english.requests.length, 1);
+  assert.equal((await metadata("La dernière saison", "fr")).seasons[0].nameLanguage, "und");
+  assert.equal((await metadata("最終章", "en")).seasons[0].nameLanguage, "und");
+  const { useSeasonArcPicker } = load("src/views/detail/series-episodes/use-season-arc-picker.ts", {
+    react: { useMemo: (compute) => compute() },
+    "@/lib/season-view-pref": {},
+    "@/lib/providers/tvdb-order": {
+      seasonDateRange: () => ({}),
+      isGenericTvdbSeasonName: (name, n) => name === `Season ${n}`,
+    },
+    "../helpers": { isNewSeason: () => false },
+    "@/lib/season-name": seasonNames,
+  });
+  const { englishSeasonItems } = hookFixture();
+  for (const source of ["default", "order"]) {
+    const picker = useSeasonArcPicker({
+      source, arc: {}, seasons: english.seasons, active: 4, orderSeasonEff: 4,
+      ordering: { seasons: [{ seasonNumber: 4, name: "Season 4", episodeCount: 12 }], bySeason: new Map() },
+      tmdbSeasonNameFallback: true,
+    });
+    const [item] = englishSeasonItems(picker.items, new Map(), new Map());
+    assert.equal(item.name, "The Final Season");
+    assert.equal(item.nameLanguage, "en");
+  }
+});
+
+function hookRuntime(initialRef = null) {
+  const slots = [], effects = [];
+  let index = 0, dirty = true;
+  const memo = (compute, deps) => {
+    const position = index++, previous = slots[position];
+    if (!previous || !deps.every((value, i) => Object.is(value, previous.deps[i])))
+      slots[position] = { deps, value: compute() };
+    return slots[position].value;
+  };
+  const react = {
+    useMemo: memo,
+    useCallback: (callback, deps) => memo(() => callback, deps),
+    useId: () => "id-" + index++,
+    useRef: (initial) => {
+      const position = index++;
+      return slots[position] ??= { current: initialRef ?? initial };
+    },
+    useState: (initial) => {
+      const position = index++;
+      if (!(position in slots)) {
+        const slot = { value: typeof initial === "function" ? initial() : initial };
+        slot.set = (value) => {
+          const next = typeof value === "function" ? value(slot.value) : value;
+          if (!Object.is(next, slot.value)) {
+            slot.value = next;
+            dirty = true;
+          }
+        };
+        slots[position] = slot;
+      }
+      return [slots[position].value, slots[position].set];
+    },
+    useEffect: (effect, deps) => {
+      const position = index++, previous = slots[position];
+      if (!previous || !deps.every((value, i) => Object.is(value, previous.deps[i])))
+        effects.push(() => {
+          previous?.cleanup?.();
+          slots[position] = { deps, cleanup: effect() };
+        });
+    },
+  };
+  return {
+    react,
+    render: (compute) => { index = 0; dirty = false; return compute(); },
+    commit: () => effects.splice(0).forEach((effect) => effect()),
+    unmount: () => slots.forEach((slot) => slot.cleanup?.()),
+    get dirty() { return dirty; },
+  };
+}
+
+test("current series hooks settle with two visible cards even when item arrays are recreated", async () => {
+  const cards = [1, 2].map((n) => ({ dataset: { seasonNumber: String(n) } }));
+  const rail = { querySelectorAll: () => cards, querySelector: () => null };
+  const parent = hookRuntime(), child = hookRuntime(rail);
+  const react = parent.react, noop = () => {};
+  const userPickedRef = { current: false };
+  const seasons = [1, 2].map((n) => ({
+    id: n, seasonNumber: n, name: "Season " + n, episodeCount: 12,
+  }));
+  const infos = new Map(seasons.map((s) => [s.id, { id: s.id, number: s.id }]));
+  const { useArcGroups } = load("src/views/detail/series-episodes/use-arc-groups.ts", {
+    react, "@/lib/providers/tmdb": {},
+  });
+  const { useSeasonArcPicker } = load("src/views/detail/series-episodes/use-season-arc-picker.ts", {
+    react, "@/lib/season-view-pref": {}, "@/lib/providers/tvdb-order": {},
+    "../helpers": { isNewSeason: () => false }, "@/lib/season-name": {},
+  });
+  const { useSeasonExplorerView } = load("src/views/detail/use-season-explorer.ts", {
+    react, "@/lib/providers/anime-mapping": {},
+    "@/lib/providers/kitsu": { parseKitsuId: () => null },
+    "@/lib/season-name": { isGenericSeasonName: () => true },
+    "@/lib/providers/tvdb": {
+      tvdbSeasons: async () => infos,
+      tvdbSeasonNames: async () => new Map(),
+      tvdbSeriesByRemote: async () => 42,
+    },
+    "@/lib/providers/tvdb-season-details": {
+      createSeasonArtworkLoader: () => ({ request: noop, dispose: noop }),
+      fetchTvdbSeasonDetails: async () => ({}),
+    },
+  });
+  const registrations = new Set();
+  let subscriptions = 0, previousItems, settled = false;
+  const SeasonExplorer = seasonExplorerComponent({
+    react: child.react,
+    globals: { ResizeObserver: class { observe() {} disconnect() {} } },
+    visibility: {
+      observeWithin: (_card, _margin, callback) => {
+        subscriptions++;
+        registrations.add(callback);
+        return () => registrations.delete(callback);
+      },
+    },
+  });
+  for (let frame = 0; frame < 8; frame++) {
+    const data = parent.render(() => {
+      const arc = useArcGroups({ tvId: 42, tmdbKey: "", enabled: false });
+      const picker = useSeasonArcPicker({
+        source: "default", arc, seasons, active: 1, metaId: "tt123",
+        setActive: noop, setOrderSeason: noop, userPickedRef,
+      });
+      if (previousItems && frame > 1) assert.equal(picker.items, previousItems);
+      previousItems = picker.items;
+      return useSeasonExplorerView({
+        metaId: "tt123", tvdbKey: "", seasonType: "official", lang: "eng",
+        items: [...picker.items], activeKey: "1",
+      });
+    });
+    child.render(() => SeasonExplorer({ data, activeKey: "1", onSelect: noop }));
+    parent.commit();
+    child.commit();
+    if (frame === 0)
+      for (const callback of registrations) callback({ isIntersecting: true });
+    await flush();
+    if (!parent.dirty && !child.dirty) { settled = true; break; }
+  }
+  assert.equal(settled, true, "idle visibility updates must settle");
+  assert.equal(subscriptions, 2, "same cards must keep their observers across refreshed arrays");
+  child.unmount();
+  parent.unmount();
+  assert.equal(registrations.size, 0);
+});
+
+test("visibility changes publish one complete set and discard queued updates after cleanup", async () => {
+  const cards = [1, 2].map((n) => ({ dataset: { seasonNumber: String(n) } }));
+  const effects = [], callbacks = [], updates = [];
+  const rail = { querySelectorAll: () => cards };
+  const SeasonExplorer = seasonExplorerComponent({
+    react: {
+      ...React,
+      useRef: () => ({ current: rail }), useId: () => "season",
+      useMemo: (compute) => compute(), useState: (initial) => [initial, () => {}],
+      useEffect: (effect) => effects.push(effect), useCallback: (callback) => callback,
+    },
+    visibility: { observeWithin: (_card, _margin, callback) => {
+      callbacks.push(callback);
+      return () => {};
+    } },
+  });
+  SeasonExplorer({
+    data: {
+      items: cards.map((card) => ({
+        key: card.dataset.seasonNumber, seasonNumber: Number(card.dataset.seasonNumber),
+        name: "Season", count: 12,
+      })),
+      seasons: new Map(), details: new Map(), artwork: new Map(),
+      setVisibleSeasons: (numbers) => updates.push([...numbers]),
+    },
+    activeKey: "1", onSelect: () => {},
+  });
+  const cleanup = effects[0]();
+  for (const callback of callbacks) callback({ isIntersecting: true });
+  assert.equal(updates.length, 0);
+  await flush();
+  assert.deepEqual(updates, [[1, 2]]);
+  callbacks[0]({ isIntersecting: false });
+  cleanup();
+  await flush();
+  assert.deepEqual(updates, [[1, 2]]);
 });

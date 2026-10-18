@@ -8,6 +8,7 @@ import { NewBadge } from "../badges";
 export type PickerItem = {
   key: string;
   name: string;
+  nameLanguage?: string;
   count: number;
   year?: string;
   from?: string;

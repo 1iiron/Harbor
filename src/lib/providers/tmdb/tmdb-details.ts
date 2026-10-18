@@ -37,6 +37,7 @@ export type Season = {
   id: number;
   seasonNumber: number;
   name: string;
+  nameLanguage?: string;
   isGenericName?: boolean;
   overview: string;
   posterPath: string | null;
@@ -409,6 +410,7 @@ export async function tmdbDetails(key: string, meta: Meta, lang?: string): Promi
       id: s.id,
       seasonNumber: s.season_number,
       name: s.name,
+      nameLanguage: episodeTextLanguage(s.name, metaLang),
       isGenericName: isGenericSeasonName(s.name ?? "", s.season_number),
       overview: s.overview ?? "",
       posterPath: s.poster_path ?? null,

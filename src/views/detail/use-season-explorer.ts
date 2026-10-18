@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { kitsuToTvdb } from "@/lib/providers/anime-mapping";
 import { parseKitsuId } from "@/lib/providers/kitsu";
 import { isGenericSeasonName } from "@/lib/season-name";
@@ -10,13 +10,16 @@ import {
   type TvdbSeasonInfo,
 } from "@/lib/providers/tvdb";
 import {
+  createSeasonArtworkLoader,
   fetchTvdbSeasonDetails,
+  type TvdbSeasonArtwork,
   type TvdbSeasonDetails,
 } from "@/lib/providers/tvdb-season-details";
 
 const EMPTY_SEASONS = new Map<number, TvdbSeasonInfo>();
 const EMPTY_NAMES = new Map<number, string>();
 const EMPTY_DETAILS = new Map<number, TvdbSeasonDetails>();
+const EMPTY_ARTWORK = new Map<number, TvdbSeasonArtwork>();
 
 export function useSeasonExplorer({
   metaId,
@@ -46,6 +49,26 @@ export function useSeasonExplorer({
     details: Map<number, TvdbSeasonDetails>;
   }>();
   const [pending, setPending] = useState<{ scope: string; season: number } | null>(null);
+  const [artworkState, setArtworkState] = useState<{
+    scope: string;
+    artwork: Map<number, TvdbSeasonArtwork>;
+  }>();
+  const [visible, setVisible] = useState<{ scope: string; seasons: number[] }>();
+  const artworkLoader = useRef<ReturnType<typeof createSeasonArtworkLoader> | null>(null);
+  const artwork = artworkState?.scope === scope ? artworkState.artwork : EMPTY_ARTWORK;
+  const setVisibleSeasons = useCallback(
+    (numbers: number[]) => {
+      const next = [...new Set(numbers.filter((n) => n >= 0))].sort((a, b) => a - b);
+      setVisible((previous) =>
+        previous?.scope === scope &&
+        previous.seasons.length === next.length &&
+        previous.seasons.every((n, i) => n === next[i])
+          ? previous
+          : { scope, seasons: next },
+      );
+    },
+    [scope],
+  );
   const seasons = catalog?.scope === scope ? catalog.seasons : EMPTY_SEASONS;
   const names = catalog?.scope === scope ? catalog.names : EMPTY_NAMES;
   const details = enriched?.scope === scope ? enriched.details : EMPTY_DETAILS;
@@ -84,28 +107,59 @@ export function useSeasonExplorer({
   }, [scope, metaId, imdbId, tvdbKey, seasonType, enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
+    const loader = createSeasonArtworkLoader(tvdbKey, lang, (number, value) => {
+      setArtworkState((previous) => {
+        const next = new Map(previous?.scope === scope ? previous.artwork : EMPTY_ARTWORK);
+        next.set(number, value);
+        return { scope, artwork: next };
+      });
+    });
+    artworkLoader.current = loader;
+    return () => {
+      loader.dispose();
+      artworkLoader.current = null;
+    };
+  }, [scope, seasons, tvdbKey, lang, enabled]);
+
+  useEffect(() => {
+    const numbers = new Set(visible?.scope === scope ? visible.seasons : []);
+    if (activeSeason != null && activeSeason >= 0) numbers.add(activeSeason);
+    const requested = [...numbers]
+      .map((n) => seasons.get(n))
+      .filter((season): season is TvdbSeasonInfo => season != null);
+    artworkLoader.current?.request(requested, activeSeason);
+  }, [scope, seasons, visible, activeSeason]);
+
+  useEffect(() => {
     const season = activeSeason == null ? undefined : seasons.get(activeSeason);
-    if (!season) return;
+    if (!enabled || !season || details.has(season.number)) return;
     let cancelled = false;
     setPending({ scope, season: season.number });
-    void fetchTvdbSeasonDetails(tvdbKey, season, lang).then((detail) => {
-      if (cancelled) return;
-      setEnriched((previous) => {
-        const next = new Map(previous?.scope === scope ? previous.details : EMPTY_DETAILS);
-        next.set(season.number, detail);
-        return { scope, details: next };
+    void fetchTvdbSeasonDetails(tvdbKey, season, lang)
+      .catch(() => null)
+      .then((detail) => {
+        if (cancelled) return;
+        if (detail) {
+          setEnriched((previous) => {
+            const next = new Map(previous?.scope === scope ? previous.details : EMPTY_DETAILS);
+            next.set(season.number, detail);
+            return { scope, details: next };
+          });
+        }
+        setPending(null);
       });
-      setPending(null);
-    });
     return () => {
       cancelled = true;
     };
-  }, [scope, seasons, activeSeason, tvdbKey, lang]);
+  }, [scope, seasons, activeSeason, tvdbKey, lang, enabled, details]);
 
   return {
     seasons,
     names,
     details,
+    artwork,
+    setVisibleSeasons,
     loading: pending?.scope === scope && pending.season === activeSeason,
   };
 }
@@ -118,10 +172,14 @@ export function englishSeasonItems(
   return items.map((item) => {
     const n = item.seasonNumber;
     if (n == null || n < 0) return item;
-    const name = details.get(n)?.name || names.get(n) || (n === 0 ? "Specials" : `Season ${n}`);
+    const sourceName = item.nameLanguage === "en" ? item.name.trim() : undefined;
+    const name =
+      details.get(n)?.name || names.get(n) || sourceName ||
+      (n === 0 ? "Specials" : `Season ${n}`);
     return {
       ...item,
       name,
+      nameLanguage: "en",
       isGenericName: n === 0 ? name === "Specials" : isGenericSeasonName(name, n),
     };
   });

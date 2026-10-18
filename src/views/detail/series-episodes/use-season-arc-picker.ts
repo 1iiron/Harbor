@@ -49,23 +49,27 @@ export function useSeasonArcPicker({
     }
     if (source === "order" && ordering) {
       const tmdbByNumber = tmdbSeasonNameFallback
-        ? new Map(seasons.map((s) => [s.seasonNumber, s.name.trim()] as const))
+        ? new Map(seasons.map((s) => [s.seasonNumber, s] as const))
         : null;
       return {
         items: ordering.seasons.map((s) => {
           const { from, to } = seasonDateRange(ordering.bySeason.get(s.seasonNumber) ?? []);
           let name = s.name;
-          const tmdbName = tmdbByNumber?.get(s.seasonNumber);
+          let nameLanguage = s.nameLanguage;
+          const tmdbSeason = tmdbByNumber?.get(s.seasonNumber);
+          const tmdbName = tmdbSeason?.name.trim();
           if (
             tmdbName &&
             isGenericTvdbSeasonName(name, s.seasonNumber) &&
             !isGenericSeasonName(tmdbName, s.seasonNumber)
           ) {
             name = tmdbName;
+            nameLanguage = tmdbSeason?.nameLanguage;
           }
           return {
             key: String(s.seasonNumber),
             name,
+            nameLanguage,
             count: s.episodeCount,
             year: s.airDate?.slice(0, 4),
             from,
@@ -86,6 +90,7 @@ export function useSeasonArcPicker({
       items: seasons.map((s) => ({
         key: String(s.seasonNumber),
         name: s.name,
+        nameLanguage: s.nameLanguage,
         count: s.episodeCount,
         year: s.airDate?.slice(0, 4),
         isNew: isNewSeason(s, lastEpisodeAir),
@@ -101,7 +106,9 @@ export function useSeasonArcPicker({
     };
   }, [
     source,
-    arc,
+    arc.arcs,
+    arc.activeArcId,
+    arc.setActiveArcId,
     ordering,
     orderSeasonEff,
     seasons,
