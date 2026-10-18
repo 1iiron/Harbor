@@ -29,7 +29,12 @@ const ICONS = {
 };
 
 const LINKS = [
-  { icon: "globe", lead: "Website", value: "harbor.site", url: "https://harbor.site" },
+  {
+    icon: "globe",
+    lead: "Website",
+    value: "harborcommunity.site",
+    url: "https://harborcommunity.site",
+  },
   {
     icon: "branch",
     lead: "Source",

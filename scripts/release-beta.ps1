@@ -14,6 +14,11 @@
   If the updater key is protected by a password, set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
   first; without it the signer stops and prompts interactively, which hangs a script.
 
+  The Shipyard build is also copied into the staging folder as
+  harbor-shipyard-<version>-<channel>.exe for identification. The uploaded name stays
+  Harbor_<version>_x64-installer.exe, because the release API reads the version and
+  platform from that name.
+
   Mac artifacts are optional. Drop Harbor_<version>_aarch64.app.tar.gz(.sig) and
   Harbor_<version>_aarch64.dmg into the staging folder before -Publish to include them.
 #>
@@ -109,6 +114,12 @@ Run 'cargo' @('build', '--manifest-path', 'installer/src-tauri/Cargo.toml', '--r
   '--features', 'tauri/custom-protocol', '--bin', 'harbor-shipyard', '--locked')
 Run 'node' @('scripts/verify-managed-payload.mjs', '--embedded')
 
+Step 'Name the build'
+$nameChannel = if ($Channel -eq 'stable') { 'stable' } else { 'beta' }
+$namedShipyard = "installer/src-tauri/target/release/harbor-shipyard-${version}-${nameChannel}.exe"
+Copy-Item -LiteralPath 'installer/src-tauri/target/release/harbor-shipyard.exe' -Destination $namedShipyard -Force
+Write-Host "  $namedShipyard"
+
 Step 'Executable versions'
 $exes = @(
   'src-tauri/target/release/harbor.exe',
@@ -135,6 +146,11 @@ foreach ($name in $staged.Keys) {
   Copy-Item -LiteralPath $staged[$name] -Destination (Join-Path $stage $name) -Force
   Write-Host "  staged $name"
 }
+# The channel-named build copy sits beside the upload name so the release folder says which
+# channel it was cut for. publish-release.mjs ignores it: it only matches Harbor_<version>_*.
+$namedBase = Split-Path -Leaf $namedShipyard
+Copy-Item -LiteralPath $namedShipyard -Destination (Join-Path $stage $namedBase) -Force
+Write-Host "  staged $namedBase"
 
 Step 'Sign (each exe gets its own signature)'
 $keyPath = Join-Path $env:USERPROFILE '.tauri\harbor-updater.key'

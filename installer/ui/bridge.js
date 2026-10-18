@@ -120,7 +120,7 @@ export async function openExternal(url) {
 
 export async function fetchChangelog() {
   if (!isNative()) {
-    const res = await fetch("https://harbor.site/updates/versions-beta.json", {
+    const res = await fetch("https://harborcommunity.site/updates/versions-beta.json", {
       cache: "no-store",
     });
     if (!res.ok) throw new Error("changelog " + res.status);

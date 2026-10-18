@@ -1214,7 +1214,7 @@ p{{margin:0 0 1em}}\
 }
 
 #[cfg(feature = "payload")]
-const CHANGELOG_URL: &str = "https://harbor.site/updates/versions-beta.json";
+const CHANGELOG_URL: &str = "https://harborcommunity.site/updates/versions-beta.json";
 
 #[cfg(feature = "payload")]
 #[tauri::command]

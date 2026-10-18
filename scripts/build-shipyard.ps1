@@ -23,6 +23,10 @@
     3. payload assembly + verification (make-payload.mjs)
     4. Harbor Shipyard build + embedded-payload verification
 
+  The build lands in installer/src-tauri/target/release/ as
+  harbor-shipyard-<version>-<channel>.exe (for example harbor-shipyard-1.0.0-beta.exe),
+  alongside the raw harbor-shipyard.exe the release scripts consume.
+
   No signing, no staging, no publishing. For release artifacts use
   scripts/release-beta.ps1 (or pnpm release:stable / pnpm release:beta),
   which adds version checks, staging and signing.
@@ -39,6 +43,18 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
+
+# The channel for the app stamp and the output name: an explicit -Channel wins, then an
+# existing HARBOR_CHANNEL, then the documented stable default. The file name is only ever
+# stable or beta, so any non-stable stamp is labelled beta to match what the app shows.
+$channel = if ($PSBoundParameters.ContainsKey('Channel')) {
+  $Channel
+} elseif ($env:HARBOR_CHANNEL) {
+  $env:HARBOR_CHANNEL
+} else {
+  'stable'
+}
+$nameChannel = if ($channel -eq 'stable') { 'stable' } else { 'beta' }
 
 function Step([string]$text) { Write-Host "`n=== $text ===" -ForegroundColor Cyan }
 function Invoke-Tool([string]$file, [string[]]$arguments) {
@@ -77,11 +93,7 @@ if (-not $SkipApp) {
     Step "App build skipped (found $appExe; pass -RebuildApp to force)"
   } else {
     Step 'App release build (pnpm tauri build --no-bundle)'
-    if ($PSBoundParameters.ContainsKey('Channel')) {
-      $env:HARBOR_CHANNEL = $Channel
-    } elseif (-not $env:HARBOR_CHANNEL) {
-      $env:HARBOR_CHANNEL = 'stable'
-    }
+    $env:HARBOR_CHANNEL = $channel
     Write-Host "  channel stamp: $env:HARBOR_CHANNEL"
     Invoke-Tool 'pnpm' @('tauri', 'build', '--no-bundle')
   }
@@ -104,10 +116,13 @@ Invoke-Tool 'cargo' @('build', '--manifest-path', 'installer/src-tauri/Cargo.tom
 Invoke-Tool 'node' @('scripts/verify-managed-payload.mjs', '--embedded')
 
 $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-Write-Host "`nHarbor Shipyard $version ready:" -ForegroundColor Green
-Write-Host "  $((Resolve-Path $shipyard).Path)"
+$named = "installer/src-tauri/target/release/harbor-shipyard-$version-$nameChannel.exe"
+Copy-Item -LiteralPath $shipyard -Destination $named -Force
+Write-Host "`nHarbor Shipyard $version ($nameChannel) ready:" -ForegroundColor Green
+Write-Host "  $((Resolve-Path $named).Path)"
+Write-Host "  raw build output: $((Resolve-Path $shipyard).Path)"
 
 if ($Run) {
   Step 'Launching Harbor Shipyard'
-  Start-Process -FilePath (Resolve-Path $shipyard).Path
+  Start-Process -FilePath (Resolve-Path $named).Path
 }
