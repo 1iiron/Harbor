@@ -24,6 +24,7 @@ function load(file, dependencies, globals = {}) {
     setTimeout,
     clearTimeout,
     queueMicrotask,
+    AbortController,
     ...globals,
     require: (name) => {
       assert.ok(name in dependencies, "unmocked dependency " + name);
@@ -192,13 +193,35 @@ const flush = async () => {
   await new Promise((resolve) => setImmediate(resolve));
 };
 
-function hookFixture({ catalog, detail, artwork } = {}) {
+function tmdbArtworkFixture(get = async () => null) {
+  const calls = [];
+  const images = load("src/lib/providers/tmdb/tmdb-image-rungs.ts", {
+    "./tmdb-client": { IMG: "https://image.tmdb.org/t/p" },
+  });
+  const provider = load("src/lib/providers/tmdb-season-artwork.ts", {
+    "@/lib/cache": { lruSet: (map, key, value, max) => {
+      map.set(key, value);
+      while (map.size > max) map.delete(map.keys().next().value);
+    } },
+    "@/lib/memory-profiler": { registerCache: () => {} },
+    "@/lib/episode-text-language": episodeTextLanguage,
+    "./tmdb/tmdb-image-rungs": images,
+    "./tmdb/tmdb-client": { get: async (key, path, params) => {
+      calls.push({ key, path, params });
+      return get(key, path, params);
+    } },
+  });
+  return { ...provider, calls };
+}
+
+function hookFixture({ catalog, detail, artwork, tmdbGet } = {}) {
   const state = [],
     effects = [],
     cleanups = [],
     dependencies = [];
   const calls = [];
   const artworkCalls = [];
+  const tmdbArtwork = tmdbArtworkFixture(tmdbGet);
   let stateIndex = 0,
     effectIndex = 0;
   const react = {
@@ -237,6 +260,7 @@ function hookFixture({ catalog, detail, artwork } = {}) {
   const hook = load("src/views/detail/use-season-explorer.ts", {
     react,
     "@/lib/providers/anime-mapping": { kitsuToTvdb: async (id) => id },
+    "@/lib/providers/tmdb-season-artwork": tmdbArtwork,
     "@/lib/providers/kitsu": {
       parseKitsuId: (id) => Number(/^kitsu:(\d+)$/.exec(id)?.[1]) || null,
     },
@@ -263,6 +287,7 @@ function hookFixture({ catalog, detail, artwork } = {}) {
   return {
     calls,
     artworkCalls,
+    tmdbCalls: tmdbArtwork.calls,
     englishSeasonItems: hook.englishSeasonItems,
     render: (props) => {
       stateIndex = 0;
@@ -684,8 +709,9 @@ test("season-strip visibility reports nearby cards to the artwork loader without
   f.unmount();
 });
 
-test("a failed preferred image falls back once and two failed images leave a placeholder", () => {
+test("poster image errors are shared and a replacement scope can reuse a previously failed URL", () => {
   const state = [];
+  const errors = [];
   let index = 0;
   const SeasonExplorer = seasonExplorerComponent({
     react: {
@@ -709,6 +735,7 @@ test("a failed preferred image falls back once and two failed images leave a pla
       items: [{ key: "1", seasonNumber: 1, name: "Season 1", count: 10 }],
       seasons: new Map([[1, { image: "/base.jpg" }]]),
       artwork: new Map([[1, { poster: "/preferred.jpg" }]]),
+      onPosterError: (_number, url) => errors.push(url),
       details: new Map(),
       setVisibleSeasons: () => {},
       loading: false,
@@ -726,18 +753,20 @@ test("a failed preferred image falls back once and two failed images leave a pla
   const poster = findPoster(tree);
   assert.ok(poster);
   const stateStart = state.length;
-  const render = () => {
+  const render = (src) => {
     index = stateStart;
-    return poster.type(poster.props);
+    return poster.type({ ...poster.props, src });
   };
-  let image = render();
+  let image = render(poster.props.src);
   assert.equal(image.props.src, "/preferred.jpg");
   image.props.onError();
-  image = render();
+  assert.equal(render(undefined).type, "div");
+  image = render("/base.jpg");
   assert.equal(image.props.src, "/base.jpg");
   image.props.onError();
-  assert.equal(render().type, "div");
-  assert.equal(render().type, "div");
+  assert.equal(render(undefined).type, "div");
+  assert.equal(render("/preferred.jpg").props.src, "/preferred.jpg");
+  assert.deepEqual(errors, ["/preferred.jpg", "/base.jpg"]);
 });
 
 test("failed synopsis loads retry on revisit without retrying successful empty responses", async () => {
@@ -812,11 +841,14 @@ test("TMDB English season names survive both default and TVDB-fallback picker pa
           requests.push(path);
           return path === "tv/42" ? {
             id: 42, name: "Example", images: {},
-            seasons: [{ id: 44, season_number: 4, name, episode_count: 12 }],
+            seasons: [
+              { id: 44, season_number: 4, name, episode_count: 12, poster_path: "/final.jpg" },
+              { id: 40, season_number: 0, name: "Specials", episode_count: 4, poster_path: "/specials.jpg" },
+            ],
           } : {};
         },
       },
-      "./tmdb-image-rungs": { tmdbBackdropUrl: () => undefined, tmdbPosterUrl: () => undefined },
+      "./tmdb-image-rungs": { tmdbBackdropUrl: () => undefined, tmdbPosterUrl: (path) => path ? `https://image.tmdb.org/t/p/w500${path}` : undefined },
       "@/lib/settings/load": { loadStoredSettings: () => ({}) },
       "./tmdb-images": { pickLogo: () => undefined },
       "./tmdb-image-lang": { imageLangParam: () => "en", imageLangRank: () => 0 },
@@ -827,11 +859,14 @@ test("TMDB English season names survive both default and TVDB-fallback picker pa
       "@/lib/season-name": seasonNames,
     });
     const detail = await tmdbDetails("test-key", { id: "tmdb:tv:42", type: "series" });
-    return { seasons: detail.seasons, requests };
+    return { seasons: detail.seasons, requests, seasonPosters: detail.seasonPosters, tmdbTvId: detail.tmdbTvId };
   }
   const english = await metadata("The Final Season", "en-US");
   assert.equal(english.seasons[0].nameLanguage, "en");
   assert.equal(english.requests.length, 1);
+  assert.equal(english.tmdbTvId, 42);
+  assert.deepEqual(Array.from(english.seasons, (s) => s.seasonNumber), [4]);
+  assert.equal(english.seasonPosters[0], "https://image.tmdb.org/t/p/w500/specials.jpg");
   assert.equal((await metadata("La dernière saison", "fr")).seasons[0].nameLanguage, "und");
   assert.equal((await metadata("最終章", "en")).seasons[0].nameLanguage, "und");
   const { useSeasonArcPicker } = load("src/views/detail/series-episodes/use-season-arc-picker.ts", {
@@ -926,6 +961,7 @@ test("current series hooks settle with two visible cards even when item arrays a
   });
   const { useSeasonExplorerView } = load("src/views/detail/use-season-explorer.ts", {
     react, "@/lib/providers/anime-mapping": {},
+    "@/lib/providers/tmdb-season-artwork": {},
     "@/lib/providers/kitsu": { parseKitsuId: () => null },
     "@/lib/season-name": { isGenericSeasonName: () => true },
     "@/lib/providers/tvdb": {
@@ -1016,4 +1052,256 @@ test("visibility changes publish one complete set and discard queued updates aft
   cleanup();
   await flush();
   assert.deepEqual(updates, [[1, 2]]);
+});
+
+test("TMDB season artwork supports Specials, language priority, caching, and rejected images", async () => {
+  const f = tmdbArtworkFixture(async () => ({ posters: [
+    { file_path: "/japanese.jpg", iso_639_1: "ja", vote_average: 100 },
+    { file_path: "/textless.jpg", iso_639_1: null, vote_average: 99 },
+    { file_path: "/english.jpg", iso_639_1: "en", vote_average: 50 },
+    { file_path: "/french.jpg", iso_639_1: "fr", vote_average: 1 },
+  ] }));
+  const [first, second] = await Promise.all([
+    f.fetchTmdbSeasonPoster("test-key", 42, 0, "fra"),
+    f.fetchTmdbSeasonPoster("test-key", 42, 0, "fra"),
+  ]);
+  assert.equal(first, "https://image.tmdb.org/t/p/w500/french.jpg");
+  assert.equal(second, first);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].path, "tv/42/season/0/images");
+  assert.equal(f.calls[0].params.include_image_language, "fr,en,null");
+  const rejected = new Set([first]);
+  const english = await f.fetchTmdbSeasonPoster("test-key", 42, 0, "fra", rejected);
+  assert.equal(english, "https://image.tmdb.org/t/p/w500/english.jpg");
+  rejected.add(english);
+  const textless = await f.fetchTmdbSeasonPoster("test-key", 42, 0, "fra", rejected);
+  assert.equal(textless, "https://image.tmdb.org/t/p/w500/textless.jpg");
+  rejected.add(textless);
+  assert.equal(await f.fetchTmdbSeasonPoster("test-key", 42, 0, "fra", rejected), undefined);
+  assert.equal(f.calls.length, 1, "changing candidates must reuse the same image response");
+  await f.fetchTmdbSeasonPoster("other-key", 42, 0, "fra");
+  await f.fetchTmdbSeasonPoster("test-key", 42, 0, "eng");
+  assert.equal(f.calls.length, 3, "credentials and language scope the cache");
+});
+
+test("TMDB artwork identity accepts exact TV mappings and rejects movie-only or ambiguous results", async () => {
+  const f = tmdbArtworkFixture(async (_key, path) => ({
+    tv_results: path.endsWith("tt1") ? [{ id: 42 }] :
+      path.endsWith("tt2") ? [] : [{ id: 42 }, { id: 43 }],
+    movie_results: [{ id: 100 }],
+  }));
+  assert.equal(await f.resolveSeasonArtworkTmdbId("", "kitsu:1", null, 42), 42);
+  assert.equal(await f.resolveSeasonArtworkTmdbId("", "tmdb:tv:42"), 42);
+  assert.equal(f.calls.length, 0);
+  assert.equal(await f.resolveSeasonArtworkTmdbId("test-key", "addon:show", "tt1"), 42);
+  assert.equal(await f.resolveSeasonArtworkTmdbId("test-key", "addon:show", "tt2"), null);
+  assert.equal(await f.resolveSeasonArtworkTmdbId("test-key", "addon:show", "tt3"), null);
+  assert.equal(await f.resolveSeasonArtworkTmdbId("", "addon:show", "tt1"), null);
+  assert.equal(f.calls.every((call) => call.path.startsWith("find/")), true);
+});
+
+async function settleExplorer(f, options) {
+  let data;
+  for (let i = 0; i < 3; i++) {
+    data = f.render(options);
+    await flush();
+  }
+  return f.render(options);
+}
+
+test("a single season plus Specials uses the main title poster without TVDB records or a TMDB key", async () => {
+  const f = hookFixture({ catalog: async () => new Map() });
+  const options = { ...props, titlePoster: "/title.jpg" };
+  let data = await settleExplorer(f, options);
+  data.setVisibleSeasons([0, 1]);
+  data = await settleExplorer(f, options);
+  assert.equal(data.artwork.get(0).poster, "/title.jpg");
+  assert.equal(data.artwork.get(1).poster, "/title.jpg");
+  assert.equal(f.artworkCalls.length, 0);
+  assert.equal(f.tmdbCalls.length, 0);
+  const SeasonExplorer = seasonExplorerComponent();
+  const items = [
+    { key: "1", seasonNumber: 1, name: "Season 1", count: 23 },
+    { key: "0", seasonNumber: 0, name: "Specials", count: 4 },
+  ];
+  const html = renderToStaticMarkup(React.createElement(SeasonExplorer, {
+    data: { ...data, items }, activeKey: "1", onSelect: () => {},
+  }));
+  assert.equal((html.match(/src="\/title.jpg"/g) ?? []).length, 3);
+  f.unmount();
+});
+
+test("missing TVDB Specials artwork falls back to the TMDB season-zero images endpoint", async () => {
+  const f = hookFixture({
+    catalog: async () => new Map(),
+    tmdbGet: async () => ({ posters: [{ file_path: "/specials.jpg", iso_639_1: "en" }] }),
+  });
+  const data = await settleExplorer(f, {
+    ...props, activeSeason: 0, tmdbKey: "test-key", tmdbTvId: 42, titlePoster: "/title.jpg",
+  });
+  assert.equal(data.artwork.get(0).poster, "https://image.tmdb.org/t/p/w500/specials.jpg");
+  assert.deepEqual(f.tmdbCalls.map((call) => call.path), ["tv/42/season/0/images"]);
+  assert.equal(f.calls.length, 0, "artwork must not fetch synopsis or episode lists");
+  f.unmount();
+});
+
+test("available TVDB posters prevent TMDB lookups, including the default season image", async () => {
+  for (const artwork of [
+    async () => ({ image: "/preferred.jpg", artwork: [] }),
+    async () => ({ artwork: [] }),
+  ]) {
+    const f = hookFixture({ artwork });
+    const data = await settleExplorer(f, { ...props, tmdbKey: "test-key", titlePoster: "/title.jpg" });
+    assert.ok(data.artwork.get(1).poster);
+    assert.notEqual(data.artwork.get(1).poster, "/title.jpg");
+    assert.equal(f.tmdbCalls.length, 0);
+    f.unmount();
+  }
+});
+
+test("already-loaded TMDB season posters are reused without new requests", async () => {
+  const f = hookFixture({ catalog: async () => new Map() });
+  const data = await settleExplorer(f, {
+    ...props, activeSeason: 0, tmdbKey: "test-key", tmdbTvId: 42,
+    seasonPosters: { 0: "/cached-specials.jpg" }, titlePoster: "/title.jpg",
+  });
+  assert.equal(data.artwork.get(0).poster, "/cached-specials.jpg");
+  assert.equal(f.tmdbCalls.length, 0);
+  f.unmount();
+});
+
+test("missing or unavailable TMDB artwork degrades to the title poster and then a placeholder", async () => {
+  for (const response of [null, { posters: [] }]) {
+    for (const titlePoster of ["/title.jpg", undefined]) {
+      const f = hookFixture({ catalog: async () => new Map(), tmdbGet: async () => response });
+      const options = { ...props, tmdbKey: "test-key", tmdbTvId: 42, titlePoster };
+      const data = await settleExplorer(f, options);
+      assert.equal(data.artwork.get(1).poster, titlePoster);
+      assert.equal(f.tmdbCalls.length, 1);
+      f.render({ ...options, activeSeason: undefined });
+      await settleExplorer(f, options);
+      assert.equal(f.tmdbCalls.length, 1);
+      f.unmount();
+    }
+  }
+});
+
+test("image failures advance both card and panel through TVDB, TMDB, title, and placeholder", async () => {
+  const f = hookFixture({
+    catalog: async () => new Map([[1, { ...season, image: "/base.jpg" }]]),
+    artwork: async () => ({ image: "/preferred.jpg", artwork: [] }),
+    tmdbGet: async () => ({ posters: [{ file_path: "/tmdb.jpg", iso_639_1: "en" }] }),
+  });
+  const options = { ...props, tmdbKey: "test-key", tmdbTvId: 42, titlePoster: "/title.jpg" };
+  const SeasonExplorer = seasonExplorerComponent();
+  let data = await settleExplorer(f, options);
+  for (const expected of ["/preferred.jpg", "/base.jpg", "https://image.tmdb.org/t/p/w500/tmdb.jpg", "/title.jpg"]) {
+    assert.equal(data.artwork.get(1).poster, expected);
+    const html = renderToStaticMarkup(React.createElement(SeasonExplorer, {
+      data: { ...data, items: [{ key: "1", seasonNumber: 1, name: "Season 1", count: 23 }] },
+      activeKey: "1", onSelect: () => {},
+    }));
+    assert.equal(html.split('src="' + expected + '"').length - 1, 2);
+    data.onPosterError(1, expected);
+    data.onPosterError(1, expected);
+    data = await settleExplorer(f, options);
+  }
+  assert.equal(data.artwork.get(1).poster, undefined);
+  assert.equal(f.artworkCalls.length, 1, "image failures must not repeat the TVDB lookup");
+  assert.equal(f.tmdbCalls.length, 1, "alternative TMDB candidates reuse cached images");
+  f.unmount();
+});
+
+test("one lazy IMDb lookup is shared across missing season artwork jobs", async () => {
+  const f = hookFixture({
+    catalog: async () => new Map(),
+    tmdbGet: async (_key, path) => path.startsWith("find/")
+      ? { tv_results: [{ id: 42 }] }
+      : { posters: [{ file_path: "/season.jpg", iso_639_1: "en" }] },
+  });
+  const options = { ...props, metaId: "addon:show", imdbId: "tt123", tmdbKey: "test-key" };
+  let data = await settleExplorer(f, options);
+  data.setVisibleSeasons([0, 1, 2]);
+  data = await settleExplorer(f, options);
+  assert.ok(data.artwork.get(0).poster);
+  assert.ok(data.artwork.get(2).poster);
+  assert.equal(f.tmdbCalls.filter((call) => call.path.startsWith("find/")).length, 1);
+  assert.equal(f.tmdbCalls.filter((call) => call.path.endsWith("/images")).length, 3);
+  f.unmount();
+});
+
+test("alternate-order artwork does not borrow TMDB posters without an explicit season mapping", async () => {
+  const f = hookFixture({ catalog: async () => new Map() });
+  const data = await settleExplorer(f, {
+    ...props, seasonType: "dvd", tmdbKey: "test-key", tmdbTvId: 42,
+    seasonPosters: { 1: "/aired-season.jpg" }, titlePoster: "/title.jpg",
+  });
+  assert.equal(data.artwork.get(1).poster, "/title.jpg");
+  assert.equal(f.tmdbCalls.length, 0);
+  f.unmount();
+});
+
+test("TMDB fallbacks preserve the three-request limit, selection priority, and disposal", async () => {
+  const blocked = new Map(Array.from({ length: 8 }, (_, n) => [n, deferred()]));
+  const f = hookFixture({
+    catalog: async () => new Map(),
+    tmdbGet: async (_key, path) => blocked.get(Number(/season\/(\d+)/.exec(path)[1])).promise,
+  });
+  const options = { ...props, tmdbKey: "test-key", tmdbTvId: 42 };
+  let data = await settleExplorer(f, options);
+  data.setVisibleSeasons([0, 1, 2, 3, 4, 5, 6]);
+  await settleExplorer(f, options);
+  const requested = () => f.tmdbCalls.map((call) => Number(/season\/(\d+)/.exec(call.path)[1]));
+  assert.deepEqual(requested(), [1, 0, 2]);
+  f.render({ ...options, activeSeason: 6 });
+  await flush();
+  assert.equal(requested().length, 3);
+  blocked.get(0).resolve({ posters: [] });
+  await flush();
+  assert.deepEqual(requested(), [1, 0, 2, 6]);
+  f.unmount();
+  for (const pending of blocked.values()) pending.resolve({ posters: [] });
+  await flush();
+  assert.equal(requested().length, 4);
+});
+
+test("late TMDB artwork and old image-error callbacks cannot overwrite a replacement scope", async () => {
+  const pending = deferred();
+  const f = hookFixture({
+    catalog: async () => new Map(),
+    tmdbGet: async (_key, path) => path.startsWith("tv/42/")
+      ? pending.promise
+      : { posters: [{ file_path: "/new.jpg", iso_639_1: "en" }] },
+  });
+  const oldOptions = { ...props, tmdbKey: "test-key", tmdbTvId: 42, titlePoster: "/old-title.jpg" };
+  const old = await settleExplorer(f, oldOptions);
+  const options = { ...oldOptions, tmdbTvId: 43, titlePoster: "/new-title.jpg" };
+  let data = await settleExplorer(f, options);
+  const expected = data.artwork.get(1).poster;
+  assert.equal(expected, "https://image.tmdb.org/t/p/w500/new.jpg");
+  old.onPosterError(1, expected);
+  pending.resolve({ posters: [{ file_path: "/old.jpg", iso_639_1: "en" }] });
+  data = await settleExplorer(f, options);
+  assert.equal(data.artwork.get(1).poster, expected);
+  assert.equal(f.tmdbCalls.length, 2);
+  f.unmount();
+});
+
+test("leaving during an IMDb lookup prevents a stale follow-up season images request", async () => {
+  const pending = deferred();
+  const f = hookFixture({
+    catalog: async () => new Map(),
+    tmdbGet: async (_key, path) => {
+      assert.match(path, /^find\//, "a disposed lookup must not start an images request");
+      return pending.promise;
+    },
+  });
+  await settleExplorer(f, {
+    ...props, metaId: "addon:show", imdbId: "tt123", tmdbKey: "test-key",
+  });
+  assert.equal(f.tmdbCalls.length, 1);
+  f.unmount();
+  pending.resolve({ tv_results: [{ id: 42 }] });
+  await flush();
+  assert.equal(f.tmdbCalls.length, 1);
 });

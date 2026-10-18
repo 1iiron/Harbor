@@ -65,12 +65,38 @@ export function createSeasonArtworkLoader(
   apiKey: string,
   lang: string,
   onLoaded: (season: number, artwork: TvdbSeasonArtwork) => void,
+  options: {
+    titlePoster?: string;
+    loadFallback?: (
+      season: number, rejected: ReadonlySet<string>, signal: AbortSignal,
+    ) => Promise<string | undefined>;
+  } = {},
 ) {
   const queued = new Map<number, TvdbSeasonInfo>();
+  const seasons = new Map<number, TvdbSeasonInfo>();
   const requested = new Set<number>();
+  const originals = new Map<number, TvdbSeasonArtwork>();
+  const resolved = new Map<number, TvdbSeasonArtwork>();
+  const rejected = new Map<number, Set<string>>();
+  const controller = new AbortController();
   let activeSeason: number | undefined;
   let running = 0;
   let stopped = false;
+  const resolve = async (season: TvdbSeasonInfo): Promise<TvdbSeasonArtwork> => {
+    let artwork = originals.get(season.number);
+    if (!artwork) {
+      artwork = await fetchTvdbSeasonArtwork(apiKey, season, lang)
+        .catch(() => ({ poster: season.image }));
+      originals.set(season.number, artwork);
+    }
+    const failed = rejected.get(season.number) ?? new Set<string>();
+    let poster = [artwork.poster, season.image].find((url) => url && !failed.has(url));
+    if (!poster && !stopped)
+      poster = await options.loadFallback?.(season.number, failed, controller.signal).catch(() => undefined);
+    if (!poster || failed.has(poster))
+      poster = options.titlePoster && !failed.has(options.titlePoster) ? options.titlePoster : undefined;
+    return { ...artwork, poster };
+  };
   const pump = () => {
     while (!stopped && running < 3 && queued.size > 0) {
       const season =
@@ -78,29 +104,45 @@ export function createSeasonArtworkLoader(
       queued.delete(season.number);
       requested.add(season.number);
       running++;
-      void fetchTvdbSeasonArtwork(apiKey, season, lang)
-        .catch(() => ({ poster: season.image }))
-        .then((artwork) => {
-          if (!stopped) onLoaded(season.number, artwork);
-        })
-        .finally(() => {
-          running--;
-          pump();
-        });
+      void resolve(season).then((artwork) => {
+        if (stopped) return;
+        resolved.set(season.number, artwork);
+        onLoaded(season.number, artwork);
+      }).finally(() => {
+        running--;
+        pump();
+      });
     }
   };
   return {
-    request(seasons: TvdbSeasonInfo[], selected?: number) {
+    request(infos: TvdbSeasonInfo[], selected?: number) {
       if (stopped) return;
       activeSeason = selected;
       queued.clear();
-      for (const season of seasons) {
+      for (const season of infos) {
+        seasons.set(season.number, season);
         if (season.number >= 0 && !requested.has(season.number)) queued.set(season.number, season);
       }
       pump();
     },
+    reject(number: number, url: string) {
+      const season = seasons.get(number);
+      const current = resolved.get(number);
+      if (stopped || !season || current?.poster !== url) return;
+      const failed = rejected.get(number) ?? new Set<string>();
+      if (failed.has(url)) return;
+      failed.add(url);
+      rejected.set(number, failed);
+      const pending = { ...current, poster: undefined };
+      resolved.set(number, pending);
+      onLoaded(number, pending);
+      requested.delete(number);
+      queued.set(number, season);
+      pump();
+    },
     dispose() {
       stopped = true;
+      controller.abort();
       queued.clear();
     },
   };

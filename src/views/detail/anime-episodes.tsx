@@ -114,6 +114,8 @@ export function AnimeEpisodes({
   episodeHint,
   localizedOverview,
   seasonOverviews,
+  tmdbTvId,
+  seasonPosters,
   onSeasonArt,
 }: {
   meta: Meta;
@@ -126,6 +128,8 @@ export function AnimeEpisodes({
   episodeHint?: { season: number; episode: number };
   localizedOverview?: string;
   seasonOverviews?: Record<number, string>;
+  tmdbTvId?: number;
+  seasonPosters?: Record<number, string>;
   onSeasonArt?: (
     sel: {
       background?: string;
@@ -648,6 +652,10 @@ export function AnimeEpisodes({
     metaId: meta.id,
     imdbId,
     tvdbKey: settings.tvdbKey,
+    tmdbKey: settings.tmdbKey,
+    tmdbTvId,
+    seasonPosters,
+    titlePoster: meta.poster,
     seasonType: explorerType === "aired" ? "official" : explorerType,
     lang: tvdbLangFromIso1(tmdbLanguageIso()),
     items: tvdbPanel.panel?.items ?? pickerItems,

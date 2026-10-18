@@ -59,16 +59,18 @@ function SeasonCardTitle({ text }: { text: string }) {
   );
 }
 
-function SeasonPoster({ src, fallback, name }: { src?: string; fallback?: string; name: string }) {
-  const [failed, setFailed] = useState<string[]>([]);
-  const source = [src, fallback].find((value) => value && !failed.includes(value));
-  return source ? (
+function SeasonPoster({ src, name, onError }: {
+  src?: string;
+  name: string;
+  onError: (src: string) => void;
+}) {
+  return src ? (
     <img
-      src={source}
+      src={src}
       alt=""
       loading="lazy"
       decoding="async"
-      onError={() => setFailed((previous) => [...previous, source])}
+      onError={() => onError(src)}
       className="h-full w-full object-cover"
     />
   ) : (
@@ -115,7 +117,7 @@ export function SeasonExplorer({
   const railRef = useRef<HTMLDivElement>(null);
   const reducedMotion = useReducedMotion();
   const [edges, setEdges] = useState({ left: false, right: false });
-  const { items: pickerItems, seasons, artwork, details, loading, setVisibleSeasons } = data;
+  const { items: pickerItems, artwork, details, loading, setVisibleSeasons, onPosterError } = data;
   const items = useMemo(
     () => pickerItems.filter((item) => item.seasonNumber != null && item.seasonNumber >= 0),
     [pickerItems],
@@ -161,10 +163,9 @@ export function SeasonExplorer({
     item.seasonNumber == null
       ? undefined
       : artwork.get(item.seasonNumber)?.poster;
-  const fallbackFor = (item: PickerItem) =>
-    item.seasonNumber != null && artwork.has(item.seasonNumber)
-      ? seasons.get(item.seasonNumber)?.image
-      : undefined;
+  const rejectPoster = (item: PickerItem, url: string) => {
+    if (item.seasonNumber != null) onPosterError(item.seasonNumber, url);
+  };
   const titleFor = (item: PickerItem) =>
     item.seasonNumber != null &&
     (item.seasonNumber === 0
@@ -285,7 +286,7 @@ export function SeasonExplorer({
                 className={`season-explorer-card flex w-[136px] shrink-0 snap-start flex-col items-stretch rounded-xl p-1 text-start transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:w-[164px] ${item.key === activeKey ? "bg-accent/10 text-ink ring-1 ring-accent" : "text-ink-muted hover:bg-ink/5 hover:text-ink"}`}
               >
                 <div className="aspect-[2/3] w-full shrink-0 overflow-hidden rounded-lg">
-                  <SeasonPoster src={posterFor(item)} fallback={fallbackFor(item)} name={item.name} />
+                  <SeasonPoster src={posterFor(item)} name={item.name} onError={(url) => rejectPoster(item, url)} />
                 </div>
                 <SeasonCardTitle text={titleFor(item) || labelFor(item) || item.name} />
                 {titleFor(item) && labelFor(item) && (
@@ -341,7 +342,7 @@ export function SeasonExplorer({
               <SeasonBackdrop sources={[activeArtwork?.background, background]} />
               <div className="relative flex min-h-[260px] items-start gap-4 p-5 sm:min-h-[316px] sm:gap-5 sm:p-6">
                 <div className="aspect-[2/3] w-[104px] shrink-0 overflow-hidden rounded-xl shadow-lg sm:w-[164px]">
-                  <SeasonPoster src={posterFor(active)} fallback={fallbackFor(active)} name={active.name} />
+                  <SeasonPoster src={posterFor(active)} name={active.name} onError={(url) => rejectPoster(active, url)} />
                 </div>
                 <div className="min-w-0 flex-1 py-1">
                   <div className="flex items-center gap-2.5">

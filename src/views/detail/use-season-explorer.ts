@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { kitsuToTvdb } from "@/lib/providers/anime-mapping";
 import { parseKitsuId } from "@/lib/providers/kitsu";
 import { isGenericSeasonName } from "@/lib/season-name";
+import { fetchTmdbSeasonPoster, resolveSeasonArtworkTmdbId } from "@/lib/providers/tmdb-season-artwork";
 import type { PickerItem } from "./series-episodes/season-arc-picker";
 import {
   tvdbSeasonNames,
@@ -25,6 +26,10 @@ export function useSeasonExplorer({
   metaId,
   imdbId,
   tvdbKey,
+  tmdbKey = "",
+  tmdbTvId,
+  seasonPosters,
+  titlePoster,
   seasonType,
   lang,
   activeSeason,
@@ -33,12 +38,18 @@ export function useSeasonExplorer({
   metaId: string;
   imdbId?: string | null;
   tvdbKey: string;
+  tmdbKey?: string;
+  tmdbTvId?: number | null;
+  seasonPosters?: Record<number, string>;
+  titlePoster?: string;
   seasonType: string;
   lang: string;
   activeSeason?: number;
   enabled?: boolean;
 }) {
   const scope = JSON.stringify([metaId, imdbId, tvdbKey, seasonType, lang, enabled]);
+  const posterKey = JSON.stringify(seasonPosters ?? {});
+  const artworkScope = JSON.stringify([scope, tmdbKey, tmdbTvId, posterKey, titlePoster]);
   const [catalog, setCatalog] = useState<{
     scope: string;
     seasons: Map<number, TvdbSeasonInfo>;
@@ -54,8 +65,18 @@ export function useSeasonExplorer({
     artwork: Map<number, TvdbSeasonArtwork>;
   }>();
   const [visible, setVisible] = useState<{ scope: string; seasons: number[] }>();
-  const artworkLoader = useRef<ReturnType<typeof createSeasonArtworkLoader> | null>(null);
-  const artwork = artworkState?.scope === scope ? artworkState.artwork : EMPTY_ARTWORK;
+  const artworkLoader = useRef<{
+    scope: string;
+    loader: ReturnType<typeof createSeasonArtworkLoader>;
+  } | null>(null);
+  const artwork = artworkState?.scope === artworkScope ? artworkState.artwork : EMPTY_ARTWORK;
+  const onPosterError = useCallback(
+    (number: number, url: string) => {
+      const current = artworkLoader.current;
+      if (current?.scope === artworkScope) current.loader.reject(number, url);
+    },
+    [artworkScope],
+  );
   const setVisibleSeasons = useCallback(
     (numbers: number[]) => {
       const next = [...new Set(numbers.filter((n) => n >= 0))].sort((a, b) => a - b);
@@ -72,6 +93,7 @@ export function useSeasonExplorer({
   const seasons = catalog?.scope === scope ? catalog.seasons : EMPTY_SEASONS;
   const names = catalog?.scope === scope ? catalog.names : EMPTY_NAMES;
   const details = enriched?.scope === scope ? enriched.details : EMPTY_DETAILS;
+  const catalogReady = catalog?.scope === scope;
 
   useEffect(() => {
     if (!enabled) return;
@@ -108,28 +130,47 @@ export function useSeasonExplorer({
 
   useEffect(() => {
     if (!enabled) return;
+    const posters = JSON.parse(posterKey) as Record<number, string>;
+    let tmdbIdRequest: Promise<number | null> | undefined;
     const loader = createSeasonArtworkLoader(tvdbKey, lang, (number, value) => {
       setArtworkState((previous) => {
-        const next = new Map(previous?.scope === scope ? previous.artwork : EMPTY_ARTWORK);
+        const next = new Map(previous?.scope === artworkScope ? previous.artwork : EMPTY_ARTWORK);
         next.set(number, value);
-        return { scope, artwork: next };
+        return { scope: artworkScope, artwork: next };
       });
+    }, {
+      titlePoster,
+      loadFallback: async (number, rejected, signal) => {
+        // Other order types need an explicit season mapping before borrowing TMDB art.
+        if (seasonType !== "official" && seasonType !== "aired") return undefined;
+        const cached = posters[number];
+        if (cached && !rejected.has(cached)) return cached;
+        if (!tmdbKey) return undefined;
+        tmdbIdRequest ??= resolveSeasonArtworkTmdbId(tmdbKey, metaId, imdbId, tmdbTvId);
+        const id = await tmdbIdRequest;
+        if (signal.aborted) return undefined;
+        return id == null ? undefined : fetchTmdbSeasonPoster(tmdbKey, id, number, lang, rejected);
+      },
     });
-    artworkLoader.current = loader;
+    artworkLoader.current = { scope: artworkScope, loader };
     return () => {
       loader.dispose();
       artworkLoader.current = null;
     };
-  }, [scope, seasons, tvdbKey, lang, enabled]);
+  }, [
+    artworkScope, seasons, tvdbKey, tmdbKey, tmdbTvId, posterKey, titlePoster,
+    metaId, imdbId, seasonType, lang, enabled,
+  ]);
 
   useEffect(() => {
+    if (!catalogReady) return;
     const numbers = new Set(visible?.scope === scope ? visible.seasons : []);
     if (activeSeason != null && activeSeason >= 0) numbers.add(activeSeason);
-    const requested = [...numbers]
-      .map((n) => seasons.get(n))
-      .filter((season): season is TvdbSeasonInfo => season != null);
-    artworkLoader.current?.request(requested, activeSeason);
-  }, [scope, seasons, visible, activeSeason]);
+    const requested = [...numbers].map((n): TvdbSeasonInfo =>
+      seasons.get(n) ?? { id: null, number: n, name: `Season ${n}` },
+    );
+    artworkLoader.current?.loader.request(requested, activeSeason);
+  }, [scope, artworkScope, catalogReady, seasons, visible, activeSeason]);
 
   useEffect(() => {
     const season = activeSeason == null ? undefined : seasons.get(activeSeason);
@@ -160,6 +201,7 @@ export function useSeasonExplorer({
     details,
     artwork,
     setVisibleSeasons,
+    onPosterError,
     loading: pending?.scope === scope && pending.season === activeSeason,
   };
 }

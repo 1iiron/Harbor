@@ -45,12 +45,16 @@ export function CinemetaEpisodes({
   stremioWatched,
   resumeSeason,
   imdbId,
+  tmdbTvId,
+  seasonPosters,
 }: {
   meta: Meta;
   videos: NonNullable<Meta["videos"]>;
   stremioWatched?: Set<string>;
   resumeSeason?: number;
   imdbId?: string | null;
+  tmdbTvId?: number;
+  seasonPosters?: Record<number, string>;
 }) {
   const t = useT();
   const { settings, update } = useSettings();
@@ -223,6 +227,10 @@ export function CinemetaEpisodes({
     metaId: meta.id,
     imdbId,
     tvdbKey: settings.tvdbKey,
+    tmdbKey: settings.tmdbKey,
+    tmdbTvId,
+    seasonPosters,
+    titlePoster: meta.poster,
     seasonType: "official",
     lang: tvdbLangFromIso1(tmdbLanguageIso()),
     items: explorerItems,

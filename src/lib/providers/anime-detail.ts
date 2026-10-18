@@ -688,6 +688,8 @@ export async function animeDetails(
       backdrop,
       poster,
       imdbId: seriesImdb ?? addonMeta?.imdb_id ?? tmdbFull?.imdbId ?? null,
+      tmdbTvId: tmdbFull?.tmdbTvId,
+      seasonPosters: tmdbFull?.seasonPosters,
       extraVideos: tmdbFull?.extraVideos ?? [],
       recommendations: rails.moreLikeThis,
       similar: rails.youMightLike,

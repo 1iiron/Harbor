@@ -2153,6 +2153,8 @@ export function DetailView({
                 onSeasonArt={handleSeasonArt}
                 localizedOverview={localizedAnimeOverview}
                 seasonOverviews={detail.seasonOverviews}
+                tmdbTvId={detail.tmdbTvId}
+                seasonPosters={detail.seasonPosters}
               />
             </FadeInUp>
           )}
@@ -2164,6 +2166,7 @@ export function DetailView({
               tvId={detail.id}
               imdbId={detail.imdbId ?? (meta.id.startsWith("tt") ? meta.id : null)}
               seasons={detail.seasons}
+              seasonPosters={detail.seasonPosters}
               lastEpisodeAir={detail.lastEpisodeAir}
               scrollRef={scrollRef}
               cinemetaVideos={cinemetaFull?.videos}
@@ -2190,6 +2193,8 @@ export function DetailView({
             <FadeInUp>
               <CinemetaEpisodes
                 meta={playMeta}
+                tmdbTvId={detail?.tmdbTvId}
+                seasonPosters={detail?.seasonPosters}
                 imdbId={detail?.imdbId ?? (meta.id.startsWith("tt") ? meta.id : null)}
                 videos={cinemetaFull.videos}
                 stremioWatched={stremioWatched}

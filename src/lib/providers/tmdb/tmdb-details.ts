@@ -118,6 +118,8 @@ export type TmdbDetail = {
   similar: Meta[];
   collection?: { id: number; name: string } | null;
   seasons: Season[];
+  tmdbTvId?: number;
+  seasonPosters?: Record<number, string>;
   numberOfSeasons: number;
   numberOfEpisodes: number;
   keywords: number[];
@@ -521,6 +523,14 @@ export async function tmdbDetails(key: string, meta: Meta, lang?: string): Promi
       ? { id: raw.belongs_to_collection.id, name: raw.belongs_to_collection.name ?? "" }
       : null,
     seasons,
+    tmdbTvId: kind === "tv" ? Number(id) : undefined,
+    seasonPosters: kind === "tv"
+      ? Object.fromEntries(
+          (raw.seasons ?? [])
+            .filter((s: any) => Number.isInteger(s.season_number) && s.season_number >= 0 && s.poster_path)
+            .map((s: any) => [s.season_number, tmdbPosterUrl(s.poster_path)]),
+        )
+      : undefined,
     numberOfSeasons: raw.number_of_seasons ?? 0,
     numberOfEpisodes: raw.number_of_episodes ?? 0,
     keywords,

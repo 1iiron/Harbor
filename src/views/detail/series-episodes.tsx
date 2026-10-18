@@ -61,6 +61,7 @@ export function SeriesEpisodes({
   tvId,
   imdbId,
   seasons,
+  seasonPosters,
   lastEpisodeAir,
   scrollRef,
   cinemetaVideos,
@@ -72,6 +73,7 @@ export function SeriesEpisodes({
   tvId: number;
   imdbId: string | null;
   seasons: Season[];
+  seasonPosters?: Record<number, string>;
   lastEpisodeAir?: { seasonNumber: number; airDate: string | null };
   scrollRef: React.RefObject<HTMLElement | null>;
   cinemetaVideos?: NonNullable<Meta["videos"]>;
@@ -522,6 +524,10 @@ export function SeriesEpisodes({
     metaId: meta.id,
     imdbId,
     tvdbKey: settings.tvdbKey,
+    tmdbKey: settings.tmdbKey,
+    tmdbTvId: tvId,
+    seasonPosters,
+    titlePoster: meta.poster,
     seasonType: explorerType === "aired" ? "official" : explorerType,
     lang: tvdbLangFromIso1(tmdbLanguageIso()),
     items: picker.items,
