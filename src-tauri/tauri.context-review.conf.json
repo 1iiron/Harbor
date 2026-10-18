@@ -20,10 +20,24 @@
         "resizable": true,
         "maximizable": true,
         "minimizable": true,
-        "center": true
+        "center": true,
+        "browserExtensionsEnabled": true,
+        "additionalBrowserArgs": "--disk-cache-size=104857600 --media-cache-size=52428800 --autoplay-policy=no-user-gesture-required --disable-features=HardwareMediaKeyHandling"
       }
     ]
   },
-  "bundle": { "active": false, "fileAssociations": [], "createUpdaterArtifacts": false },
-  "plugins": { "deep-link": { "mobile": [], "desktop": { "schemes": [] } }, "updater": null }
+  "bundle": {
+    "active": false,
+    "fileAssociations": [],
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [],
+      "desktop": {
+        "schemes": []
+      }
+    },
+    "updater": null
+  }
 }

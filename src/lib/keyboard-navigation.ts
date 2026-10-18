@@ -68,6 +68,7 @@ const BACK_KEYCODES = new Set([27, 4, 461, 10009, 166]);
 const BACK_KEYS = new Set(["Escape", "Esc", "BrowserBack", "GoBack", "Back"]);
 
 const MODAL_SELECTOR = '[role="dialog"], [aria-modal="true"]';
+const CONTEXT_INPUT_SELECTOR = "[data-harbor-context-layer],[data-harbor-image-viewer]";
 const LOCAL_KEYBOARD_SELECTOR = [
   // Embedded surfaces handle their own keys; shadow DOM retargets events to their host.
   "[data-local-keyboard]",
@@ -1290,6 +1291,9 @@ export function useKeyboardNavigation(options: TVNavigationOptions = {}) {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
+      // These portals own their nearest-layer Back behavior. App's capture
+      // listener mounts first, so even Escape must reach the owning surface.
+      if (document.querySelector(CONTEXT_INPUT_SELECTOR)) return;
 
       // Tab is native keyboard navigation, but does not call moveFocus().
       // Restore keyboard modality so its focus cues are not hidden after mouse use.
@@ -1572,9 +1576,7 @@ export function dispatchTvNav(
   repeat = false,
 ): void {
   hasTvNavigationIntent = true;
-  const contextLayer = document.querySelector(
-    "[data-harbor-context-layer],[data-harbor-image-viewer]",
-  );
+  const contextLayer = document.querySelector(CONTEXT_INPUT_SELECTOR);
   if (contextLayer) {
     hoveredEl = null;
     const active = document.activeElement;

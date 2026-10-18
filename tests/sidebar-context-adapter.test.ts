@@ -5,7 +5,7 @@ import ts from "typescript";
 import { JSDOM } from "jsdom";
 import * as React from "react";
 import * as jsxRuntime from "react/jsx-runtime";
-import { dispatchTvNav } from "../src/lib/keyboard-navigation.ts";
+import { dispatchTvNav, useKeyboardNavigation } from "../src/lib/keyboard-navigation.ts";
 import {
   MenuSurface,
   menuItemClass,
@@ -87,7 +87,7 @@ function navItems(target: { onOpen?: () => void }, close: () => void) {
   return exports.build();
 }
 
-async function fixture(run: (h: any) => Promise<void>) {
+async function fixture(run: (h: any) => Promise<void>, shellNavigation = false) {
   const dom = new JSDOM("<body><button id='origin'>Settings</button><div id='app'></div></body>", {
     url: "http://localhost/",
   });
@@ -98,6 +98,7 @@ async function fixture(run: (h: any) => Promise<void>) {
     HTMLElement: dom.window.HTMLElement,
     HTMLInputElement: dom.window.HTMLInputElement,
     HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
+    HTMLSelectElement: dom.window.HTMLSelectElement,
     KeyboardEvent: dom.window.KeyboardEvent,
     MutationObserver: dom.window.MutationObserver,
     localStorage: dom.window.localStorage,
@@ -124,6 +125,23 @@ async function fixture(run: (h: any) => Promise<void>) {
     toJSON() {},
   });
   const { createRoot } = await import("react-dom/client");
+  const shell = document.createElement("div");
+  document.body.prepend(shell);
+  const shellRoot = createRoot(shell);
+  let backgroundBacks = 0;
+  const ShellNavigation = () => {
+    useKeyboardNavigation({
+      onBack: () => {
+        backgroundBacks++;
+        return true;
+      },
+    });
+    return null;
+  };
+  // App's capture listener is already mounted when its menu portal appears.
+  if (shellNavigation) {
+    await React.act(() => shellRoot.render(React.createElement(ShellNavigation)));
+  }
   const root = createRoot(document.getElementById("app")!);
   const origin = document.getElementById("origin")!;
   const remote = (action: Parameters<typeof dispatchTvNav>[0], repeat = false) =>
@@ -137,12 +155,89 @@ async function fixture(run: (h: any) => Promise<void>) {
       root.render(React.createElement(MenuSurface, { point: { x: 20, y: 20 }, onClose, children })),
     );
   try {
-    await run({ dom, root, origin, remote, render });
+    await run({ dom, root, origin, remote, render, backgroundBacks: () => backgroundBacks });
   } finally {
     await React.act(() => root.unmount());
+    await React.act(() => shellRoot.unmount());
     dom.window.close();
   }
 }
+
+test("the actual shell capture listener yields Escape to submenu, root and viewer owners", async () =>
+  fixture(async (h) => {
+    let rootCloses = 0;
+    let viewerCloses = 0;
+    const source = {
+      actions: () => [
+        {
+          id: "destinations",
+          label: "Destinations",
+          children: [{ id: "first", label: "First", run() {} }],
+        },
+      ],
+    };
+    const press = (key: string) =>
+      React.act(async () => {
+        document.activeElement!.dispatchEvent(
+          new h.dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+        );
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      });
+    await h.render(React.createElement(ActionItems, { source, onClose() {} }), () => {
+      rootCloses++;
+    });
+    await press("ArrowRight");
+    assert.equal(document.activeElement?.textContent, "First");
+    await press("Escape");
+    assert.equal(
+      !!document.querySelector("[data-context-submenu]"),
+      false,
+      "Escape closes only the focused submenu",
+    );
+    assert.equal((document.activeElement as HTMLElement).dataset.contextAction, "destinations");
+    assert.equal(rootCloses, 0);
+    assert.equal(h.backgroundBacks(), 0, "the page Back handler must not receive submenu Escape");
+    await press("Escape");
+    assert.equal(rootCloses, 1);
+    assert.equal(h.backgroundBacks(), 0);
+    await React.act(() =>
+      h.root.render(
+        React.createElement(MenuSurface, {
+          point: { x: 20, y: 20 },
+          phase: "closing",
+          onClose() {},
+          children: React.createElement("button", { role: "menuitem" }, "Closing command"),
+        }),
+      ),
+    );
+    await press("Escape");
+    assert.equal(h.backgroundBacks(), 0, "the closing portal still owns input until removed");
+    await React.act(() =>
+      h.root.render(
+        React.createElement(ContextImageViewer, {
+          image: {
+            src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+            label: "Fixture",
+          },
+          onClose: () => {
+            viewerCloses++;
+          },
+          returnFocus: h.origin,
+        }),
+      ),
+    );
+    await press("Escape");
+    assert.equal(viewerCloses, 1);
+    assert.equal(h.backgroundBacks(), 0);
+    await React.act(() => h.root.render(null));
+    h.origin.focus();
+    await press("Escape");
+    assert.equal(
+      h.backgroundBacks(),
+      1,
+      "ordinary App Back remains active without an owning layer",
+    );
+  }, true));
 
 test("shared nav menu keeps checked Open, remote focus/activation, repeat protection and Back close", async () =>
   fixture(async (h) => {
