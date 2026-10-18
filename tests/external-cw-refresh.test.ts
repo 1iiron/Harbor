@@ -59,6 +59,7 @@ function fixture() {
         detectionBatches.push(items);
       },
     },
+    "@/lib/render-cause": { noteNotify: () => {} },
   };
   const source = readFileSync(new URL("../src/lib/feed/external-cw.ts", import.meta.url), "utf8");
   const output = ts.transpileModule(source, {

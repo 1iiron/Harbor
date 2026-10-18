@@ -1,4 +1,5 @@
 import type { LibraryItem } from "@/lib/stremio";
+import { noteNotify } from "@/lib/render-cause";
 import { persistCritical } from "@/lib/storage-recovery";
 
 const PROFILES_KEY = "harbor.profiles.v1";
@@ -157,7 +158,7 @@ function undismiss(metaId: string): void {
     return;
   }
   version += 1;
-  for (const fn of subs) fn();
+  notifySubs();
 }
 
 export function dismissManualWatched(metaId: string): void {
@@ -172,7 +173,7 @@ export function dismissManualWatched(metaId: string): void {
     return;
   }
   version += 1;
-  for (const fn of subs) fn();
+  notifySubs();
 }
 
 function loadSet(storageKey: string): Set<string> {
@@ -206,7 +207,7 @@ function persist(on: Set<string>, off: Set<string>): void {
   persistCritical(storeKey("watched"), JSON.stringify([...on]));
   persistCritical(storeKey("unwatched"), JSON.stringify([...off]));
   version += 1;
-  for (const fn of subs) fn();
+  notifySubs();
 }
 
 function key(metaId: string, season: number, episode: number): string {
@@ -398,7 +399,7 @@ export function recordManualWatchedMeta(metaId: string, meta: ManualWatchedMeta)
     return;
   }
   version += 1;
-  for (const fn of subs) fn();
+  notifySubs();
 }
 
 export function manualWatchedLibraryItems(): LibraryItem[] {
@@ -448,6 +449,11 @@ export function manualWatchedLibraryItems(): LibraryItem[] {
   return out;
 }
 
+function notifySubs(): void {
+  noteNotify("store:manual-watched");
+  for (const fn of subs) fn();
+}
+
 export function subscribeManualWatched(fn: () => void): () => void {
   subs.add(fn);
   return () => {
@@ -472,7 +478,7 @@ if (typeof window !== "undefined") {
     unwatchedAtCache = null;
     remoteCache = null;
     version += 1;
-    for (const fn of subs) fn();
+    notifySubs();
   };
   window.addEventListener("harbor:active-profile-changed", onProfileChange);
   window.addEventListener("harbor:profiles-updated", onProfileChange);

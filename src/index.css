@@ -4382,6 +4382,27 @@ html[data-theme-card="crunch"][dir="rtl"] .harbor-profile-dropdown {
 .harbor-shimmer[data-idle]::after {
   display: none;
 }
+/* The poster reveal is driven from the DOM, not React: poster.tsx sets data-loaded on load, so a
+   grid of a few hundred images costs no re-renders. See markLoaded in poster.tsx. */
+.harbor-poster-img {
+  opacity: 0;
+  transition: opacity 300ms ease-out;
+}
+.harbor-poster[data-loaded] .harbor-poster-img {
+  opacity: 1;
+}
+.harbor-poster[data-loaded] .harbor-shimmer {
+  display: none;
+}
+/* Idle shimmer off-screen: the poster sets data-idle on its root rather than on the shimmer, so
+   the visibility observer can toggle it without a React render. */
+.harbor-poster[data-idle] .harbor-shimmer::after {
+  display: none;
+}
+.harbor-poster[data-poster-effect="off"] .harbor-poster-img {
+  opacity: 1;
+  transition: none;
+}
 .harbor-row-track[data-far] {
   overflow-x: hidden;
 }

@@ -1,4 +1,5 @@
 import { cwProfileScope, privateCwProfileId } from "./cw-profile";
+import { noteNotify } from "./render-cause";
 
 const KEY_PREFIX = "harbor.localcw.v1.";
 const PRIVATE_PREFIX = "harbor.localcw.private.v1.";
@@ -87,6 +88,7 @@ function writeAll(key: string, all: Record<string, LocalCwEntry>): void {
 
 function emit(): void {
   version += 1;
+  noteNotify("store:local-cw");
   for (const fn of subs) fn();
 }
 

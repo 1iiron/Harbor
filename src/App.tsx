@@ -9,7 +9,7 @@ import { usePlaylists } from "@/lib/iptv/playlists-store";
 import { SportsAccessGate } from "@/views/sports/access-gate";
 import { SportsEventSkeleton } from "@/views/sports/sports-skeletons";
 import { SportsReminderLoop } from "@/components/sports-reminder-loop";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { lazyView as lazy } from "@/lib/lazy-view";
 import { startIdleAway } from "@/lib/social/idle-away";
 import { FloatingBack } from "@/chrome/floating-back";
@@ -66,6 +66,7 @@ import { VoyageRoot } from "@/components/voyage/voyage-root";
 import { ScreensaverRoot } from "@/components/screensaver/screensaver-root";
 import { CustomCodeMount } from "@/components/custom-code-mount";
 import { MemoryHud } from "@/components/memory-hud";
+import { Profiled } from "@/components/profiled";
 import { OfflineBanner } from "@/chrome/offline-banner";
 
 const MobileShell = lazy(() =>
@@ -120,7 +121,7 @@ import { TopRankModalProvider } from "@/lib/top-rank-modal";
 import { OnboardingProvider } from "@/lib/onboarding";
 import { RankingsProvider } from "@/lib/rankings";
 import { SettingsProvider } from "@/lib/settings";
-import { SearchProvider, useSearch } from "@/lib/search-context";
+import { SearchProvider, useSearchActions, useSearchOpen } from "@/lib/search-context";
 import { SearchOverlay } from "@/components/search/search-overlay";
 import { SearchHotkey } from "@/components/search/search-hotkey";
 import { LinkOutInterstitial } from "@/components/link-out-interstitial";
@@ -156,6 +157,11 @@ import { useDiscordPresence } from "@/lib/discord/use-discord-presence";
 import { useWatchShare } from "@/lib/social/watch-presence";
 import { usePluginCataloguesAvailable } from "@/lib/streams/plugins/available";
 import { SpooktoberHome } from "@/views/spooktober/spooktober-home";
+
+// Shell re-renders on its own state (idle-evict timers, memory pressure, immersive, games nav).
+// Memoizing the view stops that from cascading into a full re-render of the home feed, which the
+// profiler measured rendering ~18 times a second while the user was on other tabs.
+const MemoSpooktoberHome = memo(SpooktoberHome);
 import { MusicDock } from "@/components/music/music-dock";
 import { useInstallFeatures } from "@/lib/features/install";
 import { MusicSurprisePrompt } from "@/components/music/music-surprise-prompt";
@@ -226,8 +232,8 @@ const CalendarView = lazy(() => importCalendar().then((m) => ({ default: m.Calen
 const WrappedView = lazy(() => importWrapped().then((m) => ({ default: m.WrappedView })));
 const DetailView = lazy(() => importDetail().then((m) => ({ default: m.DetailView })));
 const AddonsView = lazy(() => importAddons().then((m) => ({ default: m.AddonsView })));
-const Discover = lazy(() => importDiscover().then((m) => ({ default: m.Discover })));
-const Catalogs = lazy(() => importCatalogs().then((m) => ({ default: m.Catalogs })));
+const Discover = memo(lazy(() => importDiscover().then((m) => ({ default: m.Discover }))));
+const Catalogs = memo(lazy(() => importCatalogs().then((m) => ({ default: m.Catalogs }))));
 const PluginsView = lazy(() => importPlugins().then((m) => ({ default: m.Plugins })));
 const AwardView = lazy(() => importAward().then((m) => ({ default: m.AwardView })));
 const AnimeAwardView = lazy(() => importAnimeAward().then((m) => ({ default: m.AnimeAwardView })));
@@ -263,7 +269,7 @@ const CommunityCollectionsView = lazy(() =>
 );
 const PlayPicker = lazy(() => importPlayPicker().then((m) => ({ default: m.PlayPicker })));
 const PlayerView = lazy(() => importPlayer().then((m) => ({ default: m.PlayerView })));
-const Movies = lazy(() => importMovies().then((m) => ({ default: m.Movies })));
+const Movies = memo(lazy(() => importMovies().then((m) => ({ default: m.Movies }))));
 const Kids = lazy(() => importKids().then((m) => ({ default: m.Kids })));
 const KidsDetailView = lazy(() =>
   import("@/views/kids-detail").then((m) => ({ default: m.KidsDetailView })),
@@ -344,7 +350,12 @@ function useViewPreloader(tmdbKey: string) {
 }
 
 const KEEP_ALIVE_MS = 1500;
-const IDLE_EVICT_MS = 60 * 1000;
+// How long a top-level view stays mounted after you leave it. A view keeps its whole tree, its
+// observers and its effects while hidden (`display:none` skips painting, not JavaScript), so a
+// minute of exploring left home, discover, catalogs and movies resident at once — ~34k DOM nodes,
+// with every frame and GC pass paying for all of them. Long enough that an immediate back feels
+// instant, short enough that hopping tabs stops accumulating.
+const IDLE_EVICT_MS = 10 * 1000;
 const PRESSURE_EVICT_MS = 1500;
 const UI_SCALE_MIN = 0.8;
 const UI_SCALE_MAX = 1.6;
@@ -370,6 +381,26 @@ function useKeepAlive(active: boolean, requested: boolean, pin = false): boolean
     return () => clearTimeout(t);
   }, [active, requested, pin]);
   return requested && (mounted || active || pin);
+}
+
+/**
+ * Renders children after the shell's first paint. Every background runner fires its first IPC
+ * round at mount; doing that inside the home feed's first commit put a ~630ms React work loop in
+ * the boot frame. Two frames of delay lets the shell paint before that work lands.
+ */
+function AfterFirstPaint({ children }: { children: ReactNode }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => setReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, []);
+  return ready ? <>{children}</> : null;
 }
 
 function useIdleEvict(active: boolean, pin = false): boolean {
@@ -433,7 +464,9 @@ export function App({ onReady }: { onReady?: () => void }) {
                                                         <RevealOnMount onReady={onReady} />
                                                       </>
                                                     ) : (
-                                                      <Shell onReady={onReady} />
+                                                      <Profiled id="shell">
+                                                        <Shell onReady={onReady} />
+                                                      </Profiled>
                                                     )}
                                                     {!isMobileWeb() && !isRemoteRoute() && (
                                                       <Suspense fallback={null}>
@@ -452,26 +485,30 @@ export function App({ onReady }: { onReady?: () => void }) {
                                                     <ListToastHost />
                                                     <DiagnosticsConsentHost />
                                                     <TogetherLeaveForLiveModal />
-                                                    <TogetherLocationPublisher />
-                                                    <IdleAwayRunner />
-                                                    <SessionRefreshRunner />
-                                                    <StatsSyncRunner />
-                                                    <FeaturedListsSyncRunner />
-                                                    <RatingsSyncRunner />
-                                                    <ActivitySyncRunner />
-                                                    <MediaServerSyncRunner />
-                                                    <AutoDownloadRunner />
-                                                    <RemindersRunner />
-                                                    <GameDownloadNotificationsRunner />
-                                                    <GameSourceAlertsRunner />
-                                                    <MangaTrackingRunner />
-                                                    <RemoteHostMount />
-                                                    <RemoteOpenBridge />
+                                                    <AfterFirstPaint>
+                                                      <TogetherLocationPublisher />
+                                                      <IdleAwayRunner />
+                                                      <SessionRefreshRunner />
+                                                      <StatsSyncRunner />
+                                                      <FeaturedListsSyncRunner />
+                                                      <RatingsSyncRunner />
+                                                      <ActivitySyncRunner />
+                                                      <MediaServerSyncRunner />
+                                                      <AutoDownloadRunner />
+                                                      <RemindersRunner />
+                                                      <GameDownloadNotificationsRunner />
+                                                      <GameSourceAlertsRunner />
+                                                      <MangaTrackingRunner />
+                                                      <RemoteHostMount />
+                                                      <RemoteOpenBridge />
+                                                    </AfterFirstPaint>
                                                     <PlayOnModal />
                                                     <GamepadRunner />
                                                     <ControllerConnectedToast />
-                                                    <DiscordPresence />
-                                                    <WatchPresenceRunner />
+                                                    <AfterFirstPaint>
+                                                      <DiscordPresence />
+                                                      <WatchPresenceRunner />
+                                                    </AfterFirstPaint>
                                                     <ContextMenu />
                                                     <AnnouncementGlobal />
                                                     <WatchLocalModal />
@@ -482,7 +519,9 @@ export function App({ onReady }: { onReady?: () => void }) {
                                                     <TopRankModal />
                                                     <ProfilePickerModal />
                                                     <CurfewGuard />
-                                                    <SearchOverlay />
+                                                    <Profiled id="search.overlay">
+                                                      <SearchOverlay />
+                                                    </Profiled>
                                                     <SearchHotkey />
                                                     <LinkOutInterstitial />
                                                     <EmbedViewportRoot />
@@ -831,7 +870,8 @@ function Shell({ onReady }: { onReady?: () => void }) {
     chromeHidden,
   } = useView();
   const { settings, update } = useSettings();
-  const { open: searchOpen, setOpen: setSearchOpen } = useSearch();
+  const searchOpen = useSearchOpen();
+  const { setOpen: setSearchOpen } = useSearchActions();
   const bigPicture = useBigPicture().active;
   const bigPictureBootChecked = useRef(false);
   const uiScaleRef = useRef(settings.uiScale);
@@ -1507,6 +1547,7 @@ function Shell({ onReady }: { onReady?: () => void }) {
   useEffect(() => resetMusicForProfile(), [activeProfileForMusic]);
 
   const overlayPinned = useOverlayPinned();
+  const homeAlive = useIdleEvict(homeTop);
   const settingsAlive = useIdleEvict(settingsTop, overlayPinned);
   const animeAlive = useIdleEvict(animeTop);
   const discoverAlive = useIdleEvict(discoverTop);
@@ -1636,9 +1677,13 @@ function Shell({ onReady }: { onReady?: () => void }) {
         <div
           className={`relative flex min-h-0 min-w-0 flex-1 flex-col ${playerActive ? "invisible" : ""}`}
         >
-          <div {...parkLayerProps(homeTop)}>
-            <SpooktoberHome active={homeTop} onReady={onReady} />
-          </div>
+          {homeAlive && (
+            <div {...parkLayerProps(homeTop)}>
+              <Profiled id="view.home">
+                <MemoSpooktoberHome active={homeTop} onReady={onReady} />
+              </Profiled>
+            </div>
+          )}
           {settingsAlive && (
             <div {...layerProps(settingsTop)}>
               <Suspense fallback={null}>
@@ -1656,14 +1701,18 @@ function Shell({ onReady }: { onReady?: () => void }) {
           {discoverAlive && (
             <div {...parkLayerProps(discoverTop)}>
               <Suspense fallback={null}>
-                <Discover active={discoverTop} />
+                <Profiled id="view.discover">
+                  <Discover active={discoverTop} />
+                </Profiled>
               </Suspense>
             </div>
           )}
           {catalogsAlive && (
             <div {...layerProps(catalogsTop)}>
               <Suspense fallback={null}>
-                <Catalogs active={catalogsTop} />
+                <Profiled id="view.catalogs">
+                  <Catalogs active={catalogsTop} />
+                </Profiled>
               </Suspense>
             </div>
           )}
@@ -1698,7 +1747,9 @@ function Shell({ onReady }: { onReady?: () => void }) {
           {moviesAlive && (
             <div {...layerProps(moviesTop)}>
               <Suspense fallback={null}>
-                <Movies active={moviesTop} />
+                <Profiled id="view.movies">
+                  <Movies active={moviesTop} />
+                </Profiled>
               </Suspense>
             </div>
           )}

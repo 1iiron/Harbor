@@ -57,6 +57,7 @@ function harness(seed?: string, onChange = () => {}) {
       },
     },
     "./stremio-write-queue": { cloudLibraryPut: () => Promise.resolve() },
+    "./render-cause": { noteNotify: () => {} },
   };
   const output = ts.transpileModule(read("src/lib/cw-dismiss.ts"), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { noteNotify } from "./render-cause";
 import { clearResume, readResumeEntry } from "./resume";
 import { setItemWithRecovery } from "./storage-recovery";
 import { episodeFromVideoId, type LibraryItem } from "./stremio";
@@ -138,6 +139,7 @@ function persistDismissed(): void {
 
 function emit(): void {
   version += 1;
+  noteNotify("store:cw-dismiss");
   listeners.forEach((l) => l());
 }
 

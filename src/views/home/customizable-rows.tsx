@@ -1,5 +1,5 @@
 import { ChevronRight } from "lucide-react";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { LazyMount } from "@/components/lazy-mount";
 import { releaseYear } from "@/lib/release-info";
 import { PickCard } from "@/components/pick-card";
@@ -150,7 +150,10 @@ function RowTitleExtra({ row }: { row: HomeRow }) {
   );
 }
 
-export function CustomizableRows({
+// Memoized on purpose: Home re-renders often while its rows load, and without this every one of
+// those re-renders rebuilt the whole row tree and cascaded into the cards (measured as a single
+// 184ms render). Its props are all stable — useCallback handlers, memoized row arrays, primitives.
+export const CustomizableRows = memo(function CustomizableRows({
   rows,
   editMode,
   customization,
@@ -293,4 +296,4 @@ export function CustomizableRows({
       })}
     </>
   );
-}
+});

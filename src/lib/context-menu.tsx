@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import type { Meta } from "@/lib/cinemeta";
 import type { NavItemId } from "@/chrome/nav-items";
 import type { View } from "@/lib/view";
@@ -95,7 +103,15 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     };
   }, [state, close]);
 
-  return <Ctx.Provider value={{ state, open, openAt, close }}>{children}</Ctx.Provider>;
+  // Memoized: a fresh object here re-rendered every consumer on every provider render, and the
+  // consumers are the cards — thousands of them. The menu's own open/close is the only thing that
+  // should reach them.
+  const value = useMemo<CtxValue>(
+    () => ({ state, open, openAt, close }),
+    [state, open, openAt, close],
+  );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useContextMenu(): CtxValue {

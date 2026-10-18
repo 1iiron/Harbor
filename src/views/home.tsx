@@ -103,7 +103,8 @@ import { useLetterboxd } from "@/lib/stremboxd/provider";
 import { buildLetterboxdHomeRows } from "@/lib/stremboxd/home-rails";
 import { useMediaFavorites, type MediaEntry } from "@/lib/media-favorites";
 import { useLocalWatchlist } from "@/lib/local-watchlist";
-import { useScrollMemory, useView } from "@/lib/view";
+import { useScrollMemory, useHomeResetTick } from "@/lib/view";
+import { recordRenderCause } from "@/lib/render-cause";
 import { CustomizableRows } from "./home/customizable-rows";
 import { CustomizeBar } from "./home/customize-bar";
 import { CWSection } from "./home/cw-section";
@@ -134,6 +135,7 @@ export function Home({
   onReady?: () => void;
   seasonalInvitation?: ReactNode;
 }) {
+  recordRenderCause("view.home");
   const { authKey, user } = useAuth();
   const { activeProfile, profiles } = useProfiles();
   const { settings, update } = useSettings();
@@ -976,7 +978,7 @@ export function Home({
   }, []);
   useScrollMemory("home", scrollRef, active);
 
-  const { homeResetTick } = useView();
+  const homeResetTick = useHomeResetTick();
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [homeResetTick]);

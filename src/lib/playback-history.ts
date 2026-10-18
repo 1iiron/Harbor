@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { AddonProgress } from "./streams/addons";
+import { noteNotify } from "./render-cause";
 
 export type PlaybackEntry = {
   infoHash?: string | null;
@@ -127,6 +128,7 @@ function writeAll(map: Record<string, PlaybackEntry>): void {
       } catch {}
     }
   }
+  noteNotify("store:playback");
   listeners.forEach((l) => l());
 }
 

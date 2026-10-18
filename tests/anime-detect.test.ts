@@ -27,6 +27,7 @@ function fixture(initial: Record<string, string> = {}) {
     },
     "@/lib/providers/kitsu": { kitsuAnime: async () => null },
     "@/lib/storage-recovery": { setItemWithRecovery: (key: string, value: string) => storage.set(key, value) },
+    "@/lib/render-cause": { noteNotify: () => {} },
   };
   const compiled = ts.transpileModule(readFileSync(new URL("../src/lib/anime-detect.ts", import.meta.url), "utf8"), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },

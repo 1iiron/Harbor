@@ -1,4 +1,6 @@
 import { useSyncExternalStore } from "react";
+import { noteNotify } from "@/lib/render-cause";
+
 import { meta as fetchMeta, type Meta } from "@/lib/cinemeta";
 import { imdbToKitsu, tmdbTvToKitsu } from "@/lib/providers/anime-mapping";
 import { kitsuAnime } from "@/lib/providers/kitsu";
@@ -73,9 +75,20 @@ function persistNegatives(): void {
   }, NEGATIVE_FLUSH_MS);
 }
 
+// Detection settles one title at a time, and each settle used to notify synchronously: a home feed
+// with hundreds of anime re-rendered home, discover and every other version consumer once per
+// title. Coalescing the notifications makes a burst of settles cost a single re-render.
+const BUMP_COALESCE_MS = 120;
+let bumpTimer: ReturnType<typeof setTimeout> | null = null;
+
 function bump(): void {
   version += 1;
-  listeners.forEach((l) => l());
+  if (bumpTimer != null) return;
+  bumpTimer = setTimeout(() => {
+    bumpTimer = null;
+    noteNotify("store:anime-detect");
+    listeners.forEach((l) => l());
+  }, BUMP_COALESCE_MS);
 }
 
 export function isDetectedAnime(id: string): boolean {

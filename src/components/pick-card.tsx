@@ -38,7 +38,7 @@ import { useSimklCardScores, useSimklCardScoresByAnimeId } from "@/lib/simkl/rat
 import { simklRequest } from "@/lib/simkl/client";
 import { getLocalCache } from "@/lib/simkl/activities";
 import { aniZipByKitsu, aniZipByMal } from "@/lib/providers/anizip";
-import { useView } from "@/lib/view";
+import { useViewActions } from "@/lib/view";
 import { TvCard } from "@/components/tv-card";
 import { useTilt } from "@/lib/use-tilt";
 import { observe } from "@/lib/visibility";
@@ -108,7 +108,7 @@ const PosterCard = memo(function PosterCard({
   reasonDetail?: string;
   onOpenManga?: (meta: Meta) => void;
 }) {
-  const { openMeta, openPicker, openManga } = useView();
+  const { openMeta, openPicker, openManga } = useViewActions();
   // Saved list items may carry a stale id; let the caller resolve it first.
   const openMangaTarget = (m: Meta) => (onOpenManga ? onOpenManga(m) : openManga(m.id));
   const { open: openContextMenu } = useContextMenu();

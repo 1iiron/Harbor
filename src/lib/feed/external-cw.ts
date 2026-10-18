@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
+import { noteNotify } from "@/lib/render-cause";
 import { detectAnimeForCw } from "@/lib/anime-detect";
 import { fetchSimklPlaybackItems } from "@/lib/simkl/playback";
 import { fetchTraktPlaybackItems } from "@/lib/trakt/playback";
@@ -31,6 +32,7 @@ let refreshGen = 0;
 const subs = new Set<() => void>();
 
 function emit(): void {
+  noteNotify("store:external-cw");
   for (const fn of subs) fn();
 }
 

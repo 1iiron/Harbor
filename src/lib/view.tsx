@@ -342,7 +342,6 @@ type ViewValue = {
   openAnimeAward: (s: import("./anime-awards").AwardSourceId) => void;
   curatedListId: string | null;
   openCuratedList: (id: string) => void;
-  homeResetTick: number;
   picker: {
     meta: Meta;
     episode?: PlayEpisode;
@@ -390,6 +389,27 @@ type ViewValue = {
 };
 
 const Ctx = createContext<ViewValue | null>(null);
+
+// Home reads only the reset counter. Taking it from `Ctx` meant every navigation re-rendered the
+// whole home feed — measured at ~110ms per click, which was most of the click block.
+const HomeResetContext = createContext(0);
+
+export function useHomeResetTick(): number {
+  return useContext(HomeResetContext);
+}
+
+// Stable navigation actions for repeated children. A card reads these instead of the whole view
+// context: taking `openMeta` from `Ctx` made every mounted card re-render on any navigation, and
+// that cascaded into every poster (the profiler attributed ~4,800 poster renders to it).
+type ViewActions = Pick<ViewValue, "openMeta" | "openPicker" | "openManga">;
+
+const ViewActionsContext = createContext<ViewActions | null>(null);
+
+export function useViewActions(): ViewActions {
+  const actions = useContext(ViewActionsContext);
+  if (!actions) throw new Error("useViewActions outside ViewProvider");
+  return actions;
+}
 
 const STACK_MAX = 30;
 const SCROLL_MEM_MAX = 200;
@@ -1472,7 +1492,6 @@ export function ViewProvider({ children }: { children: ReactNode }) {
       openAnimeAward,
       curatedListId: top.kind === "curated-list" ? top.listId : null,
       openCuratedList,
-      homeResetTick,
       picker,
       openPicker,
       player,
@@ -1543,7 +1562,6 @@ export function ViewProvider({ children }: { children: ReactNode }) {
       openSportsEvent,
       stackKinds,
       awardType,
-      homeResetTick,
       picker,
       player,
       canGoBack,
@@ -1584,7 +1602,18 @@ export function ViewProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  const actions = useMemo<ViewActions>(
+    () => ({ openMeta, openPicker, openManga }),
+    [openMeta, openPicker, openManga],
+  );
+
+  return (
+    <Ctx.Provider value={value}>
+      <HomeResetContext.Provider value={homeResetTick}>
+        <ViewActionsContext.Provider value={actions}>{children}</ViewActionsContext.Provider>
+      </HomeResetContext.Provider>
+    </Ctx.Provider>
+  );
 }
 
 export type PlayerNavigation = Pick<
