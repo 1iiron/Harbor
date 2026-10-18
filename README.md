@@ -4,7 +4,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://harbor.site/readme-media/harbor-wordmark-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="https://harbor.site/readme-media/harbor-wordmark-light.svg">
-  <img src="https://harbor.site/readme-media/harbor-wordmark-light.svg" width="320">
+  <img src="/docs/harbor-wordmark-light.svg" width="320">
 </picture>
 
 ### A Stremio Client Built for Adventure!
@@ -29,6 +29,10 @@ Offering things like a native player, a stream ranking engine, Wikidata, watch p
 
 <br/>
 <h4 align="center">💬 New: By popular demand, join our community discord for support and help (https://discord.gg/yvafyeZmXh)!</h4>
+
+> [!NOTE]
+> Some information in this README is outdated. Please visit our [community Discord](https://discord.gg/yvafyeZmXh) for the latest updates and project information.
+
 <p align="center">
   <img src="https://harbor.site/readme-media/hero.png" width="900">
   <br/>
@@ -36,9 +40,9 @@ Offering things like a native player, a stream ranking engine, Wikidata, watch p
 </p>
 
 > [!IMPORTANT]
-> Harbor is a media player and a client for the open Stremio addon protocol. It hosts, indexes, and ships no media, and it bundles no content addons. You bring your own addons and sources. See the [Disclaimer](#disclaimer).
-> Harbor is not for-profit and is a passion project, you are free to sell, re-use or profit off of it. All of your bugs, issues and feedbacks will be addressed promptly as long as scope permits. Please leave a Issue if you have feedback or a bug, so we can better address you. It is HIGHLY reccomended that you build your OWN Harbor from the latest source when available, as our bundled releases will not include windows/os certification/sig (it is a free project) so to avoid any popups we suggest building it yourself. We will try to push updates frequently but we are sometimes segmented by our timezones so it may take some time for your bugs to be rolled into the update endpoint and for us to test it! Thank you for trying it out and helping us make it a better project!
-> Stremio has released their **[Supporter tier](https://blog.stremio.com/stremio-supporters-a-way-to-sustain-our-development/)** PLEASE CONSIDER SUPPORTING THEM AND BUYING THIS. We heavily encourage you to use Stremio's Official Apps on Mobile, and Tvs. Harbor is NOT a stremio competitor, it is a different flavor of player for the ecosystem. To get the most out of Harbor, please sign up with a [stremio account](https://stremio.com) (it's free) To Support Stremio visit : https://www.stremio.com/donate (P.S.A Harbor is not endorsed by or created by Stremio ltd or it's contributors it is a independent open sourced project)
+> Harbor is a media player and a client for the open Stremio addon protocol. It hosts, indexes, and ships no media, and it bundles no content addons. Use it with your own media and sources you are authorized to access. See the [Disclaimer](#disclaimer).
+> Harbor is not for-profit and is a passion project. Please leave an ssue if you have feedback or a bug, so we can better address you. It is HIGHLY reccomended that you build your OWN Harbor from the latest source when available, as our bundled releases will not include windows/os certification/sig (it is a free project) so to avoid any popups we suggest building it yourself. We will try to push updates frequently but we are sometimes segmented by our timezones so it may take some time for your bugs to be rolled into the update endpoint and for us to test it! Thank you for trying it out and helping us make it a better project!
+> **Mobile and TV apps are on the horizon.** Follow our [community Discord](https://discord.gg/yvafyeZmXh) for updates on their progress and availability.
 > <br/>
 
 > [!NOTE]
@@ -94,7 +98,7 @@ HARBOR IS A OPEN CONCEPT AND NOT A ENTITY. WE DO NOT PROFIT OR ACCEPT MONEY FOR 
 - **Customize it your way.** Harbor is built in rust and tauri, allowing full on demand customization of the entire application. Harbor does not inject into stremio web, it is its own from scratch shell, layered over the stremio ecosystem, allowing you to go beyond the traditional themeing. Customize the player's UI, your fonts, seek bar, colors or the entire thing!
 - **Theme Studio & Editor** Noob friendly theme studio lets anyone create their own custom theme with no code. Those that want control over every file can use a built in code editor for your themes.
 - **Intelligent stream ranking.** A pure Rust engine (compiled to WASM, with a TypeScript fallback) that parses every stream, filters out scams and fakes, and ranks high quality sources first.
-- **Corpus Engine.** During the initial release of In-cinema movies, Harbor gates the results based on heuristic factors like file size, average quality consensus, year and metadata ranking and other factors to deliver you a cleaner experience during the period of a fresh release. Harbor will surface the most likely CAMS, TeleSyncs/Telecines and other reasonable options without you needing to do anything.
+- **Stream consistency checks.** Harbor compares file size, quality signals, year, and metadata across results to help identify mislabeled or unreliable sources.
 - **Go Deep.** Dive deep into your favorite shows, actors, genres and more. View lists of award recipients for the Oscars, BAFTA, Cannes, SAG, and more. Anime cast and award metadata, along with Episode/Season Deduplication and Merge. Your rows learn from your watch history and likes, to always suggest you your next best watch.
 - **Robust Appstore.** Harbor allows you to configure and install addons without leaving the desktop client by allowing you to natively install third party addons via a built in viewport. Easily manage your installed Addons and Browse for new ones in a bespoke experience that merges the Stremio Community addons API with the [Stremio-addons.net](https://stremio-addons.net) API, giving you wide coverage and custom reccomendations.
 - **Stremio-addons.net Integration.** The first platform with direct community ratings, top trending, and manifest feed to the [Stremio-addons.net](https://stremio-addons.net) API
@@ -215,11 +219,11 @@ parse  ->  trust  ->  score  ->  rank
 | Stage     | What happens                                                                                                                                                                                                                                                                                                       |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Parse** | Extracts resolution, HDR flavor (Dolby Vision, HDR10, HDR10+, HLG), video codec, source type, audio codec and channel layout (Atmos, TrueHD, DTS-HD MA, 5.1/7.1), languages, file size, seeders, container, release group, edition tags, season/episode, and an anime aware filename pass for CRC and batch ranges |
-| **Trust** | Drops dead links, placeholders, cams and telecines, trailers and extras, undersized stubs, cinema window fakes, and title, year, season, or episode mismatches; floats well regarded release groups upward                                                                                                         |
-| **Score** | Rewards debrid cached sources, resolution, HDR and lossless audio, seeders, trusted release groups, REMUX, and preferred language matches; penalizes cams, mismatches, and implausible sizes. Every signal is recorded so the reason is inspectable                                                                |
+| **Trust** | Filters dead links, placeholders, low quality sources, trailers and extras, undersized files, and title, year, season, or episode mismatches using metadata and source reliability signals |
+| **Score** | Weighs availability, resolution, HDR, audio quality, source reliability, and preferred language matches; penalizes mismatches and implausible sizes. Every signal is recorded so the reason is inspectable |
 | **Rank**  | Sorts into quality tiers (4K DV, 4K HDR, 4K, 1080p HDR, 1080p, 720p, SD) and surfaces the best cached pick first, with partial results streamed to the UI as addons respond                                                                                                                                        |
 
-Debrid services are checked live and uniformly: **Real-Debrid, AllDebrid, Premiumize, Debrid-Link, and TorBox**. Cache hints embedded by popular addons are read directly, and every torrent hash is cross checked against your debrid library to catch what the cache API misses. No debrid is required: Harbor can stream torrents directly through the bundled Stremio Server engine. All keys stay on your device.
+Optional debrid integrations support **Real-Debrid, AllDebrid, Premiumize, Debrid-Link, and TorBox**. Harbor checks availability through your configured services and reads cache metadata supplied by addons. These services are not required to play local files or supported streams. All keys stay on your device. Use connected services only for content you are authorized to access.
 
 <p align="right"><a href="#readme-top">&#9650; back to top</a></p>
 
@@ -346,7 +350,7 @@ Harbor's theme engine changes more than colors. A theme can reshape the entire n
 | **Kitsu / AniZip**  | Anime metadata, cross database ID mapping, and per episode detail                                                                                                                                                                 |
 | **Trakt**           | OAuth device sign in, automatic scrobbling, watchlist and history, personalized movie and series recommendations, an Up Next calendar rail, and your avatar in the sidebar                                                        |
 | **Stremio**         | Account sign in, Continue Watching sync, installed-addon collection sync, and catalog, meta, stream, and subtitle resources from every installed addon                                                                            |
-| **Debrid**          | Real-Debrid, AllDebrid, Premiumize, Debrid-Link, and TorBox for cached, instant playback                                                                                                                                          |
+| **Debrid**          | Optional Real-Debrid, AllDebrid, Premiumize, Debrid-Link, and TorBox integrations for availability checks and playback through your configured account |
 
 Awards laurels surface across detail pages, covering Oscar, Emmy, BAFTA, Golden Globe, SAG, Cannes, Berlin, Critics Choice, and Annie/Kobe honors.
 
@@ -417,7 +421,7 @@ Download the latest build for macOS or Windows from the [Releases page][releases
 > [!NOTE]
 > **First launch on macOS.** Harbor's macOS builds carry an ad-hoc code signature rather than an Apple Developer ID, so Gatekeeper reports it as coming from an unidentified developer and some antivirus tools flag the download. Drag Harbor to Applications, then either run `xattr -dr com.apple.quarantine /Applications/Harbor.app` in Terminal, or open **System Settings > Privacy & Security** and choose **Open Anyway**. If you would rather not trust a binary, [build from source](#build-from-source).
 
-**Out of the box, Harbor works on Cinemeta.** You can browse, play, and cast immediately. Adding a free **TMDB key** in Settings is optional and unlocks the richer trending, theaters, per service, and Watch on experiences described above. Your installed Stremio addons merge in automatically when you sign in, deduplicated against the built in rails.
+**Out of the box, Harbor lets you browse Cinemeta's metadata catalog.** Playback and casting require your own media or a configured source you are authorized to access. Adding a free **TMDB key** in Settings is optional and unlocks the richer trending, theaters, per service, and Watch on experiences described above. Your installed Stremio addons merge in automatically when you sign in, deduplicated against the built in rails.
 
 <p align="right"><a href="#readme-top">&#9650; back to top</a></p>
 
@@ -435,7 +439,7 @@ All keys and preferences live in **Settings** and persist locally. Nothing is se
 | `Region`               | `US`         | ISO 3166-1; drives theatrical windows and streaming availability                            |
 | `Debrid keys`          | none         | Real-Debrid, AllDebrid, Premiumize, Debrid-Link, TorBox; used by the stream engine          |
 | `Player engine`        | `Auto`       | Auto, native libmpv, or HTML5/WebView2                                                      |
-| `Stream safety filter` | `Strict`     | Strict, Balanced, or Off; controls how aggressively cams and mismatches are dropped         |
+| `Stream safety filter` | `Strict`     | Strict, Balanced, or Off; controls filtering of low quality sources and metadata mismatches |
 | `Trakt`                | disconnected | OAuth device sign in for scrobbling, watchlist, history, and recommendations                |
 
 <p align="right"><a href="#readme-top">&#9650; back to top</a></p>
@@ -587,7 +591,7 @@ Directional, not a set of promises. Priorities shift with feedback.
 ## FAQ
 
 **Does Harbor provide content?**
-No. Harbor hosts and indexes nothing. It is a client for the Stremio addon protocol, and what you can browse or play depends entirely on the addons and services you configure.
+No. Harbor hosts and indexes nothing. It is a client for the Stremio addon protocol, with a metadata catalog for discovery. Playback depends on your own media and the addons and services you configure. Only use sources you are authorized to access.
 
 **Do I need a TMDB key?**
 No. Harbor works out of the box on Cinemeta. A free TMDB key is recommended because it unlocks trending rails, in theaters, top rated, per service rows, and Watch on chips.
@@ -599,7 +603,7 @@ No. Harbor is an independent open source client built on the open Stremio addon 
 Tauri uses the system WebView and a Rust backend, which keeps the app small and lets the stream ranking core run as compiled WebAssembly.
 
 **Do I need a debrid account?**
-No. You can stream torrents directly through the bundled Stremio Server engine. A debrid service is optional and adds cached, instant playback.
+No. Harbor supports local files and compatible streams without a debrid account. Debrid integrations are optional; use them only for content you are authorized to access and in accordance with the service's terms.
 
 <p align="right"><a href="#readme-top">&#9650; back to top</a></p>
 
@@ -626,7 +630,7 @@ We aim to respond to issues and pull requests promptly. Be kind, be specific, an
 ## Disclaimer
 
 > [!IMPORTANT]
-> Harbor is an independent, open source media player and a client for the open Stremio addon protocol. It is not affiliated with, endorsed by, or associated with Stremio Ltd. Harbor hosts no media, indexes no media, and ships no content addons. It provides no streams of its own. You choose which addons and sources to configure, and you are responsible for ensuring that your use complies with the laws of your jurisdiction and with the terms of any service you connect.
+> Harbor is an independent, open source media player and a client for the open Stremio addon protocol. It is not affiliated with, endorsed by, or associated with Stremio Ltd. Harbor hosts no media, indexes no media, and ships no content addons. It provides no streams of its own and does not endorse piracy or unauthorized access to copyrighted content. Use Harbor only with media you own or are otherwise authorized to access. You choose which addons and sources to configure, and you are responsible for ensuring that your use complies with the laws of your jurisdiction and with the terms of any service you connect.
 
 <p align="right"><a href="#readme-top">&#9650; back to top</a></p>
 
