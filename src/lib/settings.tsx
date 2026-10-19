@@ -33,6 +33,7 @@ import type { Settings, StreamingService } from "./settings/types";
 import { markSectionDirty } from "./profile-sync/scheduler";
 import { configureLayoutStore } from "./layout-sync/store";
 import { SYNCED_SETTINGS_FIELDS } from "./layout-sync/sections";
+import { startTrayMenuBridge, type TrayMenuBridge } from "./tray-menu-bridge";
 
 export type {
   ContentCategory,
@@ -97,6 +98,9 @@ export function SettingsProvider({
   const [torrentEnginePolicyPending, setTorrentEnginePolicyPending] = useState(false);
   const [torrentEnginePolicyError, setTorrentEnginePolicyError] = useState(false);
   const settingsRef = useRef(settings);
+  const trayBridgeRef = useRef<TrayMenuBridge | null>(null);
+  const [trayPrefsReady, setTrayPrefsReady] = useState(false);
+  const [trayListenersReady, setTrayListenersReady] = useState(false);
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
@@ -391,8 +395,10 @@ export function SettingsProvider({
   }, [settings.customAppIcon]);
 
   useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
+    if (!settingsReady || !("__TAURI_INTERNALS__" in window)) return;
+    let cancelled = false;
     void import("@tauri-apps/api/core").then(({ invoke }) => {
+      if (cancelled) return;
       void invoke("tray_set_prefs", {
         prefs: {
           closeToTray: settings.closeToTray,
@@ -400,9 +406,17 @@ export function SettingsProvider({
           pauseMinimized: settings.pauseMinimized,
           pauseUnfocused: settings.pauseUnfocused,
         },
-      }).catch((e) => console.warn("[harbor] tray_set_prefs failed", e));
+      })
+        .then(() => {
+          if (!cancelled) setTrayPrefsReady(true);
+        })
+        .catch((e) => console.warn("[harbor] tray_set_prefs failed", e));
     });
+    return () => {
+      cancelled = true;
+    };
   }, [
+    settingsReady,
     settings.closeToTray,
     settings.trayAlwaysOnTop,
     settings.pauseMinimized,
@@ -419,7 +433,7 @@ export function SettingsProvider({
       else unlisteners.push(u);
     };
     void import("@tauri-apps/api/event").then(({ listen }) => {
-      void listen<{
+      const prefs = listen<{
         closeToTray: boolean;
         alwaysOnTop: boolean;
         pauseMinimized: boolean;
@@ -434,23 +448,46 @@ export function SettingsProvider({
           pauseUnfocused: p.pauseUnfocused,
         }));
       }).then(track);
-      void listen("harbor://cycle-theme", () => {
+      const cycle = listen("harbor://cycle-theme", () => {
         setSettings((s) => ({
           ...s,
           theme: { ...s.theme, preset: nextColorTheme(s.theme.preset) },
         }));
       }).then(track);
-      void listen<string>("harbor://set-theme", (e) => {
+      const theme = listen<string>("harbor://set-theme", (e) => {
         const id = e.payload;
-        if (!id || (!isKnownPreset(id) && !id.startsWith("user:"))) return;
+        if (
+          !id ||
+          (!isKnownPreset(id) && !(id === "custom" && settingsRef.current.theme.customColors))
+        )
+          return;
         setSettings((s) => ({ ...s, theme: { ...s.theme, preset: id as typeof s.theme.preset } }));
       }).then(track);
+      void Promise.all([prefs, cycle, theme])
+        .then(() => {
+          if (!cancelled) setTrayListenersReady(true);
+        })
+        .catch((error) => console.warn("[harbor] tray listeners failed", error));
     });
     return () => {
       cancelled = true;
       unlisteners.forEach((u) => u());
     };
   }, []);
+
+  useEffect(() => {
+    if (!settingsReady || !trayPrefsReady || !trayListenersReady) return;
+    const bridge = startTrayMenuBridge(() => settingsRef.current);
+    trayBridgeRef.current = bridge;
+    return () => {
+      bridge?.dispose();
+      trayBridgeRef.current = null;
+    };
+  }, [settingsReady, trayPrefsReady, trayListenersReady]);
+
+  useEffect(() => {
+    trayBridgeRef.current?.refresh();
+  }, [settings.theme, settings.customCss, settings.uiLanguage, settings.region]);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;

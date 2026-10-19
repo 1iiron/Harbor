@@ -138,6 +138,8 @@ mod thumbs;
 mod trailer;
 #[cfg(desktop)]
 mod tray;
+#[cfg(windows)]
+mod tray_popup;
 #[cfg(desktop)]
 mod webview_helpers;
 #[cfg(windows)]
@@ -832,7 +834,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin({
-            let builder = tauri_plugin_window_state::Builder::default().with_denylist(&["harbor-ytmusic-embed"]).with_state_flags(
+            let builder = tauri_plugin_window_state::Builder::default().with_denylist(&["harbor-ytmusic-embed", "harbor-tray-menu"]).with_state_flags(
                 tauri_plugin_window_state::StateFlags::SIZE
                     | tauri_plugin_window_state::StateFlags::POSITION
                     | tauri_plugin_window_state::StateFlags::MAXIMIZED,
@@ -1045,6 +1047,10 @@ pub fn run() {
                     );
                 }
                 tauri::WindowEvent::Destroyed => {
+                    #[cfg(windows)]
+                    if let Err(error) = tray_popup::destroy(window.app_handle()) {
+                        eprintln!("[harbor::tray] cleanup failed: {error}");
+                    }
                     shutdown_services(window.app_handle());
                 }
                 _ => {}
@@ -1589,6 +1595,18 @@ pub fn run() {
             local_lib::harbor_scan_folder,
             tray::tray_set_prefs,
             tray::tray_set_custom_themes,
+            #[cfg(windows)]
+            tray_popup::tray_popup_publish,
+            #[cfg(windows)]
+            tray_popup::tray_popup_snapshot,
+            #[cfg(windows)]
+            tray_popup::tray_popup_present,
+            #[cfg(windows)]
+            tray_popup::tray_popup_dismiss,
+            #[cfg(windows)]
+            tray_popup::tray_popup_submenu,
+            #[cfg(windows)]
+            tray_popup::tray_popup_action,
             stremio_auth::stremio_auth_start,
             song_id::recognize_now_playing,
             song_id::recognize_now_playing_ai,

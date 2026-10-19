@@ -86,7 +86,7 @@ export default defineConfig(({ mode }) => {
             rollupOptions: { input: { tv: "index-tv.html", main: "index.html" } },
           },
         }
-      : { build: { rollupOptions: { input: { main: "index.html", retro: "retro-player.html" } } } }),
+      : { build: { rollupOptions: { input: { main: "index.html", retro: "retro-player.html", tray: "tray.html" } } } }),
     server: {
       host: devHost || "127.0.0.1",
       port: 1420,
