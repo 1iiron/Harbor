@@ -291,20 +291,22 @@ fn ensure_window(app: AppHandle) {
             }
             // The persistent hidden tray window keeps this popup out of Alt+Tab
             // without inheriting the main window's minimize/hide behavior.
-            WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::App("tray.html".into()))
-                .owner_raw(windows::Win32::Foundation::HWND(owner as *mut _))
-                .title("Harbor")
-                .inner_size(520.0, 450.0)
-                .visible(false)
-                .focused(false)
-                .decorations(false)
-                .transparent(true)
-                .shadow(false)
-                .resizable(false)
-                .maximizable(false)
-                .minimizable(false)
-                .skip_taskbar(true)
-                .always_on_top(true)
+            let builder =
+                WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::App("tray.html".into()))
+                    .owner_raw(windows::Win32::Foundation::HWND(owner as *mut _))
+                    .title("Harbor")
+                    .inner_size(520.0, 450.0)
+                    .visible(false)
+                    .focused(false)
+                    .decorations(false)
+                    .transparent(true)
+                    .shadow(false)
+                    .resizable(false)
+                    .maximizable(false)
+                    .minimizable(false)
+                    .skip_taskbar(true)
+                    .always_on_top(true);
+            crate::browser_args::match_main(&app, builder)
                 .build()
                 .map_err(|error| error.to_string())
         })();
