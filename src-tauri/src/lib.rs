@@ -13,6 +13,7 @@ mod cast_subs;
 mod context_review;
 mod crash_report;
 mod diagnostics;
+mod log_privacy;
 mod download;
 mod download_file_policy;
 mod download_files;

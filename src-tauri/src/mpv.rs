@@ -393,7 +393,7 @@ fn apply_pre_init(
     // PROPERTY_NOT_FOUND as non-fatal so the player still initializes.
     let set = |k: &str, v: &str| {
         if let Err(e) = init.set_property(k, v) {
-            eprintln!("[harbor::mpv] pre-init skip {}={}: {}", k, v, e);
+            eprintln!("[harbor::mpv] pre-init skip {}: {}", k, e);
         }
     };
     // Scripts and script options must be applied before mpv initializes; they
@@ -408,6 +408,7 @@ fn apply_pre_init(
     set("title", "Harbor");
     set("audio-client-name", "Harbor");
     set("terminal", "no");
+    set("log-file", "");
     set("msg-level", "all=warn,vo=v,d3d11=v,gpu=v,win32=v");
     let is_live = args.is_live.unwrap_or(false);
     set("ytdl", if is_live { "yes" } else { "no" });
@@ -592,7 +593,10 @@ fn parse_extra_option_lines(raw: &str) -> Vec<(String, String)> {
             (line, "yes")
         };
         let key = key.trim_start_matches("--").trim();
-        if key.is_empty() {
+        if key.is_empty()
+            || key.eq_ignore_ascii_case("log-file")
+            || key.eq_ignore_ascii_case("terminal")
+        {
             continue;
         }
         options.push((key.to_string(), value.to_string()));
@@ -677,18 +681,12 @@ fn join_init_only_pairs(pairs: &[(String, String)]) -> Vec<(String, String)> {
 fn apply_extra_mpv_options(mpv: &Mpv, raw: &str) {
     for (key, value) in parse_extra_option_lines(raw) {
         if is_init_only_key(&key) {
-            eprintln!(
-                "[harbor::mpv] extra option {}={} skipped (init-only)",
-                key, value
-            );
+            eprintln!("[harbor::mpv] extra option {} skipped (init-only)", key);
             continue;
         }
         match mpv.set_property(&key, value.as_str()) {
-            Ok(()) => eprintln!("[harbor::mpv] extra option set {}={}", key, value),
-            Err(e) => eprintln!(
-                "[harbor::mpv] extra option {}={} rejected: {:?}",
-                key, value, e
-            ),
+            Ok(()) => eprintln!("[harbor::mpv] extra option set {}", key),
+            Err(e) => eprintln!("[harbor::mpv] extra option {} rejected: {:?}", key, e),
         }
     }
 }
@@ -927,16 +925,8 @@ pub async fn mpv_start(
     }
 
     unsafe {
-        let level = std::ffi::CString::new("warn").unwrap();
+        let level = std::ffi::CString::new("v").unwrap();
         libmpv2_sys::mpv_request_log_messages(mpv.ctx.as_ptr(), level.as_ptr());
-    }
-    {
-        use tauri::Manager;
-        if let Ok(dir) = app.path().app_data_dir() {
-            let _ = std::fs::create_dir_all(&dir);
-            let logp = dir.join("harbor-mpv.log");
-            let _ = mpv.set_property("log-file", logp.to_string_lossy().as_ref());
-        }
     }
     let use_render_api = (cfg!(target_os = "macos") || cfg!(target_os = "linux")) && want_embed;
     if !use_render_api {
@@ -1213,7 +1203,11 @@ pub async fn mpv_start(
         for subtitle in subs {
             let url = subtitle.url.replace('\\', "/");
             if let Err(error) = mpv_argv_command(&mpv_arc, &["sub-add", &url, "auto"]) {
-                eprintln!("[harbor::mpv] sub-add failed for {}: {}", url, error);
+                eprintln!(
+                    "[harbor::mpv] sub-add failed for {}: {}",
+                    crate::log_privacy::scrub(&url),
+                    error
+                );
             }
         }
     }
@@ -1344,6 +1338,10 @@ fn spawn_event_loop(
     #[cfg(windows)] hdr_monitor: Option<isize>,
 ) {
     std::thread::spawn(move || {
+        let log = app.path().app_data_dir().ok().and_then(|dir| {
+            std::fs::create_dir_all(&dir).ok()?;
+            crate::log_privacy::start_log(&dir.join("harbor-mpv.log")).ok()
+        });
         let mut last_timepos: Option<std::time::Instant> = None;
         #[cfg(windows)]
         let reassert_gen = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -1375,6 +1373,17 @@ fn spawn_event_loop(
             match res {
                 Some(Ok(event)) => {
                     record_event_poll_success(&mut error_backoff);
+                    if let Event::LogMessage {
+                        prefix,
+                        level,
+                        text,
+                        ..
+                    } = &event
+                    {
+                        if let Some(log) = &log {
+                            let _ = log.try_send(format!("[{prefix}] {level}: {text}"));
+                        }
+                    }
                     let mut shutdown = false;
                     if matches!(event, Event::Shutdown) {
                         shutdown = true;
@@ -1530,7 +1539,9 @@ fn event_to_payload(event: Event) -> Option<Value> {
             level,
             text,
             ..
-        } => Some(json!({ "event": "log", "prefix": prefix, "level": level, "text": text })),
+        } if matches!(level, "fatal" | "error" | "warn") => Some(
+            json!({ "event": "log", "prefix": crate::log_privacy::scrub(prefix), "level": level, "text": crate::log_privacy::scrub(text) }),
+        ),
         _ => None,
     }
 }
@@ -1617,6 +1628,10 @@ const MPV_ALLOWED_COMMANDS: &[&str] = &[
 
 fn mpv_property_blocked(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
+    let n = n
+        .strip_prefix("options/")
+        .or_else(|| n.strip_prefix("file-local-options/"))
+        .unwrap_or(&n);
     const BLOCKED: &[&str] = &[
         "script",
         "input-",
@@ -1625,6 +1640,8 @@ fn mpv_property_blocked(name: &str) -> bool {
         "screenshot-directory",
         "screenshot-template",
         "sub-add",
+        "log-file",
+        "terminal",
     ];
     BLOCKED.iter().any(|b| n.starts_with(b))
 }
@@ -1824,7 +1841,9 @@ pub fn mpv_export_log(app: AppHandle) -> Result<String, String> {
     }
     let dl = app.path().download_dir().map_err(|e| e.to_string())?;
     let dst = dl.join("harbor-mpv-log.txt");
-    std::fs::copy(&src, &dst).map_err(|e| format!("copy: {}", e))?;
+    let raw = std::fs::read(&src).map_err(|e| format!("read: {}", e))?;
+    let scrubbed = crate::log_privacy::scrub(&String::from_utf8_lossy(&raw));
+    std::fs::write(&dst, scrubbed).map_err(|e| format!("write: {}", e))?;
     Ok(dst.to_string_lossy().into_owned())
 }
 

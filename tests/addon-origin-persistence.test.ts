@@ -21,6 +21,25 @@ test("persisted addon origins never retain configured transport URLs", () => {
   assert.doesNotMatch(JSON.stringify(origin), /secret-api-key/);
 });
 
+test("persisted origins reject network URLs and credential-like suffixes on plugin identifiers", () => {
+  for (const base of [
+    "https://user:password@addon.example/manifest.json",
+    "https://addon.example/manifest.json?token=secret",
+    "harbor-plugin://plugin:example/provider?token=secret",
+    "harbor-plugin://user:password@host/provider",
+  ]) {
+    assert.equal(persistableAddonOrigin({ id: "example", name: "Example", base })?.base, undefined);
+  }
+  assert.equal(
+    persistableAddonOrigin({
+      id: "example",
+      name: "Example",
+      base: "harbor-plugin://plugin:example/provider",
+    })?.base,
+    "harbor-plugin://plugin:example/provider",
+  );
+});
+
 test("persisted video metadata strips playable streams and signed URLs", () => {
   const videos = persistableVideos([
     {

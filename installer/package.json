@@ -1,6 +1,6 @@
 {
   "name": "harbor-shipyard",
-  "version": "0.9.132",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
