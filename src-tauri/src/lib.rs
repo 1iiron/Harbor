@@ -200,6 +200,33 @@ static CLOSE_IN_PROGRESS: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 static MAXGUARD_CLAMP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 #[cfg(desktop)]
+fn desktop_invoke_handler<F>(
+    handler: F,
+) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static
+where
+    F: Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static,
+{
+    move |invoke| {
+        // Plugin commands use capabilities; local app commands need this explicit popup boundary.
+        #[cfg(windows)]
+        {
+            let webview = invoke.message.webview_ref();
+            if !tray_popup::app_command_allowed(
+                webview.window().label(),
+                webview.label(),
+                invoke.message.command(),
+            ) {
+                invoke
+                    .resolver
+                    .reject("Command unavailable to the tray menu");
+                return true;
+            }
+        }
+        handler(invoke)
+    }
+}
+
+#[cfg(desktop)]
 #[tauri::command]
 fn set_maximize_clamp(enabled: bool) {
     MAXGUARD_CLAMP.store(enabled, std::sync::atomic::Ordering::Relaxed);
@@ -1056,7 +1083,7 @@ pub fn run() {
                 _ => {}
             }
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(desktop_invoke_handler(tauri::generate_handler![
             games::games_pokemon,
             games::games_scan_steam,
             games::steam_shortcut_commands::games_scan_steam_shortcuts,
@@ -1614,7 +1641,7 @@ pub fn run() {
             deeplink_set_stremio,
             deeplink_is_stremio_registered,
             harbor_take_pending_file,
-        ])
+        ]))
         .build(context)
         .expect("error while building tauri application")
         .run(|app_handle, event| {

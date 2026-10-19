@@ -244,6 +244,18 @@ fn check_caller(window: &WebviewWindow, expected: &str) -> Result<(), String> {
     check_caller_label(window.label(), expected)
 }
 
+pub fn app_command_allowed(window: &str, webview: &str, command: &str) -> bool {
+    (window != LABEL && webview != LABEL)
+        || matches!(
+            command,
+            "tray_popup_snapshot"
+                | "tray_popup_present"
+                | "tray_popup_dismiss"
+                | "tray_popup_submenu"
+                | "tray_popup_action"
+        )
+}
+
 pub fn initialize(app: &AppHandle, tray: &TrayIcon) -> Result<(), String> {
     app.manage(PopupState::default());
     // Keep the native menu attached for immediate fallback, but avoid showing both menus.
@@ -750,6 +762,58 @@ mod tests {
             assert!(check_caller_label(label, LABEL).is_err());
         }
         assert!(check_caller_label(LABEL, "main").is_err());
+    }
+
+    #[test]
+    fn popup_invoke_gate_allows_only_the_five_popup_commands() {
+        for command in [
+            "tray_popup_snapshot",
+            "tray_popup_present",
+            "tray_popup_dismiss",
+            "tray_popup_submenu",
+            "tray_popup_action",
+        ] {
+            assert!(app_command_allowed(LABEL, LABEL, command));
+        }
+        for command in [
+            "tray_popup_publish",
+            "tray_set_prefs",
+            "harbor_scan_folder",
+            "games_launch_custom",
+            "unknown",
+        ] {
+            assert!(!app_command_allowed(LABEL, LABEL, command));
+        }
+        assert!(!app_command_allowed(
+            LABEL,
+            "other-webview",
+            "tray_popup_publish"
+        ));
+        assert!(!app_command_allowed(
+            "other-window",
+            LABEL,
+            "tray_popup_publish"
+        ));
+    }
+
+    #[test]
+    fn popup_invoke_gate_preserves_existing_windows_dispatch() {
+        for label in [
+            "main",
+            "harbor-browser",
+            "harbor-pip",
+            "harbor-tray-menu-other",
+        ] {
+            for command in [
+                "tray_popup_publish",
+                "tray_set_prefs",
+                "harbor_scan_folder",
+                "games_launch_custom",
+                "unknown",
+            ] {
+                assert!(app_command_allowed(label, label, command));
+            }
+        }
     }
 
     #[test]
