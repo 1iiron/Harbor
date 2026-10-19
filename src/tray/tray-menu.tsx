@@ -77,7 +77,7 @@ export function TrayMenu({ snapshot, onAction, onDismiss, onSubmenuChange }: Pro
     focus(themeButtons.current[Math.max(0, selected)]);
   }, [submenu, display]);
 
-  if (!display || !snapshot.open) return null;
+  if (!display || (!snapshot.open && !snapshot.closing)) return null;
 
   const { labels, themes, direction } = display;
   const openKey = direction === "rtl" ? "ArrowLeft" : "ArrowRight";

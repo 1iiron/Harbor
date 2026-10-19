@@ -3,12 +3,18 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { TrayMenu } from "./tray/tray-menu";
+import { fadeTrayMenu, presentTrayMenu } from "./tray/tray-motion";
 import { newerSnapshot, type TrayAction, type TraySnapshot } from "./tray/types";
 import "./tray/tray-menu.css";
 
 function TrayRoot() {
   const [snapshot, setSnapshot] = useState<TraySnapshot | null>(null);
   const presented = useRef(0);
+  const motion = useRef<HTMLDivElement>(null);
+  const openId = snapshot?.openId ?? 0;
+  const open = snapshot?.open ?? false;
+  const closing = snapshot?.closing ?? false;
+  const hasDisplay = !!snapshot?.display;
   const accept = useCallback((incoming: TraySnapshot) => {
     setSnapshot((current) => newerSnapshot(current, incoming));
   }, []);
@@ -42,15 +48,35 @@ function TrayRoot() {
       element.style.setProperty(key, value);
     element.dir = display.direction;
     element.style.colorScheme = display.colorScheme;
-    if (!snapshot.open || presented.current === snapshot.openId) return;
-    presented.current = snapshot.openId;
-    // Commit the themed panel's layout before asking native code to reveal it.
-    // Hidden WebViews may suspend animation frames, so readiness uses the commit.
-    document.getElementById("root")?.getBoundingClientRect();
-    void invoke("tray_popup_present", { openId: snapshot.openId }).catch((error) => {
-      console.error("[harbor::tray] presentation failed", error);
-    });
   }, [snapshot]);
+
+  useLayoutEffect(() => {
+    const element = motion.current;
+    if (!element || !hasDisplay) return;
+    const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (open) {
+      if (presented.current === openId) return;
+      presented.current = openId;
+      // Commit the themed panel before native code reveals the transparent window.
+      element.getBoundingClientRect();
+      const presentation = presentTrayMenu(
+        element,
+        () => invoke("tray_popup_present", { openId }),
+        reducedMotion,
+      );
+      void presentation.ready.catch((error) => {
+        console.error("[harbor::tray] presentation failed", error);
+      });
+      return presentation.cancel;
+    }
+    if (closing) {
+      return fadeTrayMenu(element, 0, reducedMotion(), () => {
+        void invoke<TraySnapshot>("tray_popup_dismiss", { completedOpenId: openId })
+          .then(accept)
+          .catch((error) => console.error("[harbor::tray] dismissal failed", error));
+      });
+    }
+  }, [openId, open, closing, hasDisplay, accept]);
 
   const action = useCallback(
     async (value: TrayAction) => {
@@ -59,22 +85,29 @@ function TrayRoot() {
     [accept],
   );
   const dismiss = useCallback(() => {
-    void invoke("tray_popup_dismiss").catch((error) =>
-      console.error("[harbor::tray] dismissal failed", error),
-    );
-  }, []);
+    void invoke<TraySnapshot>("tray_popup_dismiss")
+      .then(accept)
+      .catch((error) => console.error("[harbor::tray] dismissal failed", error));
+  }, [accept]);
   const submenu = useCallback(async (open: boolean) => {
     await invoke("tray_popup_submenu", { open });
   }, []);
 
-  return snapshot?.open && snapshot.display ? (
-    <TrayMenu
+  return snapshot && (open || closing) && snapshot.display ? (
+    <div
       key={snapshot.openId}
-      snapshot={snapshot}
-      onAction={action}
-      onDismiss={dismiss}
-      onSubmenuChange={submenu}
-    />
+      ref={motion}
+      className="tray-motion"
+      inert={closing}
+      aria-hidden={closing || undefined}
+    >
+      <TrayMenu
+        snapshot={snapshot}
+        onAction={action}
+        onDismiss={dismiss}
+        onSubmenuChange={submenu}
+      />
+    </div>
   ) : null;
 }
 

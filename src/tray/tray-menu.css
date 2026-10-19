@@ -22,6 +22,14 @@ button {
   font: inherit;
   color: inherit;
 }
+.tray-motion {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+}
+.tray-motion[inert] {
+  pointer-events: none;
+}
 .tray-envelope {
   position: relative;
   width: 100%;

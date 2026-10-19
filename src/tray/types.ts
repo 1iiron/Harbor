@@ -29,6 +29,7 @@ export type TraySnapshot = {
   revision: number;
   openId: number;
   open: boolean;
+  closing: boolean;
   prefs: TrayPrefs;
   display: TrayDisplay | null;
   layout: TrayLayout;

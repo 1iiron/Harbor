@@ -10,6 +10,7 @@ function snapshot(revision = 1): TraySnapshot {
     revision,
     openId: 1,
     open: true,
+    closing: false,
     prefs: { closeToTray: false, alwaysOnTop: false, pauseMinimized: true, pauseUnfocused: false },
     display: {
       themeId: "nord",
@@ -212,4 +213,18 @@ test("an older snapshot cannot overwrite a newer event or resurrect a closed men
   assert.equal(newerSnapshot(current, snapshot(4)), current);
   assert.equal(newerSnapshot(current, snapshot(5)), current);
   assert.equal(newerSnapshot(current, snapshot(6)).revision, 6);
+});
+
+test("closing retains the existing menu until native dismissal completes", async () => {
+  const h = await harness();
+  try {
+    const header = document.querySelector("header");
+    await h.render({ ...snapshot(2), open: false, closing: true });
+    assert.equal(document.querySelector("header"), header);
+    assert.equal(document.querySelectorAll("[data-tray-action]").length, 7);
+    await h.render({ ...snapshot(3), open: false, closing: false });
+    assert.equal(document.querySelector("header"), null);
+  } finally {
+    await h.cleanup();
+  }
 });

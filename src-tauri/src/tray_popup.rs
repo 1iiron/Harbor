@@ -15,6 +15,7 @@ mod geometry;
 pub const LABEL: &str = "harbor-tray-menu";
 const EVENT: &str = "harbor://tray-menu-state";
 const READY_TIMEOUT: Duration = Duration::from_secs(3);
+const CLOSE_TIMEOUT: Duration = Duration::from_millis(250);
 const TOKEN_KEYS: [&str; 12] = [
     "--color-canvas",
     "--color-surface",
@@ -171,6 +172,7 @@ pub struct Snapshot {
     revision: u64,
     open_id: u64,
     open: bool,
+    closing: bool,
     prefs: crate::tray::TrayPrefs,
     display: Option<TrayDisplay>,
     layout: Layout,
@@ -194,6 +196,30 @@ impl Popup {
         self.open && self.open_id == id && !self.presented && self.display.is_some()
     }
 
+    fn closing(&self) -> bool {
+        !self.open && self.presented
+    }
+
+    fn begin_dismiss(&mut self) -> bool {
+        if !self.open {
+            return false;
+        }
+        self.cancel_watchdog();
+        self.open = false;
+        self.revision = self.revision.wrapping_add(1);
+        true
+    }
+
+    fn complete_dismiss(&mut self, id: u64) -> bool {
+        if !self.closing() || self.open_id != id {
+            return false;
+        }
+        self.cancel_watchdog();
+        self.presented = false;
+        self.revision = self.revision.wrapping_add(1);
+        true
+    }
+
     fn cancel_watchdog(&mut self) {
         if let Some(watchdog) = self.watchdog.take() {
             watchdog.abort();
@@ -205,6 +231,7 @@ impl Popup {
             revision: self.revision,
             open_id: self.open_id,
             open: self.open,
+            closing: self.closing(),
             prefs: crate::tray::current_prefs(),
             display: self.display.clone(),
             layout: self.geometry.map(Layout::from).unwrap_or_else(|| Layout {
@@ -306,9 +333,14 @@ fn ensure_window(app: AppHandle) {
                     .minimizable(false)
                     .skip_taskbar(true)
                     .always_on_top(true);
-            crate::browser_args::match_main(&app, builder)
+            let window = crate::browser_args::match_main(&app, builder)
                 .build()
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.to_string())?;
+            if let Err(error) = disable_native_transitions(&window) {
+                // A cosmetic DWM failure must not take away the working menu.
+                eprintln!("[harbor::tray] disable native transitions: {error}");
+            }
+            Ok(window)
         })();
         match result {
             Ok(window) => {
@@ -469,7 +501,7 @@ fn fallback(app: &AppHandle, id: u64, error: &str) {
         return;
     }
     eprintln!("[harbor::tray] {error}; using native menu");
-    if let Err(error) = dismiss(app) {
+    if let Err(error) = dismiss_immediately(app) {
         eprintln!("[harbor::tray] fallback dismiss: {error}");
     }
     if let Some(tray) = app.tray_by_id("harbor-tray") {
@@ -480,16 +512,66 @@ fn fallback(app: &AppHandle, id: u64, error: &str) {
 }
 
 fn dismiss(app: &AppHandle) -> Result<Snapshot, String> {
+    let (started, snapshot) = with_state(app, |state| {
+        let started = state.begin_dismiss();
+        (started, state.snapshot())
+    })?;
+    if !started {
+        return Ok(snapshot);
+    }
+    if snapshot.closing {
+        let handle = app.clone();
+        let id = snapshot.open_id;
+        // The frontend owns the 120ms fade; this bounds visibility if it stops responding.
+        let watchdog = tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(CLOSE_TIMEOUT).await;
+            let close_handle = handle.clone();
+            if let Err(error) = handle.run_on_main_thread(move || {
+                if let Err(error) = complete_dismiss(&close_handle, id) {
+                    eprintln!("[harbor::tray] finish close: {error}");
+                }
+            }) {
+                eprintln!("[harbor::tray] schedule close: {error}");
+            }
+        });
+        with_state(app, |state| {
+            if state.closing() && state.open_id == id {
+                state.watchdog = Some(watchdog);
+            } else {
+                watchdog.abort();
+            }
+        })?;
+    } else {
+        hide_window(app)?;
+    }
+    emit_state(app)
+}
+
+fn complete_dismiss(app: &AppHandle, id: u64) -> Result<Snapshot, String> {
+    if with_state(app, |state| state.complete_dismiss(id))? {
+        hide_window(app)?;
+        emit_state(app)
+    } else {
+        with_state(app, |state| state.snapshot())
+    }
+}
+
+fn dismiss_immediately(app: &AppHandle) -> Result<Snapshot, String> {
     with_state(app, |state| {
         state.cancel_watchdog();
         state.open = false;
         state.presented = false;
         state.revision = state.revision.wrapping_add(1);
     })?;
+    hide_window(app)?;
+    emit_state(app)
+}
+
+fn hide_window(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(LABEL) {
         window.hide().map_err(|error| error.to_string())?;
     }
-    emit_state(app)
+    Ok(())
 }
 
 pub fn prefs_changed(app: &AppHandle) -> Result<(), String> {
@@ -581,6 +663,23 @@ fn set_region(window: &WebviewWindow, g: geometry::Geometry, submenu: bool) -> R
     result
 }
 
+fn disable_native_transitions(window: &WebviewWindow) -> Result<(), String> {
+    use windows::core::BOOL;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED};
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    let disabled = BOOL::from(true);
+    // Keep Windows' scale/fade transition from competing with the menu's opacity fade.
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_TRANSITIONS_FORCEDISABLED,
+            (&disabled as *const BOOL).cast(),
+            std::mem::size_of::<BOOL>() as u32,
+        )
+    }
+    .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub fn tray_popup_publish(
     window: WebviewWindow,
@@ -653,9 +752,16 @@ pub fn tray_popup_present(
 }
 
 #[tauri::command]
-pub fn tray_popup_dismiss(window: WebviewWindow, app: AppHandle) -> Result<Snapshot, String> {
+pub fn tray_popup_dismiss(
+    window: WebviewWindow,
+    app: AppHandle,
+    completed_open_id: Option<u64>,
+) -> Result<Snapshot, String> {
     check_caller(&window, LABEL)?;
-    dismiss(&app)
+    match completed_open_id {
+        Some(id) => complete_dismiss(&app, id),
+        None => dismiss(&app),
+    }
 }
 
 #[tauri::command]
@@ -873,6 +979,95 @@ mod tests {
         popup.open = true;
         popup.presented = true;
         assert!(!popup.can_present(7));
+    }
+
+    #[test]
+    fn dismissal_keeps_the_presented_window_until_the_exit_fade_completes() {
+        let mut popup = Popup {
+            open: true,
+            presented: true,
+            open_id: 7,
+            ..Popup::default()
+        };
+        assert!(popup.begin_dismiss());
+        let snapshot = popup.snapshot();
+        assert!(!snapshot.open);
+        assert!(snapshot.closing);
+        assert!(popup.presented);
+        assert!(!popup.can_present(7));
+    }
+
+    #[test]
+    fn repeated_dismissal_and_stale_completion_do_not_change_a_closing_request() {
+        let mut popup = Popup {
+            open: true,
+            presented: true,
+            open_id: 7,
+            ..Popup::default()
+        };
+        assert!(popup.begin_dismiss());
+        let revision = popup.revision;
+        assert!(!popup.begin_dismiss());
+        assert_eq!(popup.revision, revision);
+        assert!(!popup.complete_dismiss(6));
+        assert!(popup.closing());
+        assert!(popup.complete_dismiss(7));
+        assert!(!popup.closing());
+        assert!(!popup.presented);
+        assert!(!popup.complete_dismiss(7));
+    }
+
+    #[test]
+    fn late_fade_completion_cannot_hide_a_reopened_menu() {
+        let mut popup = Popup {
+            open: true,
+            presented: true,
+            open_id: 7,
+            ..Popup::default()
+        };
+        assert!(popup.begin_dismiss());
+        popup.open_id = 8;
+        popup.open = true;
+        popup.presented = true;
+        assert!(!popup.complete_dismiss(7));
+        assert!(popup.open);
+        assert!(popup.presented);
+    }
+
+    #[test]
+    fn cancelling_an_unpresented_request_does_not_start_an_exit_fade() {
+        let mut popup = Popup {
+            open: true,
+            open_id: 7,
+            ..Popup::default()
+        };
+        assert!(popup.begin_dismiss());
+        assert!(!popup.snapshot().closing);
+        assert!(!popup.complete_dismiss(7));
+    }
+
+    #[tokio::test]
+    async fn fade_completion_cancels_the_close_failsafe() {
+        let task = tokio::spawn(std::future::pending::<()>());
+        let cancellation = task.abort_handle();
+        let mut popup = Popup {
+            open: false,
+            presented: true,
+            open_id: 7,
+            watchdog: Some(tauri::async_runtime::JoinHandle::Tokio(task)),
+            ..Popup::default()
+        };
+        assert!(!popup.complete_dismiss(6));
+        assert!(popup.watchdog.is_some());
+        assert!(popup.complete_dismiss(7));
+        assert!(popup.watchdog.is_none());
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !cancellation.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
