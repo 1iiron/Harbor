@@ -9449,7 +9449,7 @@ const SETTINGS_OPTIONS: SettingsOption[] = [
       "own server",
       "sync endpoint",
       "point to server",
-      "sync.harbor.site",
+      "sync.harborcommunity.site",
     ],
   },
   {
