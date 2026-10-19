@@ -44,6 +44,7 @@ import { useExitPresence } from "@/lib/use-exit-presence";
 import { useWindowFullscreen } from "@/lib/use-window-fullscreen";
 import { isMagnetInput, isDirectVideoUrl } from "@/lib/torrent/magnet";
 import { useProfiles } from "@/lib/profiles";
+import { useInstallFeatures } from "@/lib/features/install";
 import { steamStoreQuery } from "@/lib/games/steam-store-search";
 const SteamStoreSearch = lazy(() =>
   import("./steam-store-search").then((module) => ({ default: module.SteamStoreSearch })),
@@ -77,7 +78,8 @@ export function SearchOverlay() {
   const [mediaFilter, setMediaFilter] = useState<SearchFilter>("all");
   const { activeProfile } = useProfiles();
   const { settings, update } = useSettings();
-  const storeQuery = activeProfile?.kid
+  const gamesEnabled = useInstallFeatures().games;
+  const storeQuery = activeProfile?.kid || !gamesEnabled
     ? null
     : steamStoreQuery(query, settings.steamSearchShortcut);
   useEffect(() => {
