@@ -18,6 +18,11 @@ import {
 
 export type TrayMenuBridge = { refresh: () => void; dispose: () => void };
 
+function label(key: string, englishFallback: string): string {
+  const translated = t(key);
+  return translated === key ? englishFallback : translated;
+}
+
 export function startTrayMenuBridge(readSettings: () => Settings): TrayMenuBridge | null {
   if (
     !("__TAURI_INTERNALS__" in window) ||
@@ -86,10 +91,10 @@ export function startTrayMenuBridge(readSettings: () => Settings): TrayMenuBridg
     const labels: TrayLabels = {
       show: t("Show Harbor"),
       theme: t("Theme"),
-      alwaysOnTop: t("Always on Top"),
-      pauseMinimized: t("Pause When Minimized"),
-      pauseUnfocused: t("Pause When Unfocused"),
-      closeToTray: t("Close to Tray"),
+      alwaysOnTop: label("Always on top", "Always on Top"),
+      pauseMinimized: label("Pause when minimized", "Pause When Minimized"),
+      pauseUnfocused: label("Pause when unfocused", "Pause When Unfocused"),
+      closeToTray: label("Close to the system tray", "Close to Tray"),
       quit: t("Quit Harbor"),
       error: t("Could not apply this change. Try again."),
     };

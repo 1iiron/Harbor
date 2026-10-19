@@ -104,7 +104,7 @@ test("long translated labels and user theme names expand menus within native wid
   assert.equal(longError.menuWidth, short.menuWidth);
 });
 
-test("main tray bridge publishes theme and CSS changes, syncs custom themes, and disposes observers", async () => {
+test("main tray bridge publishes theme and CSS changes, syncs custom themes, and disposes observers", async (context) => {
   const { startTrayMenuBridge } = await import("../src/lib/tray-menu-bridge.ts");
   const { saveCustomTheme, removeCustomTheme } = await import("../src/lib/custom-themes.ts");
   const { resolveTokens } = await import("../src/lib/theme.ts");
@@ -170,7 +170,36 @@ test("main tray bridge publishes theme and CSS changes, syncs custom themes, and
     assert.equal(snapshots.at(-1)?.themeId, "nord");
     assert.equal(snapshots.at(-1)?.labels.closeToTray, "Close to Tray");
     assert.equal(snapshots.at(-1)?.labels.alwaysOnTop, "Always on Top");
+    assert.equal(snapshots.at(-1)?.labels.pauseMinimized, "Pause When Minimized");
+    assert.equal(snapshots.at(-1)?.labels.pauseUnfocused, "Pause When Unfocused");
     assert.equal(snapshots.at(-1)?.labels.error, "Could not apply this change. Try again.");
+
+    await context.test(
+      "Arabic tray preferences reuse the existing translated settings labels",
+      async () => {
+        const { ensureUiLocale } = await import("../src/lib/i18n/load-locale.ts");
+        const { getUiLanguage, getUiRegion, setUiLanguage } =
+          await import("../src/lib/i18n/store.ts");
+        const previousLanguage = getUiLanguage();
+        const previousRegion = getUiRegion();
+        try {
+          await ensureUiLocale("ar");
+          setUiLanguage("ar");
+          await settle();
+          const display = snapshots.at(-1);
+          assert.equal(display?.direction, "rtl");
+          assert.equal(display?.labels.alwaysOnTop, "دائماً في المقدمة");
+          assert.equal(display?.labels.pauseMinimized, "إيقاف مؤقت عند التصغير");
+          assert.equal(display?.labels.pauseUnfocused, "إيقاف مؤقت عند فقدان التركيز");
+          assert.equal(display?.labels.closeToTray, "التصغير إلى علبة النظام (System tray)");
+        } finally {
+          setUiLanguage(previousLanguage, previousRegion);
+          await settle();
+        }
+        assert.equal(snapshots.at(-1)?.labels.alwaysOnTop, "Always on Top");
+        assert.equal(snapshots.at(-1)?.labels.closeToTray, "Close to Tray");
+      },
+    );
 
     settings = {
       ...settings,
