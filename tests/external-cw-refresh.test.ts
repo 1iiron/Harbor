@@ -191,6 +191,36 @@ test("tracker progress enters shared anime detection without waiting for the Str
   assert.equal(h.api.listExternalCw().length, 2);
 });
 
+test("PublicMetaDB and Trakt collapse when PMDB resolves the show's IMDb id", async () => {
+  const h = fixture();
+  h.connected.publicmetadb = true;
+  h.providers.trakt = async () => [
+    {
+      ...item("trakt", "tt3032476"),
+      state: {
+        ...item("trakt", "tt3032476").state!,
+        lastWatched: "2026-09-29T11:00:00Z",
+      },
+    },
+  ];
+  h.providers.publicmetadb = async () => [
+    {
+      ...item("publicmetadb", "tt3032476"),
+      state: {
+        ...item("publicmetadb", "tt3032476").state!,
+        lastWatched: "2026-09-29T12:00:00Z",
+      },
+    },
+  ];
+  h.api.setExternalCwSources({ simkl: true, trakt: true, publicmetadb: true });
+  await settle();
+  await h.api.refreshExternalCw(true);
+
+  const cards = h.api.listExternalCw();
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].external, "publicmetadb", "newest progress wins");
+});
+
 test("cold-start partial failures use bounded retries even when the other tracker succeeds empty", async () => {
   const h = fixture();
   let calls = 0;

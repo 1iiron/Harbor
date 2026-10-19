@@ -214,28 +214,42 @@ function isEpisodeAhead(
   return ce > de;
 }
 
+// A title can arrive with more than one provider id; a dismissal of any of them
+// must keep the same card hidden when the source changes.
+function itemIds(item: LibraryItem): string[] {
+  const ids = [item._id];
+  for (const id of item.altIds ?? []) {
+    if (typeof id === "string" && id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
 export function isCwDismissed(item: LibraryItem): boolean {
   loadDismissed();
-  const plain = dismissed.get(item._id);
-  const ext = item.external ? dismissed.get(`${item.external}|${item._id}`) : undefined;
-  const dismissedAt = Math.max(plain ?? -1, ext ?? -1);
+  let dismissedAt = -1;
+  let dismissedId = item._id;
+  for (const id of itemIds(item)) {
+    const plain = dismissed.get(id);
+    const ext = item.external ? dismissed.get(`${item.external}|${id}`) : undefined;
+    const at = Math.max(plain ?? -1, ext ?? -1);
+    if (at > dismissedAt) {
+      dismissedAt = at;
+      dismissedId = id;
+    }
+  }
   if (dismissedAt < 0) return false;
   // Newer progress from any source (Harbor resume, Stremio cloud _mtime/lastWatched,
   // Trakt paused_at, Simkl watched_at) un-dismisses even when the video_id is unchanged.
   const activity = itemActivity(item);
   if (activity > dismissedAt) return false;
-  const vid = dismissedVid.get(item._id);
+  const vid = dismissedVid.get(dismissedId);
   const curVid = item.state?.video_id;
-  const pos = dismissedPos.get(item._id);
+  const pos = dismissedPos.get(dismissedId);
   // Further-ahead position on the same episode un-dismisses even when its timestamp
   // predates the dismissal (e.g. dismissed after watching elsewhere).
   if (pos != null && progressRatio(item) > pos.p + 0.01) {
-    if (vid && typeof curVid === "string" && curVid) {
-      if (vid === curVid) return false;
-    } else {
-      const { season, episode } = resolveEpisode(item);
-      if (season === pos.s && episode === pos.e) return false;
-    }
+    const { season, episode } = resolveEpisode(item);
+    if (season === pos.s && episode === pos.e) return false;
   }
   if (vid && typeof curVid === "string" && curVid) {
     if (vid !== curVid) {
@@ -272,7 +286,8 @@ export function dismissCw(
   const nowMs = Date.parse(now);
   const times = new Map(dismissed);
   const videos = new Map(dismissedVid);
-  times.set(id, nowMs);
+  const ids = itemIds(item);
+  for (const entryId of ids) times.set(entryId, nowMs);
   const dismissVid = item.state?.video_id;
   if (typeof dismissVid === "string" && dismissVid) videos.set(id, dismissVid);
   else videos.delete(id);
@@ -281,7 +296,9 @@ export function dismissCw(
     const { season, episode } = resolveEpisode(item);
     positions.set(id, { s: season, e: episode, p: progressRatio(item) });
   } else positions.delete(id);
-  if (item.external) times.set(`${item.external}|${id}`, nowMs);
+  if (item.external) {
+    for (const entryId of ids) times.set(`${item.external}|${entryId}`, nowMs);
+  }
   persistDismissed(times, videos, options.acknowledged, positions);
   dismissed.clear();
   dismissedVid.clear();

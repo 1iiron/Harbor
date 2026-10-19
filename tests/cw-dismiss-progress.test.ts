@@ -53,7 +53,10 @@ function harness(seed?: string, onChange = () => {}) {
     "./stremio": {
       episodeFromVideoId: (id?: string) => {
         const parts = id?.split(":") ?? [];
-        return parts.length === 3 ? { season: Number(parts[1]), episode: Number(parts[2]) } : null;
+        if (parts.length < 3) return null;
+        const season = Number(parts[parts.length - 2]);
+        const episode = Number(parts[parts.length - 1]);
+        return Number.isInteger(season) && Number.isInteger(episode) ? { season, episode } : null;
       },
     },
     "./stremio-write-queue": { cloudLibraryPut: () => Promise.resolve() },
@@ -84,7 +87,7 @@ function harness(seed?: string, onChange = () => {}) {
   };
 }
 
-function item(external?: "trakt" | "simkl"): LibraryItem {
+function item(external?: "trakt" | "simkl" | "publicmetadb"): LibraryItem {
   return {
     _id: "tt-test",
     type: "series",
@@ -112,6 +115,34 @@ for (const source of [undefined, "trakt", "simkl"] as const) {
     );
   });
 }
+
+test("a mapped PMDB entry inherits the old TMDB dismissal", () => {
+  const h = harness(
+    JSON.stringify({
+      "tmdb:tv:1396": { t: Date.now(), v: "tmdb:tv:1396:1:2", s: 1, e: 2, p: 0.2 },
+    }),
+  );
+  const mapped: LibraryItem = {
+    ...item("publicmetadb"),
+    altIds: ["tmdb:tv:1396"],
+  };
+  assert.equal(h.api.isCwDismissed(mapped), true);
+  assert.equal(
+    h.api.isCwDismissed({ ...mapped, state: { ...mapped.state!, timeOffset: 600 } }),
+    false,
+    "newer progress still lifts the old dismissal",
+  );
+});
+
+test("dismissing a mapped entry also covers its alias", () => {
+  const h = harness();
+  const mapped: LibraryItem = {
+    ...item("publicmetadb"),
+    altIds: ["tmdb:tv:1396"],
+  };
+  h.api.dismissCw(mapped, null);
+  assert.equal(h.api.isCwDismissed({ ...mapped, _id: "tmdb:tv:1396", altIds: undefined }), true);
+});
 
 test("fresh local resume overrides stale cloud recency for the same episode", () => {
   const h = harness();
