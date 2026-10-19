@@ -52,10 +52,10 @@ pub fn calculate(
     // Leave one physical pixel for fractional-DPI size rounding at work-area edges.
     let available_width = (work.width - 1.0) / scale;
     let available_height = (work.height - 1.0) / scale;
-    if available_width < 2.0 * MIN_PANEL_WIDTH + GAP || available_height < MAIN_HEIGHT {
+    let main_width = menu_width.max(MIN_PANEL_WIDTH);
+    if available_width < main_width + GAP + MIN_PANEL_WIDTH || available_height < MAIN_HEIGHT {
         return Err("work area too small for tray popup");
     }
-    let main_width = menu_width.clamp(MIN_PANEL_WIDTH, available_width - MIN_PANEL_WIDTH - GAP);
     let theme_width = theme_width.clamp(MIN_PANEL_WIDTH, available_width - main_width - GAP);
     let theme_height = (theme_count as f64 * 32.0 + 14.0).clamp(46.0, available_height.min(450.0));
     let left = work.x / scale;
@@ -202,7 +202,7 @@ mod tests {
     }
 
     #[test]
-    fn narrow_work_area_caps_both_panels_and_long_catalog() {
+    fn narrow_work_area_caps_submenu_while_preserving_main_width() {
         let work = rect(0.0, 0.0, 800.0, 600.0);
         let g = calculate(
             work,
@@ -215,8 +215,23 @@ mod tests {
         )
         .unwrap();
         assert_inside(g, work);
+        assert_eq!(g.main.width, 400.0);
         assert!(g.width <= 640.0);
         assert!(g.theme.height <= 450.0);
+    }
+
+    #[test]
+    fn long_command_labels_fall_back_instead_of_shrinking_the_main_panel() {
+        let result = calculate(
+            rect(0.0, 0.0, 800.0, 1040.0),
+            rect(770.0, 1040.0, 30.0, 40.0),
+            2.0,
+            420.0,
+            220.0,
+            14,
+            false,
+        );
+        assert!(result.is_err());
     }
 
     #[test]
@@ -238,8 +253,16 @@ mod tests {
                     rect(-width - 40.0, -500.0, 40.0, 30.0),
                     rect(-30.0, -40.0, 30.0, 40.0),
                 ] {
-                    let g = calculate(work, anchor, scale, 600.0, 600.0, 1024, false).unwrap();
-                    assert_inside(g, work);
+                    for main_width in [240.0, 420.0, 600.0] {
+                        let result = calculate(work, anchor, scale, main_width, 600.0, 1024, false);
+                        if (width - 1.0) / scale < main_width + 6.0 + 160.0 {
+                            assert!(result.is_err());
+                        } else {
+                            let g = result.unwrap();
+                            assert_inside(g, work);
+                            assert_eq!(g.main.width, main_width);
+                        }
+                    }
                 }
             }
         }
