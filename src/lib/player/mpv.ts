@@ -238,6 +238,14 @@ async function applyAudioDevice(want: string, canApply = () => true): Promise<vo
   }
   if (!canApply()) return;
   try {
+    // Re-writing the value mpv already holds still tears down and reopens the
+    // audio output, which can underrun the stream that is playing. Only write
+    // when the requested endpoint actually differs.
+    const current = await invoke<string | null>("mpv_get_property", {
+      name: "audio-device",
+    }).catch(() => null);
+    if (!canApply()) return;
+    if (current === target) return;
     await invoke("mpv_set_property", { name: "audio-device", value: target });
   } catch (e) {
     if (!canApply()) return;
@@ -477,7 +485,10 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
     };
     const tick = async () => {
       if (!active) return;
-      if (inFlight) { queued = true; return; }
+      if (inFlight) {
+        queued = true;
+        return;
+      }
       inFlight = true;
       queued = false;
       const forced = force;
@@ -485,7 +496,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       const move = pendingMove;
       pendingMove = null;
       try {
-        const r = move?.rect ?? await opts.getEmbedRect!();
+        const r = move?.rect ?? (await opts.getEmbedRect!());
         if (!active || !r) return;
         if (
           !forced &&
@@ -517,7 +528,9 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
     // with one native write in flight and the latest bounds queued behind it.
     // Dock movement is already batched by useDockDrag. Send its new bounds in
     // that same frame instead of making native video trail the chrome by a frame.
-    geomKickHandler = () => { void tick(); };
+    geomKickHandler = () => {
+      void tick();
+    };
     moveEmbeddedSurface = (rect, commit) => {
       if (!active) return false;
       pendingMove = { rect, commit };
@@ -552,7 +565,11 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       const win = getCurrentWindow();
       const unResized = await win.onResized(() => geomForceHandler?.());
       const unMoved = await win.onMoved(() => geomForceHandler?.());
-      if (!active) { unResized(); unMoved(); return; }
+      if (!active) {
+        unResized();
+        unMoved();
+        return;
+      }
       geomTauriUnlisten.push(makeSafeTauriUnlisten(unResized), makeSafeTauriUnlisten(unMoved));
     } catch {
       /* noop */
@@ -607,107 +624,147 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       .sort();
     return names.join("\n");
   };
-  // A device change is deferred while paused (re-armed on resume), and a forced
-  // request (wake from sleep, screensaver dismissal) reloads even when the
-  // endpoint set did not change. The generation invalidates both when the media
-  // or session ends.
+  // A real endpoint change survives a pause and is applied from play() before
+  // audio starts. A speculative wake reset is only useful while audio is
+  // already running, so a pause cancels it. Applying either one from play()
+  // keeps the output re-init off the first audio callback, which is where it
+  // used to underrun and desynchronise.
+  let pendingAudioDeviceChange = false;
   let pendingAudioDeviceReload = false;
   let forceAudioDeviceReload = false;
   let audioDeviceReloadGeneration = 0;
   const clearAudioDeviceReload = () => {
     if (audioDeviceReloadTimer != null) window.clearTimeout(audioDeviceReloadTimer);
     audioDeviceReloadTimer = null;
+    pendingAudioDeviceChange = false;
     pendingAudioDeviceReload = false;
     forceAudioDeviceReload = false;
     audioDeviceReloadGeneration += 1;
   };
+
+  const performAudioDeviceReload = async (allowPaused: boolean): Promise<boolean> => {
+    // The reload outlives its media: playback can move to another episode (or
+    // fail) while an await is in flight, so the continuation bails unless the
+    // same load is still current.
+    const reloadLoadId = mediaLoadId;
+    const reloadRevision = mediaRevision;
+    const reloadBeganAt = Date.now();
+    const generation = audioDeviceReloadGeneration;
+    const stillCurrent = () =>
+      mpvStarted &&
+      generation === audioDeviceReloadGeneration &&
+      reloadLoadId === mediaLoadId &&
+      reloadRevision === mediaRevision;
+    const canReload = () =>
+      stillCurrent() &&
+      (allowPaused
+        ? snap.status === "playing" || snap.status === "paused"
+        : observedPaused !== true && snap.status === "playing");
+    if (!canReload()) return false;
+
+    // Remember the selected audio track so we can restore it after the
+    // output reload deselects it (mpv drops the track on ao init failure).
+    const prevAid = snap.audioTracks.find((t) => t.selected)?.id ?? null;
+    await applyAudioDevice(appliedAudioDevice ?? "auto", () => stillCurrent() && canReload()).catch(
+      () => {},
+    );
+    if (!stillCurrent() || !canReload()) return false;
+    await invoke("mpv_command", { cmd: ["ao-reload"] }).catch(() => {});
+    if (!stillCurrent() || !canReload()) return false;
+    if (prevAid) {
+      await invoke("mpv_set_property", { name: "aid", value: prevAid }).catch(() => {});
+    }
+    // dynaudnorm keeps ~15s of audio buffered in its analysis window, and
+    // an output reload re-anchors playback to the head of that buffer —
+    // that far ahead of video — so mpv holds audio ("delaying audio start")
+    // while video plays on silently. A same-position exact seek restarts
+    // A/V in sync immediately. Skip it when the viewer seeks during the
+    // reload, or when the reload runs before resume and there is no audio
+    // buffer to re-anchor yet.
+    if (
+      !allowPaused &&
+      stillCurrent() &&
+      snap.audioNormalize &&
+      !currentIsLive &&
+      lastUserSeekAt <= reloadBeganAt &&
+      (snap.status === "playing" || snap.status === "paused")
+    ) {
+      const pos = await invoke<number | null>("mpv_get_property", {
+        name: "time-pos",
+      }).catch(() => null);
+      if (typeof pos === "number" && Number.isFinite(pos) && lastUserSeekAt <= reloadBeganAt) {
+        invoke("mpv_command", { cmd: ["seek", pos, "absolute+exact"] }).catch(() => {});
+      }
+    }
+    return true;
+  };
+
   const scheduleAudioDeviceReload = (forced = false, deviceChanged = true) => {
     if (!isWindowsDesktop()) return;
     if (!mpvStarted) return;
     if (snap.status !== "playing" && snap.status !== "paused") return;
     if (forced) forceAudioDeviceReload = true;
-    pendingAudioDeviceReload ||= deviceChanged || forced;
-    if (observedPaused === true || snap.status === "paused") return;
+    if (deviceChanged) pendingAudioDeviceChange = true;
+    pendingAudioDeviceReload = pendingAudioDeviceChange || forceAudioDeviceReload;
+    if (!pendingAudioDeviceReload) return;
+    if (observedPaused === true || snap.status === "paused") {
+      // A speculative wake reset must not survive a pause; a real endpoint
+      // change does, and play() applies it before audio starts.
+      if (!pendingAudioDeviceChange) {
+        forceAudioDeviceReload = false;
+        pendingAudioDeviceReload = false;
+      }
+      return;
+    }
     if (audioDeviceReloadTimer != null) window.clearTimeout(audioDeviceReloadTimer);
     const generation = audioDeviceReloadGeneration;
     const isCurrentMedia = () => mpvStarted && generation === audioDeviceReloadGeneration;
-    const canReload = () => isCurrentMedia() && observedPaused !== true && snap.status === "playing";
+    const canSchedule = () =>
+      isCurrentMedia() && observedPaused !== true && snap.status === "playing";
     audioDeviceReloadTimer = window.setTimeout(() => {
       audioDeviceReloadTimer = null;
-      if (!canReload()) return;
+      if (!canSchedule()) {
+        // Paused before the timer fired: keep a real endpoint change for the
+        // next play, but drop a speculative wake reset.
+        forceAudioDeviceReload = false;
+        pendingAudioDeviceReload = pendingAudioDeviceChange;
+        return;
+      }
       const mustReload = forceAudioDeviceReload;
+      const deviceRequest = pendingAudioDeviceChange;
       forceAudioDeviceReload = false;
-      const deviceRequest = pendingAudioDeviceReload;
-      pendingAudioDeviceReload = false;
-      const deferDeviceRequest = () => {
-        if (deviceRequest && isCurrentMedia()) pendingAudioDeviceReload = true;
-      };
+      if (!mustReload && !deviceRequest) {
+        pendingAudioDeviceReload = false;
+        return;
+      }
       // A list change that has settled back to the signature we last acted on
       // is churn, not a device change, and must not force the output reload.
-      if (!mustReload && observedAudioDeviceListSig === lastAudioDeviceListSig) return;
+      if (!mustReload && observedAudioDeviceListSig === lastAudioDeviceListSig) {
+        pendingAudioDeviceChange = false;
+        pendingAudioDeviceReload = false;
+        return;
+      }
       lastAudioDeviceListSig = observedAudioDeviceListSig;
-      // The reload outlives its media: playback can move to another episode (or
-      // fail) while an await is in flight, so the continuation bails unless the
-      // same load is still playing.
-      const reloadLoadId = mediaLoadId;
-      const reloadRevision = mediaRevision;
-      const reloadBeganAt = Date.now();
-      const stillCurrent = () =>
-        mpvStarted && reloadLoadId === mediaLoadId && reloadRevision === mediaRevision;
-      void (async () => {
-        // Remember the selected audio track so we can restore it after the
-        // output reload deselects it (mpv drops the track on ao init failure).
-        const prevAid = snap.audioTracks.find((t) => t.selected)?.id ?? null;
-        await applyAudioDevice(
-          appliedAudioDevice ?? "auto",
-          () => stillCurrent() && canReload(),
-        ).catch(() => {});
-        if (!stillCurrent() || !canReload()) {
-          deferDeviceRequest();
-          return;
-        }
-        await invoke("mpv_command", { cmd: ["ao-reload"] }).catch(() => {});
-        if (!stillCurrent() || !canReload()) {
-          deferDeviceRequest();
-          return;
-        }
-        if (prevAid) {
-          await invoke("mpv_set_property", { name: "aid", value: prevAid }).catch(() => {});
-        }
-        // dynaudnorm keeps ~15s of audio buffered in its analysis window, and
-        // an output reload re-anchors playback to the head of that buffer —
-        // that far ahead of video — so mpv holds audio ("delaying audio start")
-        // while video plays on silently. A same-position exact seek restarts
-        // A/V in sync immediately. Skip it when the viewer seeks during the
-        // reload, or the resync would rewind the seek already in flight.
-        if (
-          stillCurrent() &&
-          snap.audioNormalize &&
-          !currentIsLive &&
-          lastUserSeekAt <= reloadBeganAt &&
-          (snap.status === "playing" || snap.status === "paused")
-        ) {
-          const pos = await invoke<number | null>("mpv_get_property", {
-            name: "time-pos",
-          }).catch(() => null);
-          if (
-            typeof pos === "number" &&
-            Number.isFinite(pos) &&
-            lastUserSeekAt <= reloadBeganAt
-          ) {
-            invoke("mpv_command", { cmd: ["seek", pos, "absolute+exact"] }).catch(() => {});
+      pendingAudioDeviceChange = false;
+      pendingAudioDeviceReload = false;
+      void performAudioDeviceReload(false)
+        .then((reloaded) => {
+          if (!reloaded && isCurrentMedia() && deviceRequest) {
+            pendingAudioDeviceChange = true;
+            pendingAudioDeviceReload = true;
           }
-        }
-      })();
+        })
+        .catch(() => {});
     }, 300);
   };
 
   // Windows may silently release the audio endpoint after sleep. Avoid a
   // speculative output reset while paused; real device changes still recover
-  // through audio-device-list and are deferred until resume during a pause.
+  // through audio-device-list and are applied by play() before audio starts.
   const onVisibilityRestore = () => {
     if (document.visibilityState !== "visible") return;
-    scheduleAudioDeviceReload(true);
+    if (snap.status !== "playing") return;
+    scheduleAudioDeviceReload(true, false);
   };
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", onVisibilityRestore);
@@ -719,8 +776,9 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
     lastWindowBlur = Date.now();
   };
   const onWindowFocusRestore = () => {
+    if (snap.status !== "playing") return;
     if (Date.now() - lastWindowBlur < FOCUS_RELOAD_MIN_ABSENT_MS) return;
-    scheduleAudioDeviceReload(true);
+    scheduleAudioDeviceReload(true, false);
   };
   if (typeof window !== "undefined") {
     window.addEventListener("blur", onWindowBlur);
@@ -742,11 +800,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       // Shader load and compile problems are reported by mpv's video output at
       // warn/error, not by the property setter, so they are the only signal
       // that a chain did not take effect.
-      if (
-        level !== "fatal" &&
-        level !== "error" &&
-        !/shader|glsl/i.test(prefix)
-      ) {
+      if (level !== "fatal" && level !== "error" && !/shader|glsl/i.test(prefix)) {
         return;
       }
       if (/fail|error|cannot|unable|no such file|not found|unsupported/i.test(text)) {
@@ -776,7 +830,9 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       if (name === "pause" && typeof data === "boolean") {
         observedPaused = data;
         snap.status = data ? "paused" : "playing";
-        if (!data && pendingAudioDeviceReload) scheduleAudioDeviceReload();
+        // A pending recovery is applied by play() before it unpauses. A bare
+        // pause=false (external IPC, a forwarded command) must not re-arm it
+        // here, or the output reload lands on top of the resumed audio.
       }
       if (name === "eof-reached" && data === true) {
         clearAudioDeviceReload();
@@ -1223,6 +1279,27 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       }
     },
     async play() {
+      // mpv has not started the audio callback yet, so reinitialising a device
+      // that changed while paused cannot underrun the stream. Do it before
+      // unpausing; doing it after resume is what produced the A/V desync.
+      // Only do this while mpv is still paused. If it is already playing, the
+      // scheduled reload owns the change and running it here would interrupt
+      // the audio that is currently flowing.
+      if (pendingAudioDeviceReload && mpvStarted && snap.status === "paused") {
+        const deviceRequest = pendingAudioDeviceChange;
+        pendingAudioDeviceChange = false;
+        pendingAudioDeviceReload = false;
+        forceAudioDeviceReload = false;
+        if (audioDeviceReloadTimer != null) {
+          window.clearTimeout(audioDeviceReloadTimer);
+          audioDeviceReloadTimer = null;
+        }
+        const reloaded = await performAudioDeviceReload(true).catch(() => false);
+        if (!reloaded && deviceRequest) {
+          pendingAudioDeviceChange = true;
+          pendingAudioDeviceReload = true;
+        }
+      }
       await invoke("mpv_set_property", { name: "pause", value: false }).catch(() => {});
     },
     pause() {
@@ -1760,10 +1837,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         if (requestMediaRevision !== mediaRevision) return false;
         if (pending !== null && !pending.active) return false;
         let selectAtCommit = false;
-        if (
-          selectionRequest &&
-          mainSubtitleSelection.isCurrent(selectionRequest, mediaRevision)
-        ) {
+        if (selectionRequest && mainSubtitleSelection.isCurrent(selectionRequest, mediaRevision)) {
           await resetSubtitleFpsBeforeMpvTransition();
           if (requestMediaRevision !== mediaRevision) return false;
           selectAtCommit = mainSubtitleSelection.isCurrent(selectionRequest, mediaRevision);
@@ -1776,9 +1850,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         });
         return true;
       };
-      const added = selectionRequest
-        ? await enqueueSubtitleTransition(addToMpv)
-        : await addToMpv();
+      const added = selectionRequest ? await enqueueSubtitleTransition(addToMpv) : await addToMpv();
       if (!added) {
         if (urlByExternalFilename.get(mpvUrl) === externalMetadata) {
           urlByExternalFilename.delete(mpvUrl);
