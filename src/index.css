@@ -92,6 +92,22 @@ html[data-os="linux"]:not([data-mpv-embed="1"]) #root {
   background: var(--color-canvas);
 }
 
+/* The mpv surface is a native sibling under the transparent webview, so a
+   backdrop-filter inside the player can only sample the webview's own pixels:
+   over the video it blurs nothing. It still recomposites the page every frame,
+   and on WebKitGTK that path keeps allocating GPU buffers while anything under
+   the overlay animates. Opening the source list over a live decode took a
+   Steam Deck from 1.1 GB of GTT to a full lockup in seconds, with or without
+   WEBKIT_DMABUF_RENDERER_FORCE_SHM. Big Picture already dropped the effect over
+   playback for the same cost (bp-player-controls.tsx); keep it for the desktop
+   player only where the video is not embedded. The translucent fills carry the
+   contrast on their own. */
+html[data-os="linux"][data-mpv-embed="1"] [data-harbor-player],
+html[data-os="linux"][data-mpv-embed="1"] [data-harbor-player] * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 body {
   user-select: none;
   cursor: default;
