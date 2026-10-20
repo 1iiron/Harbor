@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { PlayerBridge, PlayerSnapshot } from "@/lib/player/bridge";
 import { useSettings } from "@/lib/settings";
+import { tracePlayback } from "@/lib/player/pause-trace";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -15,13 +16,19 @@ export function usePauseOnInactive({
   const pauseMinimized = settings.pauseMinimized;
   const pauseUnfocused = settings.pauseUnfocused;
   const autoPausedRef = useRef(false);
+  const pausePrefsRef = useRef({ pauseMinimized, pauseUnfocused });
+  pausePrefsRef.current = { pauseMinimized, pauseUnfocused };
 
   useEffect(() => {
     if (!isTauri) return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
     void import("@tauri-apps/api/event").then(({ listen }) =>
-      listen("harbor://window-activity", () => {
+      listen<{ focused: boolean; minimized: boolean }>("harbor://window-activity", (e) => {
+        const prefs = pausePrefsRef.current;
+        tracePlayback(
+          `window-activity focused=${e.payload.focused} minimized=${e.payload.minimized} pauseMinimized=${prefs.pauseMinimized} pauseUnfocused=${prefs.pauseUnfocused}`,
+        );
         window.dispatchEvent(new Event("harbor:mpv-force-geom"));
       }).then((u) => {
         if (cancelled) u();

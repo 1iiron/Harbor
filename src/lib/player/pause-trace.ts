@@ -18,9 +18,8 @@ export function tracePlayback(line: string): void {
 /**
  * Records mpv's frame counters beside a playback event.
  *
- * A freeze that resumes where it stopped is a hold (pause, cache, output
- * rebuild); one that jumps forward dropped frames. The counters say which, in
- * the same log a release build already produces.
+ * These are cumulative samples, useful for correlation with other events;
+ * they cannot by themselves identify the cause or timing of a freeze.
  */
 export function traceFrameDrops(reason: string): void {
   if (!isTauri) return;

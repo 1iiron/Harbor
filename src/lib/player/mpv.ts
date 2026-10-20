@@ -469,7 +469,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
     if (!opts.embed || !opts.getEmbedRect || geomKickHandler != null || isLinuxDesktop()) return;
 
     let lastRect: MpvRect | null = null;
-      let lastCollapsed: boolean | null = null;
+    let lastCollapsed: boolean | null = null;
     let frame: number | null = null;
     let active = true;
     let inFlight = false;
@@ -513,9 +513,8 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
           move?.commit();
           return;
         }
-        // A surface that loses its client area freezes the picture while mpv
-        // rebuilds its video output (new swapchain, recompiled shaders, starved
-        // audio), so record the transition instead of every size update.
+        // CSS geometry is separate from the native parent/renderer dimensions
+        // recorded by Rust; a native resize can bypass this path entirely.
         const collapsed = r.cssWidth < 64 || r.cssHeight < 64;
         if (collapsed !== lastCollapsed) {
           lastCollapsed = collapsed;
