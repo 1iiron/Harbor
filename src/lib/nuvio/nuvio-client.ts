@@ -78,6 +78,11 @@ export function setNuvioProfileIndexForHarborProfile(harborProfileId: string, in
 /**
  * Checks whether Nuvio is currently signed in
  */
+export function getNuvioAccountId(): string | null {
+  const state = loadNuvioState();
+  return state.session?.user?.id ?? null;
+}
+
 export function isNuvioSignedIn(): boolean {
   const state = loadNuvioState();
   return state.session != null && typeof state.session.access_token === "string" && state.session.access_token.length > 0;
@@ -121,7 +126,11 @@ export async function refreshNuvioSession(): Promise<NuvioSession | null> {
       user: (data.user as NuvioSession["user"]) || state.session.user,
     };
 
-    saveNuvioState({ ...state, session: refreshed });
+    const currentState = loadNuvioState();
+    if (!currentState.session || currentState.session.user?.id !== state.session?.user?.id) {
+      return null;
+    }
+    saveNuvioState({ ...currentState, session: refreshed });
     return refreshed;
   } catch (err) {
     console.warn("[nuvio] token refresh failed", err);

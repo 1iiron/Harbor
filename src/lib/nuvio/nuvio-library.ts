@@ -5,7 +5,7 @@
  */
 
 import { setItemWithRecovery } from "@/lib/storage-recovery";
-import { getOrCreateSyncClientId, isNuvioSignedIn, nuvioFetch } from "./nuvio-client";
+import { getNuvioAccountId, getOrCreateSyncClientId, isNuvioSignedIn, nuvioFetch } from "./nuvio-client";
 import type {
   NuvioLibraryDeltaItem,
   NuvioLibraryItem,
@@ -14,11 +14,49 @@ import type {
 
 export type { NuvioLibraryItem };
 
-const LIBRARY_KEY_PREFIX = "harbor.nuvio.library.slot.";
-const CURSOR_KEY_PREFIX = "harbor.nuvio.library.cursor.slot.";
-const PENDING_UPSERT_KEY_PREFIX = "harbor.nuvio.library.pending_upsert.slot.";
-const PENDING_DELETE_KEY_PREFIX = "harbor.nuvio.library.pending_delete.slot.";
-const TOMBSTONE_KEY_PREFIX = "harbor.nuvio.library.tombstone.slot.";
+const LIBRARY_KEY_PREFIX = "harbor.nuvio.library.";
+const CURSOR_KEY_PREFIX = "harbor.nuvio.library.cursor.";
+const PENDING_UPSERT_KEY_PREFIX = "harbor.nuvio.library.pending_upsert.";
+const PENDING_DELETE_KEY_PREFIX = "harbor.nuvio.library.pending_delete.";
+const TOMBSTONE_KEY_PREFIX = "harbor.nuvio.library.tombstone.";
+
+function getLibraryKey(slot: number): string {
+  const accountId = getNuvioAccountId() || "anon";
+  return `${LIBRARY_KEY_PREFIX}${accountId}.slot.${slot}`;
+}
+function getCursorKey(slot: number): string {
+  const accountId = getNuvioAccountId() || "anon";
+  return `${CURSOR_KEY_PREFIX}${accountId}.slot.${slot}`;
+}
+function getPendingUpsertKey(slot: number): string {
+  const accountId = getNuvioAccountId() || "anon";
+  return `${PENDING_UPSERT_KEY_PREFIX}${accountId}.slot.${slot}`;
+}
+function getPendingDeleteKey(slot: number): string {
+  const accountId = getNuvioAccountId() || "anon";
+  return `${PENDING_DELETE_KEY_PREFIX}${accountId}.slot.${slot}`;
+}
+function getTombstoneKey(slot: number): string {
+  const accountId = getNuvioAccountId() || "anon";
+  return `${TOMBSTONE_KEY_PREFIX}${accountId}.slot.${slot}`;
+}
+
+export function clearNuvioLibraryCache(): void {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("harbor.nuvio.library.")) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key);
+    }
+  } catch (e) {
+    console.warn("[nuvio-library] failed to clear library cache", e);
+  }
+}
 const TOMBSTONE_TTL_MS = 30 * 1000; // 30s TTL to prevent resurrection while avoiding wiping surviving items
 
 interface NuvioTombstone {
@@ -30,7 +68,7 @@ interface NuvioTombstone {
 export function readTombstones(slot: number): Map<string, number> {
   const map = new Map<string, number>();
   try {
-    const raw = localStorage.getItem(`${TOMBSTONE_KEY_PREFIX}${slot}`);
+    const raw = localStorage.getItem(getTombstoneKey(slot));
     if (!raw) return map;
     const list = JSON.parse(raw) as NuvioTombstone[];
     const now = Date.now();
@@ -55,14 +93,14 @@ export function recordTombstone(
   const cleanId = contentId.trim();
   const cleanType = (contentType || "movie").trim();
   try {
-    const raw = localStorage.getItem(`${TOMBSTONE_KEY_PREFIX}${slot}`);
+    const raw = localStorage.getItem(getTombstoneKey(slot));
     const list: NuvioTombstone[] = raw ? JSON.parse(raw) : [];
     const now = Date.now();
     const filtered = list.filter(
       (t) => t && t.content_id && now - t.deleted_at < TOMBSTONE_TTL_MS && t.content_id !== cleanId,
     );
     filtered.push({ content_id: cleanId, content_type: cleanType, deleted_at: now });
-    localStorage.setItem(`${TOMBSTONE_KEY_PREFIX}${slot}`, JSON.stringify(filtered));
+    localStorage.setItem(getTombstoneKey(slot), JSON.stringify(filtered));
   } catch {}
 }
 
@@ -70,14 +108,14 @@ export function clearTombstone(slot: number, contentId: string): void {
   if (!contentId) return;
   const cleanId = contentId.trim();
   try {
-    const raw = localStorage.getItem(`${TOMBSTONE_KEY_PREFIX}${slot}`);
+    const raw = localStorage.getItem(getTombstoneKey(slot));
     if (!raw) return;
     const list: NuvioTombstone[] = JSON.parse(raw);
     const filtered = list.filter((t) => t && t.content_id !== cleanId);
     if (filtered.length === 0) {
-      localStorage.removeItem(`${TOMBSTONE_KEY_PREFIX}${slot}`);
+      localStorage.removeItem(getTombstoneKey(slot));
     } else {
-      localStorage.setItem(`${TOMBSTONE_KEY_PREFIX}${slot}`, JSON.stringify(filtered));
+      localStorage.setItem(getTombstoneKey(slot), JSON.stringify(filtered));
     }
   } catch {}
 }
@@ -112,7 +150,7 @@ export function subscribeNuvioLibrary(fn: (slot: number) => void): () => void {
  */
 export function readCachedNuvioLibrary(slot: number): NuvioLibraryItem[] {
   try {
-    const raw = localStorage.getItem(`${LIBRARY_KEY_PREFIX}${slot}`);
+    const raw = localStorage.getItem(getLibraryKey(slot));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -152,7 +190,7 @@ export function writeCachedNuvioLibrary(
   try {
     const valid = items.filter((i) => i && i.content_id && String(i.content_id).trim().length > 0);
     const payload = JSON.stringify(valid);
-    setItemWithRecovery(`${LIBRARY_KEY_PREFIX}${slot}`, payload);
+    setItemWithRecovery(getLibraryKey(slot), payload);
     if (notify) {
       notifySubscribers(slot);
     }
@@ -187,7 +225,7 @@ export function setCachedNuvioLibraryIfChanged(
 
 export function readNuvioCursor(slot: number): number | null {
   try {
-    const raw = localStorage.getItem(`${CURSOR_KEY_PREFIX}${slot}`);
+    const raw = localStorage.getItem(getCursorKey(slot));
     if (!raw) return null;
     const val = parseInt(raw, 10);
     return isNaN(val) ? null : val;
@@ -198,13 +236,13 @@ export function readNuvioCursor(slot: number): number | null {
 
 export function writeNuvioCursor(slot: number, cursor: number): void {
   try {
-    localStorage.setItem(`${CURSOR_KEY_PREFIX}${slot}`, String(cursor));
+    localStorage.setItem(getCursorKey(slot), String(cursor));
   } catch {}
 }
 
 export function readPendingUpserts(slot: number): NuvioLibraryItem[] {
   try {
-    const raw = localStorage.getItem(`${PENDING_UPSERT_KEY_PREFIX}${slot}`);
+    const raw = localStorage.getItem(getPendingUpsertKey(slot));
     if (!raw) return [];
     const list = JSON.parse(raw);
     return Array.isArray(list) ? list.filter((i) => i && i.content_id) : [];
@@ -217,16 +255,16 @@ export function writePendingUpserts(slot: number, items: NuvioLibraryItem[]): vo
   try {
     const valid = items.filter((i) => i && i.content_id && String(i.content_id).trim().length > 0);
     if (valid.length === 0) {
-      localStorage.removeItem(`${PENDING_UPSERT_KEY_PREFIX}${slot}`);
+      localStorage.removeItem(getPendingUpsertKey(slot));
     } else {
-      localStorage.setItem(`${PENDING_UPSERT_KEY_PREFIX}${slot}`, JSON.stringify(valid));
+      localStorage.setItem(getPendingUpsertKey(slot), JSON.stringify(valid));
     }
   } catch {}
 }
 
 export function readPendingDeletes(slot: number): NuvioLibrarySyncKey[] {
   try {
-    const raw = localStorage.getItem(`${PENDING_DELETE_KEY_PREFIX}${slot}`);
+    const raw = localStorage.getItem(getPendingDeleteKey(slot));
     if (!raw) return [];
     const list = JSON.parse(raw);
     return Array.isArray(list) ? list.filter((k) => k && k.content_id && String(k.content_id).trim().length > 0) : [];
@@ -239,9 +277,9 @@ export function writePendingDeletes(slot: number, keys: NuvioLibrarySyncKey[]): 
   try {
     const valid = keys.filter((k) => k && k.content_id && String(k.content_id).trim().length > 0);
     if (valid.length === 0) {
-      localStorage.removeItem(`${PENDING_DELETE_KEY_PREFIX}${slot}`);
+      localStorage.removeItem(getPendingDeleteKey(slot));
     } else {
-      localStorage.setItem(`${PENDING_DELETE_KEY_PREFIX}${slot}`, JSON.stringify(valid));
+      localStorage.setItem(getPendingDeleteKey(slot), JSON.stringify(valid));
     }
   } catch {}
 }

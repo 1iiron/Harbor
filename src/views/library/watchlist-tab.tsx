@@ -159,7 +159,8 @@ export function WatchlistTab({
 
   const handleRemove = useCallback(
     async (stremioId: string) => {
-      if (isNuvio) {
+      const isNuvioActive = settings?.accountProvider === "nuvio";
+      if (isNuvioActive) {
         guardSeq.current += 1;
         const slot = resolveNuvioProfileIndex();
         const allLocals = readLocalEntries();

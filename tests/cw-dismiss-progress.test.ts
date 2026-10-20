@@ -61,6 +61,13 @@ function harness(seed?: string, onChange = () => {}) {
     },
     "./stremio-write-queue": { cloudLibraryPut: () => Promise.resolve() },
     "./render-cause": { noteNotify: () => {} },
+    "./nuvio/nuvio-client": { isNuvioSignedIn: () => false },
+    "./nuvio/nuvio-sync": {
+      isNuvioProviderActive: () => false,
+      resolveNuvioProfileIndex: () => 0,
+      deleteWatchProgressFromNuvio: () => Promise.resolve(),
+    },
+    "./local-cw": { clearLocalCw: () => {} },
   };
   const output = ts.transpileModule(read("src/lib/cw-dismiss.ts"), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },

@@ -3,7 +3,7 @@
  * Matches the canonical Supabase PostgREST RPC architecture in NuvioMobile.
  */
 
-import { nuvioFetch, loadNuvioState, saveNuvioState, isNuvioSignedIn } from "./nuvio-client";
+import { nuvioFetch, loadNuvioState, saveNuvioState, isNuvioSignedIn, getNuvioAccountId } from "./nuvio-client";
 import { safeFetch } from "@/lib/safe-fetch";
 import { hashProfilePassword } from "@/lib/profile-password";
 import type {
@@ -594,6 +594,28 @@ export async function transferPrimaryNuvioProfile(targetSlotIndex: number): Prom
   return true;
 }
 
+function getPinCacheKey(profileIndex: number): string {
+  const accountId = getNuvioAccountId() || "anon";
+  return `harbor.nuvio.pin_cache.${accountId}.${profileIndex}`;
+}
+
+export function clearAllNuvioPinCaches(): void {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("harbor.nuvio.pin_cache.")) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key);
+    }
+  } catch (e) {
+    console.warn("[nuvio-profiles] failed to clear pin caches", e);
+  }
+}
+
 /**
  * Local PIN cache utilities (matches Nuvio Mobile ProfilePinCacheStorage).
  * Caches verified and set PIN digests for instantaneous 0ms profile unlocks.
@@ -601,19 +623,19 @@ export async function transferPrimaryNuvioProfile(targetSlotIndex: number): Prom
 export async function rememberNuvioPin(profileIndex: number, pin: string): Promise<void> {
   try {
     const hash = await hashProfilePassword(pin);
-    localStorage.setItem(`harbor.nuvio.pin_cache.${profileIndex}`, hash);
+    localStorage.setItem(getPinCacheKey(profileIndex), hash);
   } catch {}
 }
 
 export function forgetNuvioPin(profileIndex: number): void {
   try {
-    localStorage.removeItem(`harbor.nuvio.pin_cache.${profileIndex}`);
+    localStorage.removeItem(getPinCacheKey(profileIndex));
   } catch {}
 }
 
 export async function verifyNuvioPinLocally(profileIndex: number, pin: string): Promise<boolean> {
   try {
-    const cachedHash = localStorage.getItem(`harbor.nuvio.pin_cache.${profileIndex}`);
+    const cachedHash = localStorage.getItem(getPinCacheKey(profileIndex));
     if (!cachedHash) return false;
     const candidate = await hashProfilePassword(pin);
     return candidate === cachedHash;

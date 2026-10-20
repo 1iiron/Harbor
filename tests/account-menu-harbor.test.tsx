@@ -113,6 +113,7 @@ async function fixture(harborSignedIn = false, stremioSignedIn = false, kid = fa
         openPicker: (value: unknown) => picker.push(value),
         selectProfile: () => {},
       }),
+      useActiveKid: () => (kid ? { age: 7, curfewMinutes: null, parentPinHash: null } : null),
     },
     "@/lib/view": {
       useView: () => ({
@@ -121,7 +122,25 @@ async function fixture(harborSignedIn = false, stremioSignedIn = false, kid = fa
       }),
     },
     "@/lib/settings": {
-      useSettings: () => ({ settings: { harborAvatar: "/fallback-avatar.png" } }),
+      useSettings: () => ({ settings: { harborAvatar: "/fallback-avatar.png", accountProvider: "stremio" } }),
+    },
+    "@/lib/settings/defaults": {
+      getSecondaryPrivileges: () => ({ canAddProfiles: true, canSignOutRoot: true }),
+    },
+    "@/lib/nuvio/nuvio-client": {
+      loadNuvioState: () => ({ session: null, profiles: [], activeProfileIndex: 1 }),
+      isNuvioSignedIn: () => false,
+    },
+    "@/lib/nuvio/nuvio-auth": {
+      signOutNuvio: async () => {},
+    },
+    "@/lib/nuvio/nuvio-profiles": {
+      resolveNuvioAvatar: () => null,
+      setActiveNuvioProfile: () => true,
+    },
+    "@/lib/nuvio/nuvio-types": {},
+    "@/lib/active-profile-id": {
+      isStremioActivePrimary: (p: any) => !!p?.isPrimary,
     },
     "@/lib/social/presence": {
       currentStatus: () => "online",

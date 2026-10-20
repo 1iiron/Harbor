@@ -110,7 +110,7 @@ function merge(lists: LibraryItem[][]): LibraryItem[] {
   return [...byKey.values()].sort((a, b) => activityOf(b) - activityOf(a));
 }
 
-let sourceMask = { trakt: true, simkl: true, publicmetadb: false, nuvio: true };
+let sourceMask = { trakt: true, simkl: true, publicmetadb: false, nuvio: isNuvioProviderActive() };
 
 export function setExternalCwSources(mask: {
   trakt: boolean;
@@ -205,31 +205,38 @@ function scheduleRetry(): void {
   retryAttempt += 1;
   retryTimer = setTimeout(() => {
     retryTimer = null;
-    if (gen !== refreshGen) return;
-    void runRefresh(gen).then((complete) => {
-      if (!complete) scheduleRetry();
-    });
+    if (gen === refreshGen) void startRefresh(gen);
   }, delay);
 }
 
-export async function refreshExternalCw(force = false): Promise<void> {
-  if (!externalCwConnected()) {
-    cancelRetry();
-    setItems(EMPTY);
-    return;
-  }
-  if (!force && fetchedAt > 0 && Date.now() - fetchedAt < STALE_MS) return;
-  if (inflight) return inflight;
-  const gen = ++refreshGen;
-  cancelRetry();
+function startRefresh(gen: number): Promise<void> {
   inflight = runRefresh(gen)
-    .then((complete) => {
-      if (!complete) scheduleRetry();
+    .then((ok) => {
+      if (gen === refreshGen && !ok) scheduleRetry();
     })
     .finally(() => {
       inflight = null;
     });
   return inflight;
+}
+
+export function refreshExternalCw(force = false): Promise<void> {
+  if (!externalCwConnected()) {
+    refreshGen += 1;
+    cancelRetry();
+    fetchedAt = 0;
+    setItems(EMPTY);
+    return Promise.resolve();
+  }
+  if (inflight) {
+    if (!force) return inflight;
+    refreshGen += 1;
+    cancelRetry();
+    return inflight.then(() => refreshExternalCw(true));
+  }
+  if (!force && fetchedAt > 0 && Date.now() - fetchedAt < STALE_MS) return Promise.resolve();
+  cancelRetry();
+  return startRefresh(++refreshGen);
 }
 
 export function removeExternalCwItem(item: LibraryItem): void {
@@ -270,6 +277,15 @@ function onSessionChange(): void {
   const pmdb = getPmdbSession();
   const nuvio = isNuvioSignedIn() && isNuvioProviderActive();
   if (simkl === lastSimkl && trakt === lastTrakt && pmdb === lastPmdb && nuvio === lastNuvio) return;
+  setItems(
+    items.filter(
+      (i) =>
+        (i.external !== "simkl" || simkl === lastSimkl) &&
+        (i.external !== "trakt" || trakt === lastTrakt) &&
+        (i.external !== "publicmetadb" || pmdb === lastPmdb) &&
+        (i.external !== "nuvio" || nuvio === lastNuvio),
+    ),
+  );
   lastSimkl = simkl;
   lastTrakt = trakt;
   lastPmdb = pmdb;

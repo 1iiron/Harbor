@@ -7,6 +7,22 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf
 
 // Execute production functions with isolated storage and no network or React rendering.
 function load(path, mocks = {}, storage = undefined) {
+  const defaultMocks = {
+    "@/lib/nuvio/nuvio-sync": {
+      isNuvioProviderActive: () => false,
+      resolveNuvioProfileIndex: () => 1,
+    },
+    "@/lib/nuvio/nuvio-library": {
+      readCachedNuvioLibrary: () => [],
+      pullNuvioLibraryDelta: async () => [],
+      setCachedNuvioLibraryIfChanged: () => false,
+    },
+    "@/lib/nuvio/nuvio-client": {
+      isNuvioSignedIn: () => false,
+      loadNuvioState: () => ({ session: null, profiles: [], activeProfileIndex: 1 }),
+    },
+  };
+  const merged = { ...defaultMocks, ...mocks };
   const output = ts.transpileModule(read(path), {
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
@@ -16,7 +32,7 @@ function load(path, mocks = {}, storage = undefined) {
   }).outputText;
   const exports = {};
   new Function("require", "exports", "localStorage", output)(
-    (name) => mocks[name] ?? {},
+    (name) => merged[name] ?? {},
     exports,
     storage,
   );

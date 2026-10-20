@@ -13,7 +13,8 @@ import {
   nuvioFetch,
   saveNuvioState,
 } from "./nuvio-client";
-import { clearNuvioSessionUnlocks } from "./nuvio-profiles";
+import { clearAllNuvioPinCaches, clearNuvioSessionUnlocks } from "./nuvio-profiles";
+import { clearNuvioLibraryCache } from "./nuvio-library";
 import type {
 
   NuvioDeviceCodeSession,
@@ -263,7 +264,12 @@ export async function fetchNuvioProfiles(): Promise<NuvioProfile[]> {
  * Sign out of Nuvio
  */
 export async function signOutNuvio(): Promise<void> {
+  const state = loadNuvioState();
+  const token = state.session?.access_token;
+
   clearNuvioSessionUnlocks();
+  clearAllNuvioPinCaches();
+  clearNuvioLibraryCache();
 
   const wasNuvio = localStorage.getItem("harbor.account-provider") === "nuvio";
   if (wasNuvio) {
@@ -282,7 +288,6 @@ export async function signOutNuvio(): Promise<void> {
     } catch {}
   }
 
-  const state = loadNuvioState();
   saveNuvioState({
     ...state,
     session: null,
@@ -297,10 +302,19 @@ export async function signOutNuvio(): Promise<void> {
     );
   }
 
-  try {
-    await nuvioFetch("/auth/v1/logout", { method: "POST" });
-  } catch {
-    /* ignore network errors on signout */
+  if (token) {
+    try {
+      await fetch(`${NUVIO_DEFAULT_API}/auth/v1/logout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: NUVIO_ANON_KEY,
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    } catch {
+      /* ignore network errors on signout */
+    }
   }
 }
 

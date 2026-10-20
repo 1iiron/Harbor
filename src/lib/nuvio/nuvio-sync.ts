@@ -11,7 +11,7 @@ import {
   nuvioFetch,
   saveNuvioState,
 } from "./nuvio-client";
-import {
+import type {
   NuvioAddonItem,
   NuvioWatchProgress,
   NuvioWatchedItem,
@@ -46,13 +46,17 @@ export function isNuvioProviderActive(): boolean {
  * Resolves the effective Nuvio profile index (1..6) considering active provider setting.
  */
 export function resolveNuvioProfileIndex(harborProfileId?: string | number): number {
-  if (typeof harborProfileId === "number" && harborProfileId >= 1 && harborProfileId <= 6) {
-    return harborProfileId;
+  if (typeof harborProfileId === "number") {
+    if (harborProfileId >= 1 && harborProfileId <= 6) return harborProfileId;
+    if (harborProfileId === 0) return 1;
   }
   if (typeof harborProfileId === "string") {
     const num = parseInt(harborProfileId, 10);
     if (!isNaN(num) && num >= 1 && num <= 6 && String(num) === harborProfileId) {
       return num;
+    }
+    if (harborProfileId === "0") {
+      return 1;
     }
     if (harborProfileId.startsWith("nuvio-")) {
       const idx = parseInt(harborProfileId.replace("nuvio-", ""), 10);
@@ -61,13 +65,17 @@ export function resolveNuvioProfileIndex(harborProfileId?: string | number): num
   }
   if (isNuvioProviderActive()) {
     const state = loadNuvioState();
-    return state.activeProfileIndex || 1;
+    return typeof state.activeProfileIndex === "number" && state.activeProfileIndex >= 1 && state.activeProfileIndex <= 6
+      ? state.activeProfileIndex
+      : 1;
   }
   if (typeof harborProfileId === "string" && harborProfileId) {
     return getNuvioProfileIndexForHarborProfile(harborProfileId);
   }
   const state = loadNuvioState();
-  return state.activeProfileIndex || 1;
+  return typeof state.activeProfileIndex === "number" && state.activeProfileIndex >= 1 && state.activeProfileIndex <= 6
+    ? state.activeProfileIndex
+    : 1;
 }
 
 const WATCH_PROGRESS_CACHE_PREFIX = "harbor.nuvio.watch_progress.slot.";

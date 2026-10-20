@@ -27,6 +27,8 @@ import {
   verifyNuvioPin,
   setNuvioPin,
   clearNuvioPin,
+  isNuvioProfileUnlocked,
+  markNuvioProfileUnlocked,
   setActiveNuvioProfile,
   resolveNuvioAvatar,
   uploadNuvioCustomAvatar,
@@ -107,7 +109,7 @@ export function NuvioProfilesTab() {
       return;
     }
 
-    if (profile.pin_enabled && !unlockedSlots.has(profile.profile_index)) {
+    if (profile.pin_enabled && !isNuvioProfileUnlocked(profile.profile_index) && !unlockedSlots.has(profile.profile_index)) {
       setUnlockTarget(profile);
       return;
     }
@@ -287,8 +289,9 @@ export function NuvioProfilesTab() {
         <NuvioUnlockModal
           target={unlockTarget}
           onSuccess={() => {
+            markNuvioProfileUnlocked(unlockTarget.profile_index);
             setUnlockedSlots((prev) => new Set([...prev, unlockTarget.profile_index]));
-            setActiveNuvioProfile(unlockTarget.profile_index);
+            setActiveNuvioProfile(unlockTarget.profile_index, { unlocked: true });
             setUnlockTarget(null);
           }}
           onClose={() => setUnlockTarget(null)}

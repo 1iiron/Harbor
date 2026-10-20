@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { isNuvioSignedIn, loadNuvioState } from "./nuvio-client";
-import { isNuvioProviderActive, markWatchedInNuvio, pushWatchProgressToNuvio } from "./nuvio-sync";
+import { isNuvioProviderActive, markWatchedInNuvio, pushWatchProgressToNuvio, resolveNuvioProfileIndex } from "./nuvio-sync";
 import { readActiveProfileIdentity } from "@/lib/profiles";
 import { getPlaybackPosition } from "@/lib/player/playback-clock";
 import type { PlayerSrc } from "@/lib/view";
@@ -40,9 +40,12 @@ export function useNuvioScrobble({
   const getProfileTarget = () => {
     if (isNuvioSignedIn()) {
       const state = loadNuvioState();
-      return state.activeProfileIndex || 1;
+      return typeof state.activeProfileIndex === "number" && state.activeProfileIndex >= 1 && state.activeProfileIndex <= 6
+        ? state.activeProfileIndex
+        : 1;
     }
-    return readActiveProfileIdentity()?.id || "primary";
+    const harborProfile = readActiveProfileIdentity()?.id;
+    return resolveNuvioProfileIndex(harborProfile);
   };
 
   const doPush = async (reason: string) => {
