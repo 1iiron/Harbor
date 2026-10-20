@@ -506,6 +506,16 @@ export type Settings = {
   audioDevice: string;
   bandwidthMbps: number;
   nextEpisodeLeadSec: number;
+  /**
+   * When the "More like this" end screen appears. 0 turns it off, -1 shows it
+   * when playback finishes, and a positive number shows it that many seconds
+   * before the end (up to 30 minutes) so the film is still running behind it.
+   */
+  endScreenLeadSec: number;
+  /** Seconds before the end screen closes itself. 0 leaves it open. */
+  endScreenCountdownSec: number;
+  /** What the countdown does when it reaches zero. */
+  endScreenOnZero: "close" | "play";
   autoPlayNextEpisode: boolean;
   stillWatching: boolean;
   stillWatchingAfter: number;

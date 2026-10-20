@@ -5,6 +5,7 @@ import { GamesIcon } from "@/components/icons/games-icon";
 import {
   Droplet,
   Hourglass,
+  Library,
   MousePointer2,
   Moon,
   Palette,
@@ -21,6 +22,8 @@ import {
 } from "../icons";
 import type { ReactNode } from "react";
 import { useSettings } from "@/lib/settings";
+import { useInstallFeatures } from "@/lib/features/install";
+import { quickLibraryAvailable } from "@/lib/features/quick-library";
 import { useT } from "@/lib/i18n";
 import { Section, ToggleRow } from "../shared";
 import { ROW_ACTION, SettingGroup, SettingRow, Nested } from "../kit";
@@ -178,11 +181,12 @@ export function AmbienceSection() {
   );
 }
 
-const GAMES_SETTINGS_VISIBLE = true;
-
 export function DisplaySection() {
   const t = useT();
   const { settings, update } = useSettings();
+  const features = useInstallFeatures();
+  const gamesEnabled = features.games;
+  const libraryAvailable = quickLibraryAvailable(features.games, features.music);
   const glassBlur = Number.isFinite(settings.defaultLiquidGlassBlur)
     ? settings.defaultLiquidGlassBlur
     : 8;
@@ -194,16 +198,22 @@ export function DisplaySection() {
     : 25;
   return (
     <>
-      {GAMES_SETTINGS_VISIBLE && (
-        <Section title={t("Games")}>
+      {libraryAvailable && (
+        <Section title={t("music.library")}>
           <SettingGroup>
             <ToggleRow
               label={t("games.dock.settingTitle")}
               sub={t("games.dock.settingNote")}
               value={settings.showQuickGameLibrary}
               onChange={(value) => update({ showQuickGameLibrary: value })}
-              leading={<GamesIcon size={18} />}
+              leading={<Library size={18} />}
             />
+          </SettingGroup>
+        </Section>
+      )}
+      {gamesEnabled && (
+        <Section title={t("Games")}>
+          <SettingGroup>
             <ToggleRow
               label={t("games.home.libraryFirstTitle")}
               sub={t("games.home.libraryFirstNote")}

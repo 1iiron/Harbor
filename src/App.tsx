@@ -1614,12 +1614,12 @@ function Shell({ onReady }: { onReady?: () => void }) {
   const ebookAlive = useIdleEvict(ebookTop);
   const peopleAlive = useIdleEvict(peopleTop);
 
-  const gameDockVisible =
+  const quickLibraryVisible =
     !kid && !kidsTop && !playerActive && !pickerTop && !bigPicture && !immersive && !chromeHidden;
   return (
     <GameAccessProvider
       profile={activeProfile?.id ?? "default"}
-      enabled={!kid && !bigPicture && !playerActive}
+      enabled={installFeatures.games && !kid && !bigPicture && !playerActive}
       gamesActive={gamesTop}
       onNavigate={openGames}
       onLeave={goBack}
@@ -1780,7 +1780,10 @@ function Shell({ onReady }: { onReady?: () => void }) {
             {calendarAlive && (
               <div {...layerProps(calendarTop)}>
                 <Suspense fallback={null}>
-                  <CalendarView active={calendarTop} gamesAllowed={!kid && GAMES_IN_NAV} />
+                  <CalendarView
+                    active={calendarTop}
+                    gamesAllowed={!kid && GAMES_IN_NAV && installFeatures.games}
+                  />
                 </Suspense>
               </div>
             )}
@@ -1832,7 +1835,7 @@ function Shell({ onReady }: { onReady?: () => void }) {
             {gamesAlive && (
               <div {...layerProps(gamesTop)}>
                 <Suspense fallback={<GameRouteLoading />}>
-                  <GameDockWelcome eligible={gamesTop && gameDockVisible && !gamesNavigationOpen} />
+                  <GameDockWelcome eligible={gamesTop && quickLibraryVisible && !gamesNavigationOpen} />
                   <GamesView
                     harborNavigationOpen={gamesNavigationOpen}
                     onHarborNavigationChange={setGamesNavigationOpen}
@@ -2201,7 +2204,7 @@ function Shell({ onReady }: { onReady?: () => void }) {
             )}
           </div>
         </div>
-        <GameLibraryDock visible={gameDockVisible && !gamesTop} />
+        <GameLibraryDock visible={quickLibraryVisible && !gamesTop} />
         {player && (
           <Suspense fallback={null}>
             <PlayerView

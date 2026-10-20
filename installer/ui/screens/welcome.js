@@ -215,12 +215,17 @@ export function render(mount, ctx) {
     return byKey;
   }
 
-  function neededNow() {
+  function installedNow() {
     if (!facts) return 0;
     const bytes = componentBytes();
-    let sum = facts.installed_bytes + (facts.webview2_present ? 0 : facts.webview2_bytes || 0);
+    let sum = facts.installed_bytes;
     disabled().forEach((key) => { sum -= bytes[key] || 0; });
     return Math.max(0, sum);
+  }
+
+  function neededNow() {
+    if (!facts) return 0;
+    return installedNow() + (facts.webview2_present ? 0 : facts.webview2_bytes || 0);
   }
 
   function setFree(bytes) {
@@ -231,7 +236,7 @@ export function render(mount, ctx) {
   function paintAction() {
     if (!facts) return;
     const verb = actionFor(prior, facts.version, ctx.state.dest);
-    ctx.setState({ mode: verb.mode });
+    ctx.setState({ mode: verb.mode, installedSize: mb(installedNow()) });
     ctx.setFooter({ nextLabel: verb.label });
     const detail =
       verb.mode === 'repair'
@@ -321,7 +326,6 @@ export function render(mount, ctx) {
       });
     }
 
-    ctx.setState({ installedSize: mb(f.installed_bytes) });
     setFree(prior ? 0 : f.free_bytes || 0);
     if (prior) freeSpaceAt(dest).then((b) => { if (live.on) setFree(b); });
 

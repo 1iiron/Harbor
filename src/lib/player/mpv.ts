@@ -4,7 +4,15 @@ import { subtitleTrackDownloadHeaders } from "@/lib/subtitles/provider-auth";
 import { takePreparedSubtitle } from "@/lib/subtitles/prepared-registry";
 import { markLimitReached } from "@/lib/subtitles/limit-signal";
 import { clearPendingSub, markPendingSub } from "@/lib/subtitles/pending-subs";
-import { registerTranslationJob } from "@/lib/subtitles/translation-jobs";
+import {
+  clearTranslationJobs,
+  createSubtitleTranslationQueue,
+  isTranslationPendingError,
+  registerTranslationJob,
+  type PendingSubtitleTranslation,
+} from "@/lib/subtitles/translation-jobs";
+import { markAddedSub } from "@/lib/subtitles/added-subs";
+import { generatedOfferLanguageCode } from "@/lib/subtitles/language";
 import { mpvFailureSnapshot } from "./mpv-failure";
 import { isLinuxDesktop, isMacDesktop, isWindowsDesktop } from "@/lib/platform";
 import type { MonitorInfo } from "@/lib/monitors";
@@ -20,7 +28,7 @@ import {
 import { SUBTITLE_FPS_TRANSITION_FAILED_EVENT } from "./subtitle-fps";
 import { finishPlaybackTrace, markPlaybackTrace } from "@/lib/perf/playback-trace";
 import { PreparedSubtitleCleanupRegistry } from "./prepared-subtitle-cleanups";
-import { SubtitleSelectionCoordinator } from "./subtitle-selection";
+import { SubtitleSelectionCoordinator, type SubtitleSelectionOrigin } from "./subtitle-selection";
 import { PreparedSubtitleSeedBatch } from "@/lib/subtitles/seed-batch";
 import { isSafeProviderSubtitleUrl } from "@/lib/subtitles/provider-url";
 import {
@@ -752,6 +760,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       snap = mpvFailureSnapshot(snap, reason);
       mediaRevision += 1;
       invalidateSubtitleSelections();
+      cancelPendingTranslations();
       clearPreparedSubtitles();
       mpvStarted = false;
       finishPlaybackTrace(activeTraceId, "failed");
@@ -971,7 +980,64 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
     }
   };
 
-  return {
+  // A translating addon accepts a subtitle URL before the finished file exists. The
+  // queue re-checks that exact URL until the addon serves the finished subtitle; a
+  // viewer pick or a media change drops anything still waiting.
+  const translationQueue = createSubtitleTranslationQueue();
+  let pendingTranslations: PendingSubtitleTranslation[] = [];
+
+  const dropPendingTranslation = (job: PendingSubtitleTranslation) => {
+    job.active = false;
+    pendingTranslations = pendingTranslations.filter((entry) => entry !== job);
+  };
+
+  const cancelPendingTranslations = () => {
+    translationQueue.clear();
+    if (pendingTranslations.length === 0) return;
+    for (const job of pendingTranslations) job.active = false;
+    pendingTranslations = [];
+    clearTranslationJobs();
+  };
+
+  const attemptPendingTranslation = async (job: PendingSubtitleTranslation): Promise<boolean> => {
+    const added = await addSubtitleInternal(
+      job.url,
+      job.lang,
+      job.title,
+      true,
+      job.metadata,
+      "automatic",
+      job,
+    ).catch((error: unknown) => {
+      if (!isTranslationPendingError(error)) dropPendingTranslation(job);
+      throw error;
+    });
+    if (added) markAddedSub(job.url);
+    dropPendingTranslation(job);
+    return added;
+  };
+
+  const startPendingTranslation = (
+    job: Omit<PendingSubtitleTranslation, "mediaRevision" | "active">,
+  ) => {
+    // One job per URL: concurrent failures for the same addon offer join the first.
+    if (pendingTranslations.some((entry) => entry.url === job.url)) return;
+    const pending: PendingSubtitleTranslation = { ...job, mediaRevision, active: true };
+    pendingTranslations = [...pendingTranslations, pending];
+    registerTranslationJob({
+      url: pending.url,
+      lang: pending.lang,
+      title: pending.title,
+      metadata: pending.metadata,
+    });
+    void translationQueue.run(
+      pending.url,
+      () => pending.active && pending.mediaRevision === mediaRevision,
+      () => attemptPendingTranslation(pending),
+    );
+  };
+
+  const bridge: PlayerBridge = {
     moveEmbeddedSurface: (rect, commit) => moveEmbeddedSurface?.(rect, commit) ?? false,
     attach(h) {
       host = h;
@@ -994,6 +1060,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       h.appendChild(placeholder);
     },
     detach() {
+      cancelPendingTranslations();
       if (host) {
         while (host.firstChild) host.removeChild(host.firstChild);
       }
@@ -1030,6 +1097,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       expectedMediaPath = src.url;
       mediaRevision += 1;
       invalidateSubtitleSelections();
+      cancelPendingTranslations();
       svpFilterFailed = false;
       snap.status = "loading";
       snap.errorCode = null;
@@ -1194,6 +1262,9 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
     canAutoSelectSubtitle: () => mainSubtitleSelection.canAutoSelect(mediaRevision),
     setSubtitleTrack(id, origin = "manual") {
       if (!mainSubtitleSelection.claim(mediaRevision, origin)) return;
+      // The viewer picked (or turned subtitles off) themselves: a translation
+      // still being fetched is no longer wanted.
+      if (origin === "manual") cancelPendingTranslations();
       const requestMediaRevision = mediaRevision;
       mainSubtitleSelection.begin(
         requestMediaRevision,
@@ -1320,186 +1391,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       }
     },
     async addSubtitle(url, lang, title, select, metadata, origin = "manual"): Promise<boolean> {
-      const requestMediaRevision = mediaRevision;
-      const requestLoadId = mediaLoadId;
-      const wantsSelection = (select ?? true) && mainSubtitleSelection.claim(mediaRevision, origin);
-      const selectionRequest = wantsSelection
-        ? mainSubtitleSelection.begin(
-            mediaRevision,
-            `__harbor-added-subtitle-${++subtitleAddSelectionId}__`,
-            snap.subtitleTracks.find((track) => track.selected)?.id ?? null,
-          )
-        : null;
-      let mpvUrl = url;
-      const transferredPrepared = takePreparedSubtitle(url);
-      const providerDerived = metadata?.providerDerived ?? Boolean(metadata?.provider);
-      if (!transferredPrepared && providerDerived && !isSafeProviderSubtitleUrl(url)) {
-        return false;
-      }
-      // A provider subtitle can be re-fetched (e.g. a translating addon that only serves
-      // the finished file later). Replace the previous track for the same source rather
-      // than stacking a duplicate. mpv's sub-remove only touches external subtitle files,
-      // which is the only case that can match here.
-      const sourceUrl = metadata?.originalUrl ?? url;
-      const prior = transferredPrepared
-        ? undefined
-        : snap.subtitleTracks.find(
-            (track) =>
-              track.kind === "subtitle" &&
-              track.external === true &&
-              (track.originalUrl === sourceUrl || track.url === sourceUrl),
-          );
-      if (prior) {
-        try {
-          await invoke("mpv_sub_remove", { id: prior.id });
-        } catch {
-          // Track already gone; adding the refreshed file below still works.
-        }
-        const priorFile = prior.externalFilename?.replace(/\\/g, "/");
-        if (priorFile) urlByExternalFilename.delete(priorFile);
-      }
-      let preparedCleanup: (() => void) | null = transferredPrepared?.cleanup ?? null;
-      let preparedCues: SubCue[] | undefined = transferredPrepared?.cues;
-      let registeredMetadata: ExternalSubtitleMetadata | null = null;
-      if (/^https?:/i.test(url) && !transferredPrepared) {
-        try {
-          const prepared = await prepareSubtitle({
-            url,
-            language: lang,
-            format: metadata?.format,
-            encoding: metadata?.encoding,
-            release: metadata?.release,
-            filename: metadata?.rawFilename,
-            allowLocalNetwork: metadata?.localTrusted === true,
-            requestHeaders: subtitleTrackDownloadHeaders(
-              metadata?.downloadAuth,
-              url,
-              providerDerived,
-            ),
-          });
-          mpvUrl = prepared.playableUrl;
-          preparedCleanup = prepared.cleanup;
-          preparedCues = prepared.cues;
-          metadata = {
-            ...metadata,
-            format: prepared.format,
-            encoding: prepared.encoding,
-            rawFilename: prepared.rawFilename,
-            archive: prepared.archive,
-            prepared: true,
-          };
-          clearPendingSub(url);
-        } catch (e) {
-          const message = e instanceof Error ? e.message : String(e);
-          console.warn("[mpv] subtitle preparation failed", {
-            error: e instanceof Error ? e.name : "unknown",
-          });
-          preparedCleanup?.();
-          if (/status 429/.test(message)) {
-            markLimitReached(url);
-          }
-          if (
-            metadata?.refreshable === true &&
-            e instanceof SubtitlePreparationError &&
-            (e.reason === "invalid-cues" || e.reason === "unsupported-format")
-          ) {
-            // The addon answered before the subtitle was ready. Treat it as a pending
-            // job so the UI says "try again shortly", and never surface the placeholder.
-            markPendingSub(url);
-            registerTranslationJob({ url, lang, title, metadata });
-          }
-          return false;
-        }
-      }
-      if (requestMediaRevision !== mediaRevision) {
-        preparedCleanup?.();
-        return false;
-      }
-      mpvUrl = mpvUrl.replace(/\\/g, "/");
-      try {
-        const externalMetadata: ExternalSubtitleMetadata = {
-          url: metadata?.originalUrl ?? url,
-          lang,
-          title,
-          cues: preparedCues,
-          originalUrl: metadata?.originalUrl ?? url,
-          downloadAuth: metadata?.downloadAuth,
-          format: metadata?.format,
-          release: metadata?.release,
-          provider: metadata?.provider,
-          providerDerived: metadata?.providerDerived,
-          localTrusted: metadata?.localTrusted,
-          fps: metadata?.fps,
-          downloads: metadata?.downloads,
-          author: metadata?.author,
-          uploadedAt: metadata?.uploadedAt,
-          rating: metadata?.rating,
-          productionType: metadata?.productionType,
-          releaseType: metadata?.releaseType,
-          hearingImpaired: metadata?.hearingImpaired,
-          forced: metadata?.forced,
-          foreignOnly: metadata?.foreignOnly,
-          machineTranslated: metadata?.machineTranslated,
-          fromTrusted: metadata?.fromTrusted,
-          providerMatch: metadata?.providerMatch,
-          timingStatus: metadata?.timingStatus,
-          timingMeasurementStatus: metadata?.timingMeasurementStatus,
-          matchExplanation: metadata?.matchExplanation,
-          prepared: metadata?.prepared,
-          autoSelectionEligible: metadata?.autoSelectionEligible,
-          matchScore: metadata?.matchScore,
-          matchConfidence: metadata?.matchConfidence,
-          matchReasons: metadata?.matchReasons,
-          subId: metadata?.subId,
-        };
-        urlByExternalFilename.set(mpvUrl, externalMetadata);
-        registeredMetadata = externalMetadata;
-        const addToMpv = async (): Promise<boolean> => {
-          if (requestMediaRevision !== mediaRevision) return false;
-          let selectAtCommit = false;
-          if (
-            selectionRequest &&
-            mainSubtitleSelection.isCurrent(selectionRequest, mediaRevision)
-          ) {
-            await resetSubtitleFpsBeforeMpvTransition();
-            if (requestMediaRevision !== mediaRevision) return false;
-            selectAtCommit = mainSubtitleSelection.isCurrent(selectionRequest, mediaRevision);
-          }
-          await invoke("mpv_sub_add", {
-            url: mpvUrl,
-            lang: lang ?? null,
-            title: title ?? null,
-            select: selectAtCommit,
-          });
-          return true;
-        };
-        const added = selectionRequest
-          ? await enqueueSubtitleTransition(addToMpv)
-          : await addToMpv();
-        if (!added) {
-          if (urlByExternalFilename.get(mpvUrl) === externalMetadata) {
-            urlByExternalFilename.delete(mpvUrl);
-          }
-          preparedCleanup?.();
-          return false;
-        }
-        if (requestMediaRevision !== mediaRevision) {
-          if (urlByExternalFilename.get(mpvUrl) === externalMetadata) {
-            urlByExternalFilename.delete(mpvUrl);
-          }
-          preparedCleanup?.();
-          return false;
-        }
-        if (preparedCleanup) preparedSubtitleCleanups.register(preparedCleanup, requestLoadId);
-        return true;
-      } catch (e) {
-        if (registeredMetadata && urlByExternalFilename.get(mpvUrl) === registeredMetadata) {
-          urlByExternalFilename.delete(mpvUrl);
-        }
-        preparedCleanup?.();
-        console.warn("[mpv] sub-add failed", e);
-        return false;
-      }
+      return await addSubtitleInternal(url, lang, title, select, metadata, origin);
     },
     getSelectedTrackCues() {
       const selected = snap.subtitleTracks.find((track) => track.selected);
@@ -1609,6 +1501,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       stopGeometryTracking = null;
       mediaRevision += 1;
       invalidateSubtitleSelections();
+      cancelPendingTranslations();
       clearPreparedSubtitles();
       finishPlaybackTrace(activeTraceId, "aborted");
       activeTraceId = null;
@@ -1691,4 +1584,226 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       listeners.clear();
     },
   };
+  const addSubtitleInternal = async (
+    url: string,
+    lang: string | undefined,
+    title: string | undefined,
+    select: boolean | undefined,
+    metadata: SubtitleLoadMetadata | undefined,
+    origin: SubtitleSelectionOrigin,
+    pending: PendingSubtitleTranslation | null = null,
+  ): Promise<boolean> => {
+    const requestMediaRevision = mediaRevision;
+    const requestLoadId = mediaLoadId;
+    const translation = metadata?.translation === true;
+    // Asking a translating addon to produce a file is the viewer's decision:
+    // automatic discovery and preloads only ever see translations that are ready.
+    if (
+      pending === null &&
+      translation &&
+      /^https?:/i.test(url) &&
+      (select !== true || origin !== "manual")
+    ) {
+      return false;
+    }
+    const addLang = translation ? generatedOfferLanguageCode(lang) || lang : lang;
+    // A finished translation is deferred automatic work. The viewer asked for it,
+    // so it selects unless a later pick or a media change dropped the request.
+    const wantsSelection =
+      pending !== null && translation
+        ? true
+        : (select ?? true) && mainSubtitleSelection.claim(mediaRevision, origin);
+    const selectionRequest = wantsSelection
+      ? mainSubtitleSelection.begin(
+          mediaRevision,
+          `__harbor-added-subtitle-${++subtitleAddSelectionId}__`,
+          snap.subtitleTracks.find((track) => track.selected)?.id ?? null,
+        )
+      : null;
+    let mpvUrl = url;
+    const transferredPrepared = takePreparedSubtitle(url);
+    const providerDerived = metadata?.providerDerived ?? Boolean(metadata?.provider);
+    if (!transferredPrepared && providerDerived && !isSafeProviderSubtitleUrl(url)) {
+      return false;
+    }
+    // A provider subtitle can be re-fetched (e.g. a translating addon that only serves
+    // the finished file later). Replace the previous track for the same source rather
+    // than stacking a duplicate. mpv's sub-remove only touches external subtitle files,
+    // which is the only case that can match here.
+    const sourceUrl = metadata?.originalUrl ?? url;
+    const prior = transferredPrepared
+      ? undefined
+      : snap.subtitleTracks.find(
+          (track) =>
+            track.kind === "subtitle" &&
+            track.external === true &&
+            (track.originalUrl === sourceUrl || track.url === sourceUrl),
+        );
+    if (prior) {
+      try {
+        await invoke("mpv_sub_remove", { id: prior.id });
+      } catch {
+        // Track already gone; adding the refreshed file below still works.
+      }
+      const priorFile = prior.externalFilename?.replace(/\\/g, "/");
+      if (priorFile) urlByExternalFilename.delete(priorFile);
+    }
+    let preparedCleanup: (() => void) | null = transferredPrepared?.cleanup ?? null;
+    let preparedCues: SubCue[] | undefined = transferredPrepared?.cues;
+    let registeredMetadata: ExternalSubtitleMetadata | null = null;
+    if (/^https?:/i.test(url) && !transferredPrepared) {
+      try {
+        const prepared = await prepareSubtitle({
+          url,
+          language: addLang,
+          format: metadata?.format,
+          encoding: metadata?.encoding,
+          release: metadata?.release,
+          filename: metadata?.rawFilename,
+          allowLocalNetwork: metadata?.localTrusted === true,
+          translation,
+          requestHeaders: subtitleTrackDownloadHeaders(
+            metadata?.downloadAuth,
+            url,
+            providerDerived,
+          ),
+        });
+        mpvUrl = prepared.playableUrl;
+        preparedCleanup = prepared.cleanup;
+        preparedCues = prepared.cues;
+        metadata = {
+          ...metadata,
+          format: prepared.format,
+          encoding: prepared.encoding,
+          rawFilename: prepared.rawFilename,
+          archive: prepared.archive,
+          prepared: true,
+        };
+        clearPendingSub(url);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        console.warn("[mpv] subtitle preparation failed", {
+          error: e instanceof Error ? e.name : "unknown",
+        });
+        preparedCleanup?.();
+        if (/status 429/.test(message)) {
+          markLimitReached(url);
+        }
+        if (pending !== null) {
+          // The queue owns the retry and failure bookkeeping for deferred work.
+          throw e;
+        }
+        const pendingFailure =
+          e instanceof SubtitlePreparationError &&
+          (e.reason === "translation-pending" ||
+            (!translation &&
+              metadata?.refreshable === true &&
+              (e.reason === "invalid-cues" || e.reason === "unsupported-format")));
+        if (pendingFailure) {
+          // The addon answered before the subtitle was ready. Keep re-checking the same
+          // URL until it serves the finished file, and never surface the placeholder.
+          markPendingSub(url);
+          startPendingTranslation({ url, lang: addLang, title, metadata });
+        }
+        return false;
+      }
+    }
+    if (requestMediaRevision !== mediaRevision) {
+      preparedCleanup?.();
+      return false;
+    }
+    if (pending !== null && (!pending.active || pending.mediaRevision !== mediaRevision)) {
+      // The viewer picked something else, turned subtitles off, or the media changed.
+      preparedCleanup?.();
+      return false;
+    }
+    mpvUrl = mpvUrl.replace(/\\/g, "/");
+    try {
+      const externalMetadata: ExternalSubtitleMetadata = {
+        url: metadata?.originalUrl ?? url,
+        lang: addLang,
+        title,
+        cues: preparedCues,
+        originalUrl: metadata?.originalUrl ?? url,
+        downloadAuth: metadata?.downloadAuth,
+        format: metadata?.format,
+        release: metadata?.release,
+        provider: metadata?.provider,
+        providerDerived: metadata?.providerDerived,
+        localTrusted: metadata?.localTrusted,
+        fps: metadata?.fps,
+        downloads: metadata?.downloads,
+        author: metadata?.author,
+        uploadedAt: metadata?.uploadedAt,
+        rating: metadata?.rating,
+        productionType: metadata?.productionType,
+        releaseType: metadata?.releaseType,
+        hearingImpaired: metadata?.hearingImpaired,
+        forced: metadata?.forced,
+        foreignOnly: metadata?.foreignOnly,
+        machineTranslated: metadata?.machineTranslated,
+        fromTrusted: metadata?.fromTrusted,
+        providerMatch: metadata?.providerMatch,
+        timingStatus: metadata?.timingStatus,
+        timingMeasurementStatus: metadata?.timingMeasurementStatus,
+        matchExplanation: metadata?.matchExplanation,
+        prepared: metadata?.prepared,
+        autoSelectionEligible: metadata?.autoSelectionEligible,
+        matchScore: metadata?.matchScore,
+        matchConfidence: metadata?.matchConfidence,
+        matchReasons: metadata?.matchReasons,
+        subId: metadata?.subId,
+      };
+      urlByExternalFilename.set(mpvUrl, externalMetadata);
+      registeredMetadata = externalMetadata;
+      const addToMpv = async (): Promise<boolean> => {
+        if (requestMediaRevision !== mediaRevision) return false;
+        if (pending !== null && !pending.active) return false;
+        let selectAtCommit = false;
+        if (
+          selectionRequest &&
+          mainSubtitleSelection.isCurrent(selectionRequest, mediaRevision)
+        ) {
+          await resetSubtitleFpsBeforeMpvTransition();
+          if (requestMediaRevision !== mediaRevision) return false;
+          selectAtCommit = mainSubtitleSelection.isCurrent(selectionRequest, mediaRevision);
+        }
+        await invoke("mpv_sub_add", {
+          url: mpvUrl,
+          lang: addLang ?? null,
+          title: title ?? null,
+          select: selectAtCommit,
+        });
+        return true;
+      };
+      const added = selectionRequest
+        ? await enqueueSubtitleTransition(addToMpv)
+        : await addToMpv();
+      if (!added) {
+        if (urlByExternalFilename.get(mpvUrl) === externalMetadata) {
+          urlByExternalFilename.delete(mpvUrl);
+        }
+        preparedCleanup?.();
+        return false;
+      }
+      if (requestMediaRevision !== mediaRevision) {
+        if (urlByExternalFilename.get(mpvUrl) === externalMetadata) {
+          urlByExternalFilename.delete(mpvUrl);
+        }
+        preparedCleanup?.();
+        return false;
+      }
+      if (preparedCleanup) preparedSubtitleCleanups.register(preparedCleanup, requestLoadId);
+      return true;
+    } catch (e) {
+      if (registeredMetadata && urlByExternalFilename.get(mpvUrl) === registeredMetadata) {
+        urlByExternalFilename.delete(mpvUrl);
+      }
+      preparedCleanup?.();
+      console.warn("[mpv] sub-add failed", e);
+      return false;
+    }
+  };
+
+  return bridge;
 }
