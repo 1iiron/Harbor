@@ -103,6 +103,8 @@ export type PlayerSource = {
   }[];
   notWebReady?: boolean;
   startAtSec?: number;
+  startPaused?: boolean;
+  title?: string;
   isLive?: boolean;
   headers?: Record<string, string>;
 };

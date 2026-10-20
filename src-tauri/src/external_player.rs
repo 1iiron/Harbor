@@ -35,6 +35,7 @@ pub struct ExternalPlayerStartArgs {
     /// If left empty, it uses mpv from PATH.
     pub binary: Option<String>,
     pub start_at_sec: Option<f64>,
+    pub start_paused: Option<bool>,
     pub title: Option<String>,
     pub headers: Option<std::collections::HashMap<String, String>>,
     pub extra_args: Option<Vec<String>>,
@@ -337,6 +338,9 @@ pub async fn external_player_start(
     if let Some(start) = args.start_at_sec.filter(|s| *s > 0.0) {
         cmd.arg(format!("--start={start:.3}"));
     }
+    if args.start_paused.unwrap_or(false) {
+        cmd.arg("--pause");
+    }
     if let Some(title) = args.title.as_deref().filter(|t| !t.is_empty()) {
         cmd.arg(format!("--force-media-title={title}"));
     }
@@ -382,15 +386,17 @@ pub async fn external_player_start(
 /// Sends one command to the running mpv (for example `["set_property", "pause", true]`)
 /// over a new pipe connection, then waits for mpv's answer.
 #[tauri::command]
-pub async fn external_player_command(cmd: Vec<Value>) -> Result<(), String> {
+pub async fn external_player_command(session: u64, cmd: Vec<Value>) -> Result<(), String> {
     let path = SESSION
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
+        .filter(|s| s.id == session)
         .map(|s| s.ipc_path.clone())
-        .ok_or("external mpv is not running")?;
+        .ok_or("external mpv session is not running")?;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let (reader, mut writer) = connect(&path).map_err(|e| e.to_string())?;
+        let (reader, mut writer) = connect_when_ready(session, &path)
+            .ok_or("external mpv session closed before IPC was ready")?;
         let line = json!({ "command": cmd, "request_id": 1 }).to_string() + "\n";
         writer.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
         writer.flush().map_err(|e| e.to_string())?;

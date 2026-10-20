@@ -89,7 +89,10 @@ export function createExternalMpvBridge(opts: ExternalMpvOptions): PlayerBridge 
     listeners.forEach((l) => l(next));
   };
 
-  const command = (cmd: unknown[]) => invoke("external_player_command", { cmd });
+  const command = (cmd: unknown[]) =>
+    session
+      ? invoke("external_player_command", { session, cmd })
+      : Promise.reject(new Error("external mpv is not running"));
 
   const flushSubs = () => {
     const subs = pendingSubs;
@@ -218,6 +221,7 @@ export function createExternalMpvBridge(opts: ExternalMpvOptions): PlayerBridge 
     },
     async load(src: PlayerSource) {
       const myLoad = ++loadId;
+      mediaTitle = src.title ?? mediaTitle;
       session = 0;
       pendingSubs = (src.subtitles ?? [])
         .filter((s) => /^https?:\/\//i.test(s.url))
@@ -247,6 +251,7 @@ export function createExternalMpvBridge(opts: ExternalMpvOptions): PlayerBridge 
             url: src.url,
             binary: opts.binary,
             startAtSec: src.startAtSec ?? null,
+            startPaused: src.startPaused === true,
             title: mediaTitle,
             headers: src.headers ?? null,
             extraArgs: splitArgs(opts.args),
