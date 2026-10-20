@@ -27,6 +27,17 @@ const subs = new Set<() => void>();
 let version = 0;
 const cache = new Map<string, Record<string, LocalCwEntry>>();
 
+function nuvioAccountId(): string {
+  try {
+    const raw = localStorage.getItem("harbor.nuvio.state.v1") ?? localStorage.getItem("harbor.nuvio.state");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.session?.user?.id) return String(parsed.session.user.id);
+    }
+  } catch {}
+  return "anon";
+}
+
 function isNuvioMode(): boolean {
   try {
     const explicit = localStorage.getItem("harbor.account-provider");
@@ -61,11 +72,11 @@ function primaryProfileId(): string {
 }
 
 function storeKey(privateOnly = false, ownerId?: string): string {
-  if (isNuvioMode()) {
-    const scope = cwProfileScope(ownerId);
-    return KEY_PREFIX + scope.profileId;
-  }
   const scope = cwProfileScope(ownerId);
+  if (isNuvioMode() || scope.profileId.startsWith("nuvio-")) {
+    const acc = nuvioAccountId();
+    return `${KEY_PREFIX}${acc}.${scope.profileId}`;
+  }
   if (privateOnly) return PRIVATE_PREFIX + scope.profileId;
   const id = scope.sharedId;
   return id ? KEY_PREFIX + id : LEGACY_KEY;
@@ -194,6 +205,26 @@ export function clearLocalCw(
   if (changed) emit();
 }
 
+export function clearAllNuvioLocalCw(): void {
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (
+        key &&
+        (key.startsWith("harbor.localcw.v1.nuvio-") ||
+          key.includes(".nuvio-") ||
+          key.startsWith("harbor.localcw.private.v1.nuvio-"))
+      ) {
+        toRemove.push(key);
+      }
+    }
+    for (const k of toRemove) localStorage.removeItem(k);
+    cache.clear();
+    emit();
+  } catch {}
+}
+
 export function clearAllLocalCw(ownerId?: string): void {
   const keys = ownerId
     ? [storeKey(true, ownerId), storeKey(false, ownerId)]
@@ -223,7 +254,8 @@ export function localCwVersion(): number {
 if (typeof window !== "undefined") {
   const identity = () => {
     const s = cwProfileScope();
-    return `${s.profileId}|${s.sharedId}`;
+    const acc = isNuvioMode() || s.profileId.startsWith("nuvio-") ? nuvioAccountId() : "";
+    return `${acc}|${s.profileId}|${s.sharedId}`;
   };
   let lastProfile = identity();
   const onProfileChange = () => {

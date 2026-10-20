@@ -22,6 +22,7 @@ import { setMovieWatchedLocal } from "@/lib/movie-watched";
 import { reconcileNuvioWatchedEpisodes } from "@/lib/manual-watched";
 import { clearAllLocalCw, clearLocalCw, saveLocalCw } from "@/lib/local-cw";
 import { clearResume } from "@/lib/resume";
+import { readCachedNuvioPlaybackItems, writeCachedNuvioPlaybackItems } from "./nuvio-playback";
 
 /**
  * Returns true if Nuvio is the currently active account provider in Harbor.
@@ -734,14 +735,12 @@ export async function deleteWatchProgressFromNuvio(
   clearResume(normalizedContentId);
 
   try {
-    const rawPlayback = localStorage.getItem(`harbor.nuvio.playback_items.slot.${profileIndex}`);
-    if (rawPlayback) {
-      const parsed = JSON.parse(rawPlayback);
-      if (Array.isArray(parsed)) {
-        const filteredItems = parsed.filter((i: any) => i._id !== normalizedContentId);
-        localStorage.setItem(`harbor.nuvio.playback_items.slot.${profileIndex}`, JSON.stringify(filteredItems));
-      }
+    const existing = readCachedNuvioPlaybackItems(profileIndex);
+    if (existing.length > 0) {
+      const filteredItems = existing.filter((i: any) => i._id !== normalizedContentId);
+      writeCachedNuvioPlaybackItems(profileIndex, filteredItems);
     }
+    localStorage.removeItem(`harbor.nuvio.playback_items.slot.${profileIndex}`);
   } catch {}
 
   // Dispatch events to notify all UI stores immediately
@@ -840,8 +839,9 @@ export async function pullWatchProgressFromNuvio(
           // Cloud has NO watch progress for this profile slot (all items deleted on another device or empty)
           writeCachedWatchProgress(profileIndex, []);
           clearAllLocalCw(`nuvio-${profileIndex}`);
+          writeCachedNuvioPlaybackItems(profileIndex, []);
           try {
-            localStorage.setItem(`harbor.nuvio.playback_items.slot.${profileIndex}`, "[]");
+            localStorage.removeItem(`harbor.nuvio.playback_items.slot.${profileIndex}`);
           } catch {}
           const state = loadNuvioState();
           saveNuvioState({ ...state, lastSyncedAt: Date.now() });
@@ -904,14 +904,12 @@ export async function pullWatchProgressFromNuvio(
           }
         }
         try {
-          const rawPlayback = localStorage.getItem(`harbor.nuvio.playback_items.slot.${profileIndex}`);
-          if (rawPlayback) {
-            const parsed = JSON.parse(rawPlayback);
-            if (Array.isArray(parsed)) {
-              const pruned = parsed.filter((i: any) => serverContentIds.has(i._id));
-              localStorage.setItem(`harbor.nuvio.playback_items.slot.${profileIndex}`, JSON.stringify(pruned));
-            }
+          const existing = readCachedNuvioPlaybackItems(profileIndex);
+          if (existing.length > 0) {
+            const pruned = existing.filter((i: any) => serverContentIds.has(i._id));
+            writeCachedNuvioPlaybackItems(profileIndex, pruned);
           }
+          localStorage.removeItem(`harbor.nuvio.playback_items.slot.${profileIndex}`);
         } catch {}
 
         serverItems.sort((a, b) => {
@@ -964,8 +962,9 @@ export async function pullWatchProgressFromNuvio(
           writeCachedWatchProgress(profileIndex, []);
           clearAllLocalCw(`nuvio-${profileIndex}`);
           clearAllLocalCw();
+          writeCachedNuvioPlaybackItems(profileIndex, []);
           try {
-            localStorage.setItem(`harbor.nuvio.playback_items.slot.${profileIndex}`, "[]");
+            localStorage.removeItem(`harbor.nuvio.playback_items.slot.${profileIndex}`);
           } catch {}
           window.dispatchEvent(
             new CustomEvent("harbor:nuvio-progress-reconciled", { detail: { profileIndex, count: 0 } }),
@@ -1022,14 +1021,12 @@ export async function pullWatchProgressFromNuvio(
           }
         }
         try {
-          const rawPlayback = localStorage.getItem(`harbor.nuvio.playback_items.slot.${profileIndex}`);
-          if (rawPlayback) {
-            const parsed = JSON.parse(rawPlayback);
-            if (Array.isArray(parsed)) {
-              const pruned = parsed.filter((i: any) => serverContentIds.has(i._id));
-              localStorage.setItem(`harbor.nuvio.playback_items.slot.${profileIndex}`, JSON.stringify(pruned));
-            }
+          const existing = readCachedNuvioPlaybackItems(profileIndex);
+          if (existing.length > 0) {
+            const pruned = existing.filter((i: any) => serverContentIds.has(i._id));
+            writeCachedNuvioPlaybackItems(profileIndex, pruned);
           }
+          localStorage.removeItem(`harbor.nuvio.playback_items.slot.${profileIndex}`);
         } catch {}
 
         serverItems.sort((a, b) => (b.last_watched || 0) - (a.last_watched || 0));

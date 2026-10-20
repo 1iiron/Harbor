@@ -38,13 +38,15 @@ import {
   readCachedWatchProgress,
   writeCachedWatchProgress,
   clearCachedWatchProgress,
+  deleteWatchProgressFromNuvio,
 } from "../src/lib/nuvio/nuvio-sync";
 import {
   readCachedNuvioPlaybackItems,
   writeCachedNuvioPlaybackItems,
   clearCachedPlaybackItems,
 } from "../src/lib/nuvio/nuvio-playback";
-import { saveResumeMs, readResumeEntry, clearResume } from "../src/lib/resume";
+import { saveResumeMs, readResumeEntry, clearResume, clearAllNuvioResume } from "../src/lib/resume";
+import { saveLocalCw, listLocalCw, clearAllNuvioLocalCw } from "../src/lib/local-cw";
 
 // Mock localStorage in node test environment
 const mockStorage = new Map<string, string>();
@@ -518,6 +520,161 @@ test("Review 2 Issue 6: Session refresh race guards against late 401 and late su
     const res = await refreshNuvioSession();
     assert.equal(res, null, "Late success must be rejected when newer session exists");
     assert.equal(loadNuvioState().session?.refresh_token, "ref-3", "Newer session token must not be overwritten");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ============================================================================
+// Review 3 Follow-Up Regression Checks (3 Critical Production Gates)
+// ============================================================================
+
+test("Review 3 Issue 1: Local Continue Watching and resume entries are account-scoped and purged on sign-out", () => {
+  mockStorage.clear();
+
+  // User A logs in
+  saveNuvioState({
+    session: { access_token: "tok-A", refresh_token: "ref-A", expires_at: 9999999, token_type: "bearer", user: { id: "user-A" } },
+    profiles: [{ id: "p1", user_id: "user-A", profile_index: 1, name: "Profile 1" }],
+    activeProfileIndex: 1,
+    lastSyncedAt: Date.now(),
+  });
+
+  saveLocalCw({
+    id: "tt-user-a-title",
+    type: "movie",
+    name: "User A Title",
+    positionMs: 300000,
+    durationMs: 3600000,
+    t: Date.now(),
+  }, "nuvio-1");
+  saveResumeMs("tt-user-a-title", 300000, undefined, undefined, undefined, 0.08, "nuvio", "nuvio-1");
+
+  const listA = listLocalCw(true, "nuvio-1");
+  assert.equal(listA.length, 1);
+  assert.equal(listA[0].id, "tt-user-a-title");
+
+  // User B logs in
+  saveNuvioState({
+    session: { access_token: "tok-B", refresh_token: "ref-B", expires_at: 9999999, token_type: "bearer", user: { id: "user-B" } },
+    profiles: [{ id: "pb1", user_id: "user-B", profile_index: 1, name: "Profile 1" }],
+    activeProfileIndex: 1,
+    lastSyncedAt: Date.now(),
+  });
+
+  // User B must NOT see User A's local CW or resume data
+  const listB = listLocalCw(true, "nuvio-1");
+  assert.equal(listB.length, 0, "User B must not see User A's local continue watching entries");
+
+  // Sign out clears all Nuvio local CW and resume entries
+  clearAllNuvioLocalCw();
+  clearAllNuvioResume();
+
+  for (const k of mockStorage.keys()) {
+    assert.ok(!k.includes(".nuvio-1"), `Stale nuvio-1 key must not remain after signout: ${k}`);
+  }
+});
+
+test("Review 3 Issue 2: Library mutations queued during an in-flight flush are preserved", async () => {
+  mockStorage.clear();
+
+  saveNuvioState({
+    session: { access_token: "tok", refresh_token: "ref", expires_at: Math.floor(Date.now() / 1000) + 3600, token_type: "bearer", user: { id: "u-flush" } },
+    profiles: [],
+    activeProfileIndex: 1,
+    lastSyncedAt: null,
+  });
+
+  // 1. Initial pending delete item1
+  writePendingDeletes(1, [{ content_id: "tt-del-1", content_type: "movie" }], "u-flush");
+  // Initial pending upsert item1
+  writePendingUpserts(1, [{ content_id: "tt-up-1", content_type: "movie", name: "Movie 1" }], "u-flush");
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url: any) => {
+    const urlStr = String(url || "");
+    // While request is in-flight, a second delete and upsert are queued by user!
+    if (urlStr.includes("delete")) {
+      const curDeletes = readPendingDeletes(1, "u-flush");
+      if (!curDeletes.some((d) => d.content_id === "tt-del-2")) {
+        writePendingDeletes(1, [...curDeletes, { content_id: "tt-del-2", content_type: "movie" }], "u-flush");
+      }
+    }
+    if (urlStr.includes("sync_push_library")) {
+      const curUpserts = readPendingUpserts(1, "u-flush");
+      if (!curUpserts.some((u) => u.content_id === "tt-up-2")) {
+        writePendingUpserts(1, [...curUpserts, { content_id: "tt-up-2", content_type: "movie", name: "Movie 2" }], "u-flush");
+      }
+    }
+
+    return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+  };
+
+  try {
+    const success = await flushNuvioLibraryMutations(1);
+    assert.equal(success, true);
+
+    const remainingDeletes = readPendingDeletes(1, "u-flush");
+    assert.equal(remainingDeletes.length, 1, "Delete queued during flush must be preserved");
+    assert.equal(remainingDeletes[0].content_id, "tt-del-2");
+
+    const remainingUpserts = readPendingUpserts(1, "u-flush");
+    assert.equal(remainingUpserts.length, 1, "Upsert queued during flush must be preserved");
+    assert.equal(remainingUpserts[0].content_id, "tt-up-2");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Review 3 Issue 3: Playback deletion updates account-scoped cache key", async () => {
+  mockStorage.clear();
+
+  saveNuvioState({
+    session: { access_token: "tok", refresh_token: "ref", expires_at: Math.floor(Date.now() / 1000) + 3600, token_type: "bearer", user: { id: "user-acc-1" } },
+    profiles: [{ id: "p1", user_id: "user-acc-1", profile_index: 1, name: "P1" }],
+    activeProfileIndex: 1,
+    lastSyncedAt: null,
+  });
+
+  // Seed watch progress & playback items in account-scoped cache
+  writeCachedWatchProgress(1, [
+    { content_id: "tt-keep", profile_id: 1, position_seconds: 120 } as any,
+    { content_id: "tt-del-target", profile_id: 1, position_seconds: 60 } as any,
+  ], "user-acc-1");
+  writeCachedNuvioPlaybackItems(1, [
+    { _id: "tt-keep", name: "Keep Movie" } as any,
+    { _id: "tt-del-target", name: "Delete Target" } as any,
+  ], "user-acc-1");
+
+  // Also seed legacy slot key to verify it is wiped
+  mockStorage.set("harbor.nuvio.playback_items.slot.1", JSON.stringify([{ _id: "tt-del-target" }]));
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ([]),
+  } as unknown as Response);
+
+  try {
+    await deleteWatchProgressFromNuvio(1, "tt-del-target");
+
+    const currentCached = readCachedNuvioPlaybackItems(1, "user-acc-1");
+    assert.equal(
+      currentCached.some((i) => i._id === "tt-del-target"),
+      false,
+      "Deleted title must be removed from account-scoped playback items cache",
+    );
+    assert.equal(
+      currentCached.some((i) => i._id === "tt-keep"),
+      true,
+      "Surviving items must remain in account-scoped playback cache",
+    );
+    assert.equal(
+      mockStorage.has("harbor.nuvio.playback_items.slot.1"),
+      false,
+      "Legacy un-scoped slot key must be purged",
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -576,7 +576,7 @@ export async function flushNuvioLibraryMutations(slot: number): Promise<boolean>
 
   if (validDeletes.length > 0) {
     try {
-      let rpcSucceeded = false;
+      const acknowledgedDeletes = new Set<string>();
 
       // Method A: Official sync_delete_library_items RPC
       try {
@@ -593,38 +593,54 @@ export async function flushNuvioLibraryMutations(slot: number): Promise<boolean>
           }),
         });
         if (rpcRes.ok) {
-          rpcSucceeded = true;
+          for (const k of validDeletes) {
+            acknowledgedDeletes.add(`${k.content_type || "movie"}:${k.content_id.trim()}`);
+            acknowledgedDeletes.add(k.content_id.trim());
+          }
         }
       } catch {}
 
       if (!isCurrentAccount()) return false;
 
-      if (rpcSucceeded) {
-        writePendingDeletes(slot, [], startingAccountId);
-      } else {
-        // Method B: Direct table delete fallback - only clear items whose HTTP DELETE actually succeeded
-        const remainingDeletes: typeof validDeletes = [];
-        for (const item of validDeletes) {
-          if (!isCurrentAccount()) return false;
-          let itemDeleted = false;
-          try {
-            const res = await nuvioFetch(
-              `/rest/v1/library_items?profile_id=eq.${slot}&content_id=eq.${encodeURIComponent(item.content_id.trim())}`,
-              { method: "DELETE" },
-            );
-            if (res.ok) {
-              itemDeleted = true;
-            }
-          } catch {}
+      // Method B: Direct table delete fallback for any unacknowledged deletes
+      const unacknowledged = validDeletes.filter(
+        (k) =>
+          !acknowledgedDeletes.has(`${k.content_type || "movie"}:${k.content_id.trim()}`) &&
+          !acknowledgedDeletes.has(k.content_id.trim()),
+      );
 
-          if (!itemDeleted) {
-            remainingDeletes.push(item);
-            success = false;
-          }
-        }
-
+      for (const item of unacknowledged) {
         if (!isCurrentAccount()) return false;
-        writePendingDeletes(slot, remainingDeletes, startingAccountId);
+        try {
+          const res = await nuvioFetch(
+            `/rest/v1/library_items?profile_id=eq.${slot}&content_id=eq.${encodeURIComponent(item.content_id.trim())}`,
+            { method: "DELETE" },
+          );
+          if (res.ok) {
+            acknowledgedDeletes.add(`${item.content_type || "movie"}:${item.content_id.trim()}`);
+            acknowledgedDeletes.add(item.content_id.trim());
+          }
+        } catch {}
+      }
+
+      if (!isCurrentAccount()) return false;
+
+      // Remove only changes acknowledged by this flush request; preserve new mutations queued in-flight
+      const currentPending = readPendingDeletes(slot, startingAccountId);
+      const remaining = currentPending.filter(
+        (k) =>
+          !acknowledgedDeletes.has(`${k.content_type || "movie"}:${k.content_id.trim()}`) &&
+          !acknowledgedDeletes.has(k.content_id.trim()),
+      );
+      writePendingDeletes(slot, remaining, startingAccountId);
+
+      const unacknowledgedDeletesExist = validDeletes.some(
+        (k) =>
+          !acknowledgedDeletes.has(`${k.content_type || "movie"}:${k.content_id.trim()}`) &&
+          !acknowledgedDeletes.has(k.content_id.trim()),
+      );
+      if (unacknowledgedDeletesExist) {
+        success = false;
       }
     } catch (err) {
       console.warn("[nuvio-library] push deletes failed", err);
@@ -715,7 +731,20 @@ export async function flushNuvioLibraryMutations(slot: number): Promise<boolean>
 
       if (!isCurrentAccount()) return false;
       if (upOk) {
-        writePendingUpserts(slot, [], startingAccountId);
+        // Remove only changes acknowledged by this flush request; preserve new mutations queued in-flight
+        const acknowledgedUpsertKeys = new Set(
+          validUpserts.map((i) => `${i.content_type || "movie"}:${i.content_id.trim()}`),
+        );
+        for (const i of validUpserts) {
+          acknowledgedUpsertKeys.add(i.content_id.trim());
+        }
+        const currentPending = readPendingUpserts(slot, startingAccountId);
+        const remaining = currentPending.filter(
+          (i) =>
+            !acknowledgedUpsertKeys.has(`${i.content_type || "movie"}:${i.content_id.trim()}`) &&
+            !acknowledgedUpsertKeys.has(i.content_id.trim()),
+        );
+        writePendingUpserts(slot, remaining, startingAccountId);
       } else {
         success = false;
       }

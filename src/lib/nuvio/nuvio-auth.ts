@@ -16,6 +16,8 @@ import {
 import { clearAllNuvioPinCaches, clearNuvioSessionUnlocks } from "./nuvio-profiles";
 import { clearCachedWatchProgress } from "./nuvio-sync";
 import { clearCachedPlaybackItems } from "./nuvio-playback";
+import { clearAllNuvioLocalCw } from "@/lib/local-cw";
+import { clearAllNuvioResume } from "@/lib/resume";
 import { clearNuvioLibraryCache } from "./nuvio-library";
 import type {
 
@@ -274,6 +276,8 @@ export async function signOutNuvio(): Promise<void> {
   clearNuvioLibraryCache();
   clearCachedWatchProgress();
   clearCachedPlaybackItems();
+  clearAllNuvioLocalCw();
+  clearAllNuvioResume();
 
   const wasNuvio = localStorage.getItem("harbor.account-provider") === "nuvio";
   if (wasNuvio) {
