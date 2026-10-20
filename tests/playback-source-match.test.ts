@@ -184,7 +184,7 @@ test("a later episode that drops its release-group suffix keeps the addon source
   );
 });
 
-test("the same release group survives a resolution and source-tag change", () => {
+test("the same release group does not change the quality", () => {
   const entry = {
     infoHash: "episode-one-hash",
     addonId: "community.aiostreams",
@@ -193,19 +193,25 @@ test("the same release group survives a resolution and source-tag change", () =>
     source: null,
     savedAt: Date.now(),
   };
-  const next = {
+  const next4k = {
     infoHash: "episode-two-hash",
     addonId: "community.aiostreams",
     resolution: "4K",
     releaseGroupNormalized: "MEGUSTA",
     source: "WEB-DL",
   };
+  const next1080 = {
+    ...next4k,
+    infoHash: "episode-two-1080",
+    resolution: "1080p",
+  };
 
-  assert.equal(streamMatchesReleaseLineage(next, entry), false);
-  assert.equal(streamMatchesPreferredSource(next, entry), true);
+  assert.equal(streamMatchesReleaseLineage(next4k, entry), false);
+  assert.equal(streamMatchesPreferredSource(next4k, entry), false);
+  assert.equal(streamMatchesPreferredSource(next1080, entry), true);
   assert.equal(
     streamMatchesPreferredSource(
-      { ...next, releaseGroupNormalized: "FLUX" },
+      { ...next1080, releaseGroupNormalized: "FLUX" },
       entry,
     ),
     false,

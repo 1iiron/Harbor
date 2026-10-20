@@ -172,7 +172,7 @@ export function useResumeAutosave(params: ResumeAutosaveParams) {
     return isForeignSplitSeason(true, se, s.episode?.imdbSeason);
   };
 
-  const record = (current: ResumeSession): void => {
+  const record = (current: ResumeSession, writeSource = true): void => {
     if (!current.ready || !current.latest) return;
     const {
       src: s, snap: sn, season: se, episode: ep,
@@ -221,10 +221,12 @@ export function useResumeAutosave(params: ResumeAutosaveParams) {
     }
     if (typeof cs === "number") setViewedSeason(id, cs);
     if (isExternalPlaylistId(id)) return;
-    if (s.streamRef) {
-      savePlayback(id, { ...s.streamRef, url: s.historyUrl ?? s.url, title: s.meta.name }, cs, ep);
-    } else {
-      savePlayback(id, { title: s.meta.name, parsedTitle: s.meta.name }, cs, ep);
+    if (writeSource) {
+      if (s.streamRef) {
+        savePlayback(id, { ...s.streamRef, url: s.historyUrl ?? s.url, title: s.meta.name }, cs, ep);
+      } else {
+        savePlayback(id, { title: s.meta.name, parsedTitle: s.meta.name }, cs, ep);
+      }
     }
     if (
       (s.meta.type === "series" || s.meta.type === "anime" || isAnimeId(id)) &&
@@ -416,7 +418,13 @@ export function useResumeAutosave(params: ResumeAutosaveParams) {
   }, [snap.status]);
 
   useEffect(() => {
-    return () => record(session);
+    return () => {
+      // A source switch creates a new session. The outgoing session must still
+      // flush progress, but it must not write its old streamRef over the source
+      // the user just switched to. On unmount this is still the active session,
+      // so the source is written.
+      record(session, activeSessionRef.current === session);
+    };
   }, [session]);
 
   useEffect(() => {

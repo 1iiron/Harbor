@@ -554,13 +554,16 @@ export function streamMatchesPreferredSource(
   ) {
     return false;
   }
-  // The same release group is the strongest identity. Resolution and source tags
-  // often differ between episodes (1080p AV1 vs 4K WEB-DL), so do not reject a
-  // same-group episode merely because its filename carries different tags.
+  // The user asked to keep the quality they picked. A same-group 4K episode is
+  // not a match for a remembered 1080p source; let the picker choose another
+  // 1080p stream instead.
+  if (e.resolution && s.resolution && e.resolution !== s.resolution) return false;
+  // The same release group is the strongest identity. Source tags often differ
+  // between episodes (1080p AV1 vs 1080p WEB-DL), so do not reject a same-group
+  // episode merely because its filename carries different tags.
   if (e.releaseGroup && s.releaseGroupNormalized) {
     return e.releaseGroup === s.releaseGroupNormalized;
   }
-  if (e.resolution && s.resolution && e.resolution !== s.resolution) return false;
   if (e.source && s.source && e.source !== s.source) return false;
   return true;
 }
