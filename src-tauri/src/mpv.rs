@@ -83,6 +83,24 @@ pub(crate) struct NativeMpvRect {
     pub height: f64,
 }
 
+/// Smallest client extent that can still show a video surface. The main window
+/// is configured with a 960x600 minimum, so anything below this is not a real
+/// resize.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+pub(crate) const MIN_EMBED_CLIENT: i32 = 64;
+
+/// True when the main window has no usable client area: it is minimized or
+/// hidden. Windows reports a minimized window's iconic size as its client rect
+/// (144x19 on the machine this was measured on); mapping the video rectangle
+/// into that shrinks mpv's surface to a few dozen pixels, which tears down its
+/// video output (new swapchain, recompiled shaders, starved audio) and rebuilds
+/// it on restore. Nothing is visible while minimized, so the last surface is
+/// kept and the forced geometry tick that runs on restore puts it back.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+pub(crate) fn surface_is_hidden(minimized: bool, client_width: i32, client_height: i32) -> bool {
+    minimized || client_width < MIN_EMBED_CLIENT || client_height < MIN_EMBED_CLIENT
+}
+
 #[cfg_attr(not(any(windows, test)), allow(dead_code))]
 pub(crate) fn map_css_geometry(
     css: &MpvGeometry,
@@ -3372,21 +3390,24 @@ fn position_embedded_mpv_child(app: &AppHandle, css: MpvGeometry) -> Result<(), 
 
     let (x, y, w, h) = {
         use windows::Win32::Foundation::RECT;
-        use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+        use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, IsIconic};
+        let minimized = unsafe { IsIconic(parent_hwnd).as_bool() };
         let mut rc = RECT::default();
         let ok = unsafe { GetClientRect(parent_hwnd, &mut rc).is_ok() };
-        let (cw, ch) = (rc.right, rc.bottom);
-        if !(ok && cw > 0 && ch > 0) {
-            (0i32, 0i32, cw.max(1) as u32, ch.max(1) as u32)
-        } else {
-            let native = map_css_geometry(&css, cw as f64, ch as f64);
-            (
-                native.x.round() as i32,
-                native.y.round() as i32,
-                native.width.round().max(1.0) as u32,
-                native.height.round().max(1.0) as u32,
-            )
+        let (cw, ch) = if ok { (rc.right, rc.bottom) } else { (0, 0) };
+        // See surface_is_hidden: a minimized window reports 144x19, and
+        // resizing mpv's surface to that destroys and rebuilds its video
+        // output, which is what makes a minimize/restore stutter.
+        if surface_is_hidden(minimized, cw, ch) {
+            return Ok(());
         }
+        let native = map_css_geometry(&css, cw as f64, ch as f64);
+        (
+            native.x.round() as i32,
+            native.y.round() as i32,
+            native.width.round().max(1.0) as u32,
+            native.height.round().max(1.0) as u32,
+        )
     };
 
     struct EnumState {
@@ -3541,7 +3562,7 @@ fn position_embedded_mpv_child(app: &AppHandle, css: MpvGeometry) -> Result<(), 
 
 #[cfg(test)]
 mod geometry_tests {
-    use super::{map_css_geometry, MpvGeometry, NativeMpvRect};
+    use super::{map_css_geometry, surface_is_hidden, MpvGeometry, NativeMpvRect};
 
     #[test]
     fn mpv_geometry_maps_a_zoomed_full_viewport_to_the_full_native_surface() {
@@ -3607,6 +3628,18 @@ mod geometry_tests {
                 height: 1080.0
             }
         );
+    }
+
+    #[test]
+    fn minimized_and_zero_client_rects_keep_the_last_surface() {
+        // A minimized window reports its iconic client size (144x19 here)
+        // instead of the restored one; resizing mpv's surface to that tears
+        // down the video output and rebuilds it on restore.
+        assert!(surface_is_hidden(true, 1920, 1032));
+        assert!(surface_is_hidden(false, 144, 19));
+        assert!(surface_is_hidden(false, 0, 0));
+        assert!(!surface_is_hidden(false, 1920, 1032));
+        assert!(!surface_is_hidden(false, 960, 600));
     }
 }
 
