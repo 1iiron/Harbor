@@ -394,6 +394,9 @@ fn ensure_window(app: AppHandle) {
             // The window must not keep the decorations it was created with: the
             // native layer paints a caption over the menu while it is shown.
             let _ = window.set_decorations(false);
+            // The client area covers the whole window, so activating the menu
+            // never paints a caption over it.
+            crate::install_tray_subclass(&window);
             // Without a transparent webview the menu flashes white the first
             // time it is shown, before the page has painted.
             crate::make_webview_transparent(&window);
@@ -420,7 +423,8 @@ fn ensure_window(app: AppHandle) {
                     WindowEvent::Focused(false) => {
                         let over = pointer_over_popup(&popup);
                         let shell = shell_owns_foreground();
-                        let presented = with_state(&handle, |state| state.presented).unwrap_or(false);
+                        let presented =
+                            with_state(&handle, |state| state.presented).unwrap_or(false);
                         if presented {
                             if !focus_loss_closes_menu(over, shell) {
                                 // The user is on the menu, so it keeps the foreground.
@@ -783,12 +787,10 @@ fn set_region(window: &WebviewWindow, g: geometry::Geometry, submenu: bool) -> R
     result
 }
 
-/// Whether the pointer still rests on the menu. The shell can take the
-/// foreground back from the tray while the user is on the menu, and a menu
-/// must not close itself while it is being used.
+/// Test the clipped window region, not the bounding rectangle: space reserved
+/// for the theme submenu can extend below the visible main menu.
 fn pointer_over_popup(window: &WebviewWindow) -> bool {
     use windows::Win32::Foundation::{POINT, RECT};
-    use windows::Win32::Graphics::Gdi::PtInRect;
     use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect};
     let Ok(hwnd) = window.hwnd() else {
         return false;
@@ -801,12 +803,28 @@ fn pointer_over_popup(window: &WebviewWindow) -> bool {
     if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err() {
         return false;
     }
-    unsafe { PtInRect(&rect, cursor).as_bool() }
+    popup_region_contains(hwnd, cursor.x - rect.left, cursor.y - rect.top)
+}
+
+fn popup_region_contains(hwnd: windows::Win32::Foundation::HWND, x: i32, y: i32) -> bool {
+    use windows::Win32::Graphics::Gdi::{
+        CreateRectRgn, DeleteObject, GetWindowRgn, PtInRegion, RGN_ERROR,
+    };
+    unsafe {
+        let region = CreateRectRgn(0, 0, 0, 0);
+        if region.is_invalid() {
+            return false;
+        }
+        let inside = GetWindowRgn(hwnd, region) != RGN_ERROR && PtInRegion(region, x, y).as_bool();
+        let _ = DeleteObject(region.into());
+        inside
+    }
 }
 
 /// Which window owns the foreground, so the tray can tell the shell taking it
 /// back from the user leaving the menu.
-fn foreground_class() -> String {    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow};
+fn foreground_class() -> String {
+    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow};
     let hwnd = unsafe { GetForegroundWindow() };
     if hwnd.0.is_null() {
         return "none".to_string();
@@ -825,7 +843,9 @@ fn foreground_class() -> String {    use windows::Win32::UI::WindowsAndMessaging
 /// window keep it.
 fn restore_flyout_foreground() {
     use windows::core::PCWSTR;
-    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, IsWindowVisible, SetForegroundWindow};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, IsWindowVisible, SetForegroundWindow,
+    };
     let class: Vec<u16> = "TopLevelWindowForOverflowXamlIsland"
         .encode_utf16()
         .chain(std::iter::once(0))
@@ -869,8 +889,6 @@ fn overflow_flyout_open() -> bool {
     OPEN.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-
-
 /// Whether the shell owns the foreground. The taskbar inherits it when the
 /// notification area flyout closes, and that flyout takes it back while it
 /// animates away. Neither is the user leaving the menu.
@@ -889,15 +907,14 @@ fn focus_loss_closes_menu(pointer_over_menu: bool, shell_foreground: bool) -> bo
     !(pointer_over_menu || shell_foreground)
 }
 
-/// Whether a mouse button is held down.
-fn mouse_buttons_down() -> bool {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{
-        GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON,
-    };
-    // The high bit of the key state tells whether the button is held down.
+/// Whether a mouse button was pressed since the last check or is held down. The
+/// low bit of the key state catches a click that was over before this poll.
+fn mouse_button_pressed() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
     unsafe {
-        GetAsyncKeyState(VK_LBUTTON.0 as i32) & (0x8000u16 as i16) != 0
-            || GetAsyncKeyState(VK_RBUTTON.0 as i32) & (0x8000u16 as i16) != 0
+        let left = GetAsyncKeyState(VK_LBUTTON.0 as i32);
+        let right = GetAsyncKeyState(VK_RBUTTON.0 as i32);
+        (left | right) & (0x8001u16 as i16) != 0
     }
 }
 
@@ -906,20 +923,20 @@ fn mouse_buttons_down() -> bool {
 fn watch_outside_click(app: AppHandle, open_id: u64) {
     tauri::async_runtime::spawn(async move {
         // The button that opened the menu may still be held down.
-        let mut held = mouse_buttons_down();
+        let mut held = mouse_button_pressed();
         loop {
-            tokio::time::sleep(Duration::from_millis(80)).await;
-            let open = with_state(&app, |state| {
-                state.open && state.open_id == open_id && state.presented
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            let status = with_state(&app, |state| {
+                (state.open && state.open_id == open_id, state.presented)
             })
-            .unwrap_or(false);
-            if !open {
+            .unwrap_or((false, false));
+            if !status.0 {
                 return;
             }
-            let down = mouse_buttons_down();
+            let down = mouse_button_pressed();
             let pressed = down && !held;
             held = down;
-            if !pressed {
+            if !status.1 || !pressed {
                 continue;
             }
             let Some(window) = app.get_webview_window(LABEL) else {
@@ -933,7 +950,6 @@ fn watch_outside_click(app: AppHandle, open_id: u64) {
         }
     });
 }
-
 
 fn disable_native_transitions(window: &WebviewWindow) -> Result<(), String> {
     use windows::core::BOOL;
@@ -1150,6 +1166,49 @@ mod tests {
     }
 
     #[test]
+    fn popup_hit_test_excludes_invisible_space_below_the_menu() {
+        use windows::core::w;
+        use windows::Win32::Graphics::Gdi::{CreateRectRgn, SetWindowRgn};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_POPUP,
+        };
+        unsafe {
+            let hwnd = CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                w!("STATIC"),
+                w!(""),
+                WS_POPUP,
+                0,
+                0,
+                520,
+                450,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            // The full window reserves space for a taller theme submenu.
+            let region = CreateRectRgn(260, 0, 520, 300);
+            assert_ne!(SetWindowRgn(hwnd, Some(region), false), 0);
+            let inside = popup_region_contains(hwnd, 390, 150);
+            let outside = [
+                (390, -1),
+                (259, 150),
+                (520, 150),
+                (390, 300),
+                (390, 350),
+                (259, 350),
+                (520, 350),
+            ]
+            .map(|(x, y)| popup_region_contains(hwnd, x, y));
+            DestroyWindow(hwnd).unwrap();
+            assert!(inside);
+            assert!(outside.into_iter().all(|inside| !inside));
+        }
+    }
+
+    #[test]
     fn a_shell_takeover_keeps_the_menu_open_but_another_app_closes_it() {
         // The taskbar inherits the foreground when the notification area flyout
         // closes. That is not the user leaving the menu.
@@ -1162,7 +1221,8 @@ mod tests {
     }
 
     #[test]
-    fn startup_display_opens_the_branded_menu_without_waiting_for_the_frontend() {        let data = default_display();
+    fn startup_display_opens_the_branded_menu_without_waiting_for_the_frontend() {
+        let data = default_display();
         assert!(data.validate().is_ok());
         assert!(data.tokens.contains_key("--tray-row-hover"));
         assert_eq!(data.themes.len(), 1);
