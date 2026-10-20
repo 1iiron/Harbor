@@ -20,25 +20,25 @@ const PENDING_UPSERT_KEY_PREFIX = "harbor.nuvio.library.pending_upsert.";
 const PENDING_DELETE_KEY_PREFIX = "harbor.nuvio.library.pending_delete.";
 const TOMBSTONE_KEY_PREFIX = "harbor.nuvio.library.tombstone.";
 
-function getLibraryKey(slot: number): string {
-  const accountId = getNuvioAccountId() || "anon";
-  return `${LIBRARY_KEY_PREFIX}${accountId}.slot.${slot}`;
+function getLibraryKey(slot: number, accountId?: string): string {
+  const acc = accountId || getNuvioAccountId() || "anon";
+  return `${LIBRARY_KEY_PREFIX}${acc}.slot.${slot}`;
 }
-function getCursorKey(slot: number): string {
-  const accountId = getNuvioAccountId() || "anon";
-  return `${CURSOR_KEY_PREFIX}${accountId}.slot.${slot}`;
+function getCursorKey(slot: number, accountId?: string): string {
+  const acc = accountId || getNuvioAccountId() || "anon";
+  return `${CURSOR_KEY_PREFIX}${acc}.slot.${slot}`;
 }
-function getPendingUpsertKey(slot: number): string {
-  const accountId = getNuvioAccountId() || "anon";
-  return `${PENDING_UPSERT_KEY_PREFIX}${accountId}.slot.${slot}`;
+function getPendingUpsertKey(slot: number, accountId?: string): string {
+  const acc = accountId || getNuvioAccountId() || "anon";
+  return `${PENDING_UPSERT_KEY_PREFIX}${acc}.slot.${slot}`;
 }
-function getPendingDeleteKey(slot: number): string {
-  const accountId = getNuvioAccountId() || "anon";
-  return `${PENDING_DELETE_KEY_PREFIX}${accountId}.slot.${slot}`;
+function getPendingDeleteKey(slot: number, accountId?: string): string {
+  const acc = accountId || getNuvioAccountId() || "anon";
+  return `${PENDING_DELETE_KEY_PREFIX}${acc}.slot.${slot}`;
 }
-function getTombstoneKey(slot: number): string {
-  const accountId = getNuvioAccountId() || "anon";
-  return `${TOMBSTONE_KEY_PREFIX}${accountId}.slot.${slot}`;
+function getTombstoneKey(slot: number, accountId?: string): string {
+  const acc = accountId || getNuvioAccountId() || "anon";
+  return `${TOMBSTONE_KEY_PREFIX}${acc}.slot.${slot}`;
 }
 
 export function clearNuvioLibraryCache(): void {
@@ -240,9 +240,9 @@ export function writeNuvioCursor(slot: number, cursor: number): void {
   } catch {}
 }
 
-export function readPendingUpserts(slot: number): NuvioLibraryItem[] {
+export function readPendingUpserts(slot: number, accountId?: string): NuvioLibraryItem[] {
   try {
-    const raw = localStorage.getItem(getPendingUpsertKey(slot));
+    const raw = localStorage.getItem(getPendingUpsertKey(slot, accountId));
     if (!raw) return [];
     const list = JSON.parse(raw);
     return Array.isArray(list) ? list.filter((i) => i && i.content_id) : [];
@@ -251,20 +251,20 @@ export function readPendingUpserts(slot: number): NuvioLibraryItem[] {
   }
 }
 
-export function writePendingUpserts(slot: number, items: NuvioLibraryItem[]): void {
+export function writePendingUpserts(slot: number, items: NuvioLibraryItem[], accountId?: string): void {
   try {
     const valid = items.filter((i) => i && i.content_id && String(i.content_id).trim().length > 0);
     if (valid.length === 0) {
-      localStorage.removeItem(getPendingUpsertKey(slot));
+      localStorage.removeItem(getPendingUpsertKey(slot, accountId));
     } else {
-      localStorage.setItem(getPendingUpsertKey(slot), JSON.stringify(valid));
+      localStorage.setItem(getPendingUpsertKey(slot, accountId), JSON.stringify(valid));
     }
   } catch {}
 }
 
-export function readPendingDeletes(slot: number): NuvioLibrarySyncKey[] {
+export function readPendingDeletes(slot: number, accountId?: string): NuvioLibrarySyncKey[] {
   try {
-    const raw = localStorage.getItem(getPendingDeleteKey(slot));
+    const raw = localStorage.getItem(getPendingDeleteKey(slot, accountId));
     if (!raw) return [];
     const list = JSON.parse(raw);
     return Array.isArray(list) ? list.filter((k) => k && k.content_id && String(k.content_id).trim().length > 0) : [];
@@ -273,13 +273,13 @@ export function readPendingDeletes(slot: number): NuvioLibrarySyncKey[] {
   }
 }
 
-export function writePendingDeletes(slot: number, keys: NuvioLibrarySyncKey[]): void {
+export function writePendingDeletes(slot: number, keys: NuvioLibrarySyncKey[], accountId?: string): void {
   try {
     const valid = keys.filter((k) => k && k.content_id && String(k.content_id).trim().length > 0);
     if (valid.length === 0) {
-      localStorage.removeItem(getPendingDeleteKey(slot));
+      localStorage.removeItem(getPendingDeleteKey(slot, accountId));
     } else {
-      localStorage.setItem(getPendingDeleteKey(slot), JSON.stringify(valid));
+      localStorage.setItem(getPendingDeleteKey(slot, accountId), JSON.stringify(valid));
     }
   } catch {}
 }
@@ -559,18 +559,24 @@ export async function flushNuvioLibraryMutations(slot: number): Promise<boolean>
   }
   if (!isNuvioSignedIn()) return false;
 
+  const startingAccountId = getNuvioAccountId();
+  if (!startingAccountId) return false;
+
+  const isCurrentAccount = () => isNuvioSignedIn() && getNuvioAccountId() === startingAccountId;
+
   let success = true;
   const clientId = getOrCreateSyncClientId();
 
   // 1. Process deletes: try sync_delete_library_items RPC first, then direct table delete
-  const pendingDeletes = readPendingDeletes(slot);
+  if (!isCurrentAccount()) return false;
+  const pendingDeletes = readPendingDeletes(slot, startingAccountId);
   const validDeletes = pendingDeletes.filter(
     (k) => k && k.content_id && String(k.content_id).trim().length > 0,
   );
 
   if (validDeletes.length > 0) {
     try {
-      let delOk = false;
+      let rpcSucceeded = false;
 
       // Method A: Official sync_delete_library_items RPC
       try {
@@ -586,22 +592,39 @@ export async function flushNuvioLibraryMutations(slot: number): Promise<boolean>
             p_origin_client_id: clientId,
           }),
         });
-        if (rpcRes.ok) delOk = true;
+        if (rpcRes.ok) {
+          rpcSucceeded = true;
+        }
       } catch {}
 
-      // Method B: Direct table delete (always executed to ensure DB row is removed)
-      for (const item of validDeletes) {
-        try {
-          await nuvioFetch(
-            `/rest/v1/library_items?profile_id=eq.${slot}&content_id=eq.${encodeURIComponent(item.content_id.trim())}`,
-            { method: "DELETE" },
-          );
-          delOk = true;
-        } catch {}
-      }
+      if (!isCurrentAccount()) return false;
 
-      if (delOk) {
-        writePendingDeletes(slot, []);
+      if (rpcSucceeded) {
+        writePendingDeletes(slot, [], startingAccountId);
+      } else {
+        // Method B: Direct table delete fallback - only clear items whose HTTP DELETE actually succeeded
+        const remainingDeletes: typeof validDeletes = [];
+        for (const item of validDeletes) {
+          if (!isCurrentAccount()) return false;
+          let itemDeleted = false;
+          try {
+            const res = await nuvioFetch(
+              `/rest/v1/library_items?profile_id=eq.${slot}&content_id=eq.${encodeURIComponent(item.content_id.trim())}`,
+              { method: "DELETE" },
+            );
+            if (res.ok) {
+              itemDeleted = true;
+            }
+          } catch {}
+
+          if (!itemDeleted) {
+            remainingDeletes.push(item);
+            success = false;
+          }
+        }
+
+        if (!isCurrentAccount()) return false;
+        writePendingDeletes(slot, remainingDeletes, startingAccountId);
       }
     } catch (err) {
       console.warn("[nuvio-library] push deletes failed", err);
@@ -610,7 +633,8 @@ export async function flushNuvioLibraryMutations(slot: number): Promise<boolean>
   }
 
   // 2. Process upserts: try sync_push_library_items RPC, sync_push_library RPC, then direct table upsert
-  const pendingUpserts = readPendingUpserts(slot);
+  if (!isCurrentAccount()) return false;
+  const pendingUpserts = readPendingUpserts(slot, startingAccountId);
   const validUpserts = pendingUpserts.filter(
     (item) => item && item.content_id && String(item.content_id).trim().length > 0,
   );
@@ -635,6 +659,7 @@ export async function flushNuvioLibraryMutations(slot: number): Promise<boolean>
       }));
 
       // Try 1: sync_push_library_items RPC (matching Nuvio Mobile)
+      if (!isCurrentAccount()) return false;
       try {
         const res = await nuvioFetch("/rest/v1/rpc/sync_push_library_items", {
           method: "POST",
@@ -645,11 +670,13 @@ export async function flushNuvioLibraryMutations(slot: number): Promise<boolean>
             p_origin_client_id: clientId,
           }),
         });
+        if (!isCurrentAccount()) return false;
         if (res.ok) upOk = true;
       } catch {}
 
       // Try 2: sync_push_library RPC
       if (!upOk) {
+        if (!isCurrentAccount()) return false;
         try {
           const res = await nuvioFetch("/rest/v1/rpc/sync_push_library", {
             method: "POST",
@@ -660,12 +687,14 @@ export async function flushNuvioLibraryMutations(slot: number): Promise<boolean>
               p_origin_client_id: clientId,
             }),
           });
+          if (!isCurrentAccount()) return false;
           if (res.ok) upOk = true;
         } catch {}
       }
 
       // Try 3: Direct table upsert fallback
       if (!upOk) {
+        if (!isCurrentAccount()) return false;
         try {
           const tableRows = sanitized.map((item) => ({
             profile_id: slot,
@@ -679,12 +708,16 @@ export async function flushNuvioLibraryMutations(slot: number): Promise<boolean>
             },
             body: JSON.stringify(tableRows),
           });
+          if (!isCurrentAccount()) return false;
           if (tableRes.ok) upOk = true;
         } catch {}
       }
 
+      if (!isCurrentAccount()) return false;
       if (upOk) {
-        writePendingUpserts(slot, []);
+        writePendingUpserts(slot, [], startingAccountId);
+      } else {
+        success = false;
       }
     } catch (err) {
       console.warn("[nuvio-library] push upserts failed", err);

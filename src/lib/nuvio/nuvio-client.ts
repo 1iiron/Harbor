@@ -94,6 +94,8 @@ export function isNuvioSignedIn(): boolean {
 export async function refreshNuvioSession(): Promise<NuvioSession | null> {
   const state = loadNuvioState();
   if (!state.session?.refresh_token) return null;
+  const initialRefreshToken = state.session.refresh_token;
+  const initialUserId = state.session.user?.id;
 
   try {
     const res = await fetch(`${NUVIO_DEFAULT_API}/auth/v1/token?grant_type=refresh_token`, {
@@ -104,30 +106,45 @@ export async function refreshNuvioSession(): Promise<NuvioSession | null> {
         Authorization: `Bearer ${NUVIO_ANON_KEY}`,
       },
       body: JSON.stringify({
-        refresh_token: state.session.refresh_token,
+        refresh_token: initialRefreshToken,
       }),
     });
 
     if (!res.ok) {
       if (res.status === 400 || res.status === 401) {
-        // Refresh token invalidated; sign out
-        saveNuvioState({ ...state, session: null });
+        // Refresh token invalidated; only clear if the session hasn't changed concurrently
+        const currentState = loadNuvioState();
+        if (
+          currentState.session &&
+          currentState.session.user?.id === initialUserId &&
+          currentState.session.refresh_token === initialRefreshToken
+        ) {
+          saveNuvioState({ ...currentState, session: null });
+        }
       }
       return null;
     }
 
-    const data = await res.json() as Record<string, unknown>;
+    const data = (await res.json()) as Record<string, unknown>;
     const nowSec = Math.floor(Date.now() / 1000);
     const refreshed: NuvioSession = {
       access_token: String(data.access_token || ""),
-      refresh_token: String(data.refresh_token || state.session.refresh_token),
+      refresh_token: String(data.refresh_token || initialRefreshToken),
       expires_at: nowSec + (typeof data.expires_in === "number" ? data.expires_in : 3600),
       token_type: String(data.token_type || "bearer"),
       user: (data.user as NuvioSession["user"]) || state.session.user,
     };
 
     const currentState = loadNuvioState();
-    if (!currentState.session || currentState.session.user?.id !== state.session?.user?.id) {
+    // Guard against race conditions:
+    // 1. Session was cleared (sign-out)
+    // 2. User switched accounts (different user ID)
+    // 3. User logged in again / newer session stored (different refresh_token)
+    if (
+      !currentState.session ||
+      currentState.session.user?.id !== initialUserId ||
+      currentState.session.refresh_token !== initialRefreshToken
+    ) {
       return null;
     }
     saveNuvioState({ ...currentState, session: refreshed });

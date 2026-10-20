@@ -18,6 +18,9 @@ import {
   readTombstones,
   writePendingUpserts,
   readPendingUpserts,
+  readPendingDeletes,
+  writePendingDeletes,
+  flushNuvioLibraryMutations,
 } from "../src/lib/nuvio/nuvio-library";
 import {
   rememberNuvioPin,
@@ -30,8 +33,18 @@ import {
   refuseNuvioProfileSelect,
   setActiveNuvioProfile,
 } from "../src/lib/nuvio/nuvio-profiles";
-import { resolveNuvioProfileIndex } from "../src/lib/nuvio/nuvio-sync";
-import { signOutNuvio } from "../src/lib/nuvio/nuvio-auth";
+import {
+  resolveNuvioProfileIndex,
+  readCachedWatchProgress,
+  writeCachedWatchProgress,
+  clearCachedWatchProgress,
+} from "../src/lib/nuvio/nuvio-sync";
+import {
+  readCachedNuvioPlaybackItems,
+  writeCachedNuvioPlaybackItems,
+  clearCachedPlaybackItems,
+} from "../src/lib/nuvio/nuvio-playback";
+import { saveResumeMs, readResumeEntry, clearResume } from "../src/lib/resume";
 
 // Mock localStorage in node test environment
 const mockStorage = new Map<string, string>();
@@ -288,4 +301,224 @@ test("Issue 5: Settings profile switch successfully unlocks and switches locked 
   const switched = setActiveNuvioProfile(2, { unlocked: true });
   assert.equal(switched, true);
   assert.equal(loadNuvioState().activeProfileIndex, 2);
+});
+
+// ============================================================================
+// Review 2 Follow-Up Regression Checks (6 Additional Hardened Gates)
+// ============================================================================
+
+test("Review 2 Issue 1: Private resume strictly isolates owner writes, reads, and clears", () => {
+  mockStorage.clear();
+
+  // 1. A write without explicit owner only enters shared KEY, never entering private scope
+  saveResumeMs("tt100", 45000, 1, 1);
+  const sharedRaw = mockStorage.get("harbor.resume");
+  assert.ok(sharedRaw && sharedRaw.includes("tt100|s1e1"), "Unowned write must enter shared resume");
+  assert.equal(
+    mockStorage.has("harbor.resume.private.v1.alice"),
+    false,
+    "Unowned write must never enter active private profile",
+  );
+
+  // 2. An explicit owner write lands in both shared and private scopes
+  saveResumeMs("tt101", 90000, 1, 1, undefined, undefined, undefined, "alice");
+  const privateAlice = mockStorage.get("harbor.resume.private.v1.alice");
+  assert.ok(privateAlice && privateAlice.includes("tt101|s1e1"), "Owner write must enter private profile");
+
+  // 3. Clear with acknowledged option clears only active private scope without deleting shared progress
+  mockStorage.set(
+    "harbor.profiles.v1",
+    JSON.stringify({
+      activeId: "alice",
+      profiles: [
+        { id: "main", isPrimary: true },
+        { id: "alice", shareStremioWith: "main" },
+      ],
+    }),
+  );
+  mockStorage.set("harbor.settings.shared", JSON.stringify({ cwPerProfile: true }));
+  clearResume("tt101", 1, 1, { acknowledged: true });
+  assert.equal(
+    mockStorage.get("harbor.resume.private.v1.alice")?.includes("tt101|s1e1"),
+    false,
+    "Private clear must remove from private scope",
+  );
+  assert.ok(
+    mockStorage.get("harbor.resume")?.includes("tt101|s1e1"),
+    "Private clear must not delete from shared progress",
+  );
+});
+
+test("Review 2 Issue 2: Nuvio watch progress and playback items are strictly scoped by accountId", () => {
+  mockStorage.clear();
+
+  // User A writes watch progress & playback items
+  writeCachedWatchProgress(1, [{ content_id: "ttA", profile_id: 1, position_seconds: 120 } as any], "user-A");
+  writeCachedNuvioPlaybackItems(1, [{ _id: "ttA", name: "Title A" } as any], "user-A");
+
+  // User B reads their own slot 1
+  const bProgress = readCachedWatchProgress(1, "user-B");
+  const bItems = readCachedNuvioPlaybackItems(1, "user-B");
+  assert.equal(bProgress.length, 0, "User B must not see User A's watch progress");
+  assert.equal(bItems.length, 0, "User B must not see User A's playback items");
+
+  // Sign out clears both caches
+  clearCachedWatchProgress();
+  clearCachedPlaybackItems();
+  for (const k of mockStorage.keys()) {
+    assert.ok(!k.startsWith("harbor.nuvio.watch_progress."), "Watch progress cache must be cleared");
+    assert.ok(!k.startsWith("harbor.nuvio.playback_items."), "Playback items cache must be cleared");
+  }
+});
+
+test("Review 2 Issue 3: Switching to Nuvio provider dynamically updates Continue Watching", () => {
+  const cwSource = readFileSync(
+    new URL("../src/lib/feed/external-cw.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    cwSource,
+    /sourceMask\.nuvio\s*=\s*isNuvioProviderActive\(\)/,
+    "onProfileChange and onSessionChange must dynamically refresh sourceMask.nuvio without requiring app reload",
+  );
+  assert.match(
+    cwSource,
+    /window\.addEventListener\(["']harbor:account-provider-changed["'],\s*onProfileChange\)/,
+    "harbor:account-provider-changed must be wired to onProfileChange to update provider CW state",
+  );
+  assert.match(
+    cwSource,
+    /mask\.nuvio\s*!==\s*undefined\s*\?\s*mask\.nuvio\s*:\s*isNuvioProviderActive\(\)/,
+    "setExternalCwSources must fall back to dynamic isNuvioProviderActive() instead of stale sourceMask",
+  );
+});
+
+test("Review 2 Issue 4: Failed library delete retains item in pending queue", async () => {
+  mockStorage.clear();
+
+  saveNuvioState({
+    session: { access_token: "tok", refresh_token: "ref", expires_at: 9999999, token_type: "bearer", user: { id: "u-del" } },
+    profiles: [],
+    activeProfileIndex: 1,
+    lastSyncedAt: null,
+  });
+
+  writePendingDeletes(1, [{ content_id: "tt-fail-delete", content_type: "movie" }], "u-del");
+  assert.equal(readPendingDeletes(1, "u-del").length, 1);
+
+  // Simulate both RPC and direct table DELETE failing with HTTP 500
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 500,
+    json: async () => ({ message: "Internal server error" }),
+  } as unknown as Response);
+
+  try {
+    const success = await flushNuvioLibraryMutations(1);
+    assert.equal(success, false, "Flush must return false on failed network delete");
+
+    const remaining = readPendingDeletes(1, "u-del");
+    assert.equal(remaining.length, 1, "Failed delete must be retained in pending queue");
+    assert.equal(remaining[0].content_id, "tt-fail-delete");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Review 2 Issue 5: In-flight library flush aborts if user switches accounts", async () => {
+  mockStorage.clear();
+
+  saveNuvioState({
+    session: { access_token: "tok-A", refresh_token: "ref-A", expires_at: 9999999, token_type: "bearer", user: { id: "user-A" } },
+    profiles: [],
+    activeProfileIndex: 1,
+    lastSyncedAt: null,
+  });
+
+  writePendingDeletes(1, [{ content_id: "tt-user-A-item", content_type: "movie" }], "user-A");
+
+  // Intercept fetch: while User A's flush is running, User B signs in
+  const originalFetch = globalThis.fetch;
+  let requestsMadeWithB = 0;
+  globalThis.fetch = async (_url, init) => {
+    // Switch to User B mid-flight
+    saveNuvioState({
+      session: { access_token: "tok-B", refresh_token: "ref-B", expires_at: 9999999, token_type: "bearer", user: { id: "user-B" } },
+      profiles: [],
+      activeProfileIndex: 1,
+      lastSyncedAt: null,
+    });
+    const authHeader = (init?.headers as Record<string, string>)?.["Authorization"] || "";
+    if (authHeader.includes("tok-B")) {
+      requestsMadeWithB++;
+    }
+    return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+  };
+
+  try {
+    const flushed = await flushNuvioLibraryMutations(1);
+    assert.equal(flushed, false, "Flush must abort when account switches mid-flight");
+    assert.equal(requestsMadeWithB, 0, "User A's mutations must never be dispatched with User B's token");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Review 2 Issue 6: Session refresh race guards against late 401 and late success", async () => {
+  mockStorage.clear();
+
+  // Scenario A: Late 401 must not wipe a newer login to the same account
+  saveNuvioState({
+    session: { access_token: "tok-1", refresh_token: "ref-1", expires_at: 100, token_type: "bearer", user: { id: "u-same" } },
+    profiles: [],
+    activeProfileIndex: 1,
+    lastSyncedAt: null,
+  });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    // While refresh is in flight, user logs in with newer credentials (ref-2)
+    saveNuvioState({
+      session: { access_token: "tok-2", refresh_token: "ref-2", expires_at: 99999, token_type: "bearer", user: { id: "u-same" } },
+      profiles: [],
+      activeProfileIndex: 1,
+      lastSyncedAt: null,
+    });
+    return { ok: false, status: 401 } as unknown as Response;
+  };
+
+  try {
+    const res = await refreshNuvioSession();
+    assert.equal(res, null);
+    const state = loadNuvioState();
+    assert.ok(state.session !== null, "Late 401 must not wipe newer session");
+    assert.equal(state.session?.refresh_token, "ref-2", "Newer session must be preserved");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  // Scenario B: Late success must not overwrite a newer login to the same account
+  globalThis.fetch = async () => {
+    // User renewed with ref-3 while ref-2 was refreshing
+    saveNuvioState({
+      session: { access_token: "tok-3", refresh_token: "ref-3", expires_at: 99999, token_type: "bearer", user: { id: "u-same" } },
+      profiles: [],
+      activeProfileIndex: 1,
+      lastSyncedAt: null,
+    });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: "stale-tok", refresh_token: "stale-ref", expires_in: 3600 }),
+    } as unknown as Response;
+  };
+
+  try {
+    const res = await refreshNuvioSession();
+    assert.equal(res, null, "Late success must be rejected when newer session exists");
+    assert.equal(loadNuvioState().session?.refresh_token, "ref-3", "Newer session token must not be overwritten");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

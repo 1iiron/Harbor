@@ -33,6 +33,10 @@ const EMPTY: LibraryItem[] = [];
 // Per-slot in-memory cache for snappy instant profile switches
 const slotCwMemoryCache = new Map<number, LibraryItem[]>();
 
+export function clearNuvioCwMemoryCache(): void {
+  slotCwMemoryCache.clear();
+}
+
 export function getCachedNuvioItemsForSlot(slot: number): LibraryItem[] {
   const mem = slotCwMemoryCache.get(slot);
   if (mem && mem.length > 0) return mem;
@@ -76,11 +80,12 @@ function setItems(next: LibraryItem[]): void {
 }
 
 export function externalCwConnected(): boolean {
+  const nuvioActive = isNuvioProviderActive() && isNuvioSignedIn() && sourceMask.nuvio !== false;
   return (
     (sourceMask.simkl && !!getSimklSession()) ||
     (sourceMask.trakt && !!getTraktSession()) ||
     (sourceMask.publicmetadb && !!getPmdbSession()) ||
-    (sourceMask.nuvio && isNuvioSignedIn() && isNuvioProviderActive())
+    nuvioActive
   );
 }
 
@@ -119,7 +124,7 @@ export function setExternalCwSources(mask: {
   nuvio?: boolean;
 }): void {
   const pm = mask.publicmetadb ?? sourceMask.publicmetadb;
-  const nuvio = mask.nuvio ?? sourceMask.nuvio;
+  const nuvio = mask.nuvio !== undefined ? mask.nuvio : isNuvioProviderActive();
   if (
     mask.trakt === sourceMask.trakt &&
     mask.simkl === sourceMask.simkl &&
@@ -272,6 +277,8 @@ let lastPmdb = getPmdbSession();
 let lastNuvio = isNuvioSignedIn() && isNuvioProviderActive();
 
 function onSessionChange(): void {
+  slotCwMemoryCache.clear();
+  sourceMask.nuvio = isNuvioProviderActive();
   const simkl = getSimklSession();
   const trakt = getTraktSession();
   const pmdb = getPmdbSession();
@@ -300,6 +307,7 @@ function onSessionChange(): void {
 }
 
 function onProfileChange(): void {
+  sourceMask.nuvio = isNuvioProviderActive();
   lastSimkl = getSimklSession();
   lastTrakt = getTraktSession();
   lastPmdb = getPmdbSession();

@@ -5,6 +5,7 @@
 
 import {
   getNuvioProfileIndexForHarborProfile,
+  getNuvioAccountId,
   getOrCreateSyncClientId,
   isNuvioSignedIn,
   loadNuvioState,
@@ -78,14 +79,19 @@ export function resolveNuvioProfileIndex(harborProfileId?: string | number): num
     : 1;
 }
 
-const WATCH_PROGRESS_CACHE_PREFIX = "harbor.nuvio.watch_progress.slot.";
+const WATCH_PROGRESS_CACHE_PREFIX = "harbor.nuvio.watch_progress.";
+
+function getWatchProgressKey(slot: number, accountId?: string): string {
+  const acc = accountId || getNuvioAccountId() || "anon";
+  return `${WATCH_PROGRESS_CACHE_PREFIX}${acc}.slot.${slot}`;
+}
 
 /**
  * Loads cached watch progress records for a specific profile slot from localStorage.
  */
-export function readCachedWatchProgress(slot: number): NuvioWatchProgress[] {
+export function readCachedWatchProgress(slot: number, accountId?: string): NuvioWatchProgress[] {
   try {
-    const raw = localStorage.getItem(`${WATCH_PROGRESS_CACHE_PREFIX}${slot}`);
+    const raw = localStorage.getItem(getWatchProgressKey(slot, accountId));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as NuvioWatchProgress[]) : [];
@@ -100,12 +106,30 @@ export function readCachedWatchProgress(slot: number): NuvioWatchProgress[] {
 export function writeCachedWatchProgress(
   slot: number,
   items: NuvioWatchProgress[],
+  accountId?: string,
 ): void {
   try {
     localStorage.setItem(
-      `${WATCH_PROGRESS_CACHE_PREFIX}${slot}`,
+      getWatchProgressKey(slot, accountId),
       JSON.stringify(items),
     );
+  } catch {}
+}
+
+export function clearCachedWatchProgress(): void {
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (
+        key &&
+        (key.startsWith("harbor.nuvio.watch_progress.") ||
+          key.startsWith("harbor.nuvio.watch_progress.slot."))
+      ) {
+        toRemove.push(key);
+      }
+    }
+    for (const k of toRemove) localStorage.removeItem(k);
   } catch {}
 }
 

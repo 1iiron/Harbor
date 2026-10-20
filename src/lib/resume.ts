@@ -67,13 +67,8 @@ export function saveResumeMs(
     ...(p !== undefined ? { pct: p } : {}),
     ...(source !== undefined ? { source } : {}),
   };
-  const targetOwner = ownerId ?? privateCwProfileId();
-  const isNuvio = Boolean(targetOwner?.startsWith("nuvio-"));
-  const targetKeys = isNuvio
-    ? [PRIVATE_PREFIX + targetOwner]
-    : targetOwner
-      ? [KEY, PRIVATE_PREFIX + targetOwner]
-      : [KEY];
+  // Imported/cloud progress never establishes a profile's playback ownership.
+  const targetKeys = ownerId ? [KEY, PRIVATE_PREFIX + ownerId] : [KEY];
   for (const key of targetKeys) {
     const all = readAll(key);
     all[entryKey(id, season, episode)] = entry;
@@ -93,32 +88,23 @@ export function saveResumeBatch(
   }[],
 ): void {
   if (entries.length === 0) return;
-  const targetOwner = privateCwProfileId();
-  const isNuvio = Boolean(targetOwner?.startsWith("nuvio-"));
-  const keys = isNuvio
-    ? [PRIVATE_PREFIX + targetOwner]
-    : targetOwner
-      ? [KEY, PRIVATE_PREFIX + targetOwner]
-      : [KEY];
+  const all = readAll(KEY);
   const now = Date.now();
-  for (const key of keys) {
-    const all = readAll(key);
-    for (const e of entries) {
-      if (!Number.isFinite(e.ms) || e.ms < 0) continue;
-      if (typeof e.season === "number" && typeof e.episode === "number") {
-        if (e.season < 0 || e.episode < 1) continue;
-      }
-      const p =
-        e.pct !== undefined && Number.isFinite(e.pct) && e.pct >= 0 && e.pct <= 1 ? e.pct : undefined;
-      all[entryKey(e.id, e.season, e.episode)] = {
-        ms: e.ms,
-        t: e.t ?? now,
-        ...(p !== undefined ? { pct: p } : {}),
-        ...(e.source !== undefined ? { source: e.source } : {}),
-      };
+  for (const e of entries) {
+    if (!Number.isFinite(e.ms) || e.ms < 0) continue;
+    if (typeof e.season === "number" && typeof e.episode === "number") {
+      if (e.season < 0 || e.episode < 1) continue;
     }
-    writeAll(all, key);
+    const p =
+      e.pct !== undefined && Number.isFinite(e.pct) && e.pct >= 0 && e.pct <= 1 ? e.pct : undefined;
+    all[entryKey(e.id, e.season, e.episode)] = {
+      ms: e.ms,
+      t: e.t ?? now,
+      ...(p !== undefined ? { pct: p } : {}),
+      ...(e.source !== undefined ? { source: e.source } : {}),
+    };
   }
+  writeAll(all, KEY);
 }
 
 export function readResumeMs(id: string, season?: number, episode?: number): number {
@@ -131,33 +117,17 @@ export function readResumeEntry(
   season?: number,
   episode?: number,
 ): { ms: number; t: number; s?: number; pct?: number; source?: ExternalCwSource } | null {
-  const k = entryKey(id, season, episode);
-  const currentKey = readKey();
-  const all = readAll(currentKey);
-  const e = all[k];
-  if (e) {
-    return {
-      ms: e.ms,
-      t: e.t,
-      ...(e.s !== undefined ? { s: e.s } : {}),
-      ...(e.pct !== undefined ? { pct: e.pct } : {}),
-      ...(e.source !== undefined ? { source: e.source } : {}),
-    };
-  }
-  if (currentKey !== KEY && !currentKey.includes("nuvio-")) {
-    const globalAll = readAll(KEY);
-    const ge = globalAll[k];
-    if (ge) {
-      return {
-        ms: ge.ms,
-        t: ge.t,
-        ...(ge.s !== undefined ? { s: ge.s } : {}),
-        ...(ge.pct !== undefined ? { pct: ge.pct } : {}),
-        ...(ge.source !== undefined ? { source: ge.source } : {}),
-      };
-    }
-  }
-  return null;
+  const all = readAll();
+  const e = all[entryKey(id, season, episode)];
+  return e
+    ? {
+        ms: e.ms,
+        t: e.t,
+        ...(e.s !== undefined ? { s: e.s } : {}),
+        ...(e.pct !== undefined ? { pct: e.pct } : {}),
+        ...(e.source !== undefined ? { source: e.source } : {}),
+      }
+    : null;
 }
 
 export function readResumeSource(
@@ -176,13 +146,7 @@ export function clearResume(
 ): void {
   const ownerId = typeof ownerOrOptions === "string" ? ownerOrOptions : ownerOrOptions?.ownerId;
   const acknowledged = typeof ownerOrOptions === "object" && ownerOrOptions?.acknowledged === true;
-  const targetOwner = ownerId ?? privateCwProfileId();
-  const isNuvio = Boolean(targetOwner?.startsWith("nuvio-"));
-  const targetKeys = isNuvio
-    ? [PRIVATE_PREFIX + targetOwner, KEY]
-    : targetOwner
-      ? [KEY, PRIVATE_PREFIX + targetOwner]
-      : [KEY];
+  const targetKeys = ownerId ? [KEY, PRIVATE_PREFIX + ownerId] : [readKey()];
   for (const key of targetKeys) {
     const all = readAll(key);
     if (typeof season === "number" && typeof episode === "number") {

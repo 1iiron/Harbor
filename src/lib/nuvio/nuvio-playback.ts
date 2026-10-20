@@ -3,7 +3,7 @@ import {
   readCachedWatchProgress,
   resolveNuvioProfileIndex,
 } from "./nuvio-sync";
-import { isNuvioSignedIn } from "./nuvio-client";
+import { getNuvioAccountId, isNuvioSignedIn } from "./nuvio-client";
 import type { LibraryItem } from "@/lib/stremio";
 import { readResumeEntry, saveResumeMs } from "@/lib/resume";
 import { isCwDismissed } from "@/lib/cw-dismiss";
@@ -13,22 +13,27 @@ import { readCachedNuvioLibrary } from "./nuvio-library";
 import { localCwEntry, listLocalCw } from "@/lib/local-cw";
 
 const DURATION_MS = { movie: 6_300_000, series: 2_640_000 };
-const PLAYBACK_ITEMS_CACHE_PREFIX = "harbor.nuvio.playback_items.slot.";
+const PLAYBACK_ITEMS_CACHE_PREFIX = "harbor.nuvio.playback_items.";
+
+function getPlaybackItemsKey(slot: number, accountId?: string): string {
+  const acc = accountId || getNuvioAccountId() || "anon";
+  return `${PLAYBACK_ITEMS_CACHE_PREFIX}${acc}.slot.${slot}`;
+}
 
 /**
  * Loads cached Nuvio playback LibraryItems for a slot from memory/localStorage.
  */
-export function readCachedNuvioPlaybackItems(slot?: number): LibraryItem[] {
+export function readCachedNuvioPlaybackItems(slot?: number, accountId?: string): LibraryItem[] {
   const profileIndex = slot ?? resolveNuvioProfileIndex();
-  const records = readCachedWatchProgress(profileIndex);
+  const records = readCachedWatchProgress(profileIndex, accountId);
   try {
-    const raw = localStorage.getItem(`${PLAYBACK_ITEMS_CACHE_PREFIX}${profileIndex}`);
+    const raw = localStorage.getItem(getPlaybackItemsKey(profileIndex, accountId));
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         // If cached watch progress is known to be empty, don't return stale non-empty playback items
         if (records.length === 0 && parsed.length > 0) {
-          writeCachedNuvioPlaybackItems(profileIndex, []);
+          writeCachedNuvioPlaybackItems(profileIndex, [], accountId);
           return [];
         }
         return parsed;
@@ -37,7 +42,7 @@ export function readCachedNuvioPlaybackItems(slot?: number): LibraryItem[] {
   } catch {}
 
   const built = buildNuvioPlaybackItems(records, profileIndex);
-  writeCachedNuvioPlaybackItems(profileIndex, built);
+  writeCachedNuvioPlaybackItems(profileIndex, built, accountId);
   return built;
 }
 
@@ -47,12 +52,30 @@ export function readCachedNuvioPlaybackItems(slot?: number): LibraryItem[] {
 export function writeCachedNuvioPlaybackItems(
   slot: number,
   items: LibraryItem[],
+  accountId?: string,
 ): void {
   try {
     localStorage.setItem(
-      `${PLAYBACK_ITEMS_CACHE_PREFIX}${slot}`,
+      getPlaybackItemsKey(slot, accountId),
       JSON.stringify(items),
     );
+  } catch {}
+}
+
+export function clearCachedPlaybackItems(): void {
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (
+        key &&
+        (key.startsWith("harbor.nuvio.playback_items.") ||
+          key.startsWith("harbor.nuvio.playback_items.slot."))
+      ) {
+        toRemove.push(key);
+      }
+    }
+    for (const k of toRemove) localStorage.removeItem(k);
   } catch {}
 }
 
