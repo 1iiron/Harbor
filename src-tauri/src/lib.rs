@@ -102,6 +102,8 @@ mod media_controls;
 mod taskbar;
 mod modal_overlay;
 #[cfg(desktop)]
+mod external_player;
+#[cfg(desktop)]
 mod mpv;
 #[cfg(desktop)]
 mod playback_cache;
@@ -184,6 +186,8 @@ pub(crate) fn shutdown_services(app: &tauri::AppHandle) {
     cast_server::stop();
     torrent_engine::stop();
     discord_rp::shutdown(app);
+    #[cfg(desktop)]
+    external_player::shutdown();
     crash_report::mark_clean_exit();
 }
 
@@ -1473,6 +1477,9 @@ pub fn run() {
             cf_relay::cf_relay_status,
             mpv::mpv_probe,
             mpv::mpv_start,
+            external_player::external_player_start,
+            external_player::external_player_command,
+            external_player::external_player_stop,
             mpv::mpv_command,
             mpv::mpv_set_property,
             mpv::mpv_get_property,

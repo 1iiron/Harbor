@@ -42,7 +42,8 @@ export function usePauseOnInactive({
     void import("@tauri-apps/api/event").then(({ listen }) =>
       listen<{ focused: boolean; minimized: boolean }>("harbor://window-activity", (e) => {
         const bridge = bridgeRef.current;
-        if (!bridge) return;
+        // Switching to the user's own external mpv window does not mean leaving, so don't pause the playback.
+        if (!bridge || bridge.capabilities().external) return;
         const { focused, minimized } = e.payload;
         if (!focused) {
           const shouldPause = minimized ? pauseMinimized : pauseUnfocused;

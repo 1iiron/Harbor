@@ -150,6 +150,8 @@ export function useBridgeLoad(params: {
           notWebReady: src.notWebReady,
           isLive,
           headers: src.headers,
+          title: [src.title, src.subtitle].filter(Boolean).join(" - "),
+          startPaused: eligibleForPrompt || src.startPaused === true || guestInRoom,
           // Supply resume to the initial load so mpv/HTML5 never start at zero
           // while a later seek races automatic intro skipping.
           startAtSec:
