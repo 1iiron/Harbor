@@ -5,6 +5,7 @@ import { isGenericSeasonName } from "@/lib/season-name";
 import { fetchTmdbSeasonPoster, resolveSeasonArtworkTmdbId } from "@/lib/providers/tmdb-season-artwork";
 import type { PickerItem } from "./series-episodes/season-arc-picker";
 import {
+  isDisplayableName,
   tvdbSeasonNames,
   tvdbSeasons,
   tvdbSeriesByRemote,
@@ -34,6 +35,7 @@ export function useSeasonExplorer({
   lang,
   activeSeason,
   enabled = true,
+  allowProxy = false,
 }: {
   metaId: string;
   imdbId?: string | null;
@@ -46,10 +48,20 @@ export function useSeasonExplorer({
   lang: string;
   activeSeason?: number;
   enabled?: boolean;
+  /** Harbor's proxy is only allowed for anime. Regular titles need their own key. */
+  allowProxy?: boolean;
 }) {
-  const scope = JSON.stringify([metaId, imdbId, tvdbKey, seasonType, lang, enabled]);
+  const scope = JSON.stringify([metaId, imdbId, tvdbKey, seasonType, lang, enabled, allowProxy]);
+  const canQuery = enabled && (!!tvdbKey.trim() || allowProxy);
   const posterKey = JSON.stringify(seasonPosters ?? {});
-  const artworkScope = JSON.stringify([scope, tmdbKey, tmdbTvId, posterKey, titlePoster]);
+  const artworkScope = JSON.stringify([
+    scope,
+    tmdbKey,
+    tmdbTvId,
+    posterKey,
+    titlePoster,
+    canQuery,
+  ]);
   const [catalog, setCatalog] = useState<{
     scope: string;
     seasons: Map<number, TvdbSeasonInfo>;
@@ -96,7 +108,7 @@ export function useSeasonExplorer({
   const catalogReady = catalog?.scope === scope;
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!canQuery) return;
     let cancelled = false;
     void (async () => {
       const kitsuId = parseKitsuId(metaId);
@@ -114,22 +126,22 @@ export function useSeasonExplorer({
       const infos =
         seriesId == null
           ? EMPTY_SEASONS
-          : await tvdbSeasons(tvdbKey, seriesId, seasonType).catch(() => EMPTY_SEASONS);
+          : await tvdbSeasons(tvdbKey, seriesId, seasonType, lang).catch(() => EMPTY_SEASONS);
       if (cancelled) return;
       setCatalog({ scope, seasons: infos, names: EMPTY_NAMES });
       const englishNames =
         seriesId == null
           ? EMPTY_NAMES
-          : await tvdbSeasonNames(tvdbKey, seriesId, seasonType).catch(() => EMPTY_NAMES);
+          : await tvdbSeasonNames(tvdbKey, seriesId, seasonType, lang).catch(() => EMPTY_NAMES);
       if (!cancelled) setCatalog({ scope, seasons: infos, names: englishNames });
     })();
     return () => {
       cancelled = true;
     };
-  }, [scope, metaId, imdbId, tvdbKey, seasonType, enabled]);
+  }, [scope, metaId, imdbId, tvdbKey, seasonType, canQuery]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!canQuery) return;
     const posters = JSON.parse(posterKey) as Record<number, string>;
     let tmdbIdRequest: Promise<number | null> | undefined;
     const loader = createSeasonArtworkLoader(tvdbKey, lang, (number, value) => {
@@ -159,7 +171,7 @@ export function useSeasonExplorer({
     };
   }, [
     artworkScope, seasons, tvdbKey, tmdbKey, tmdbTvId, posterKey, titlePoster,
-    metaId, imdbId, seasonType, lang, enabled,
+    metaId, imdbId, seasonType, lang, canQuery,
   ]);
 
   useEffect(() => {
@@ -174,7 +186,7 @@ export function useSeasonExplorer({
 
   useEffect(() => {
     const season = activeSeason == null ? undefined : seasons.get(activeSeason);
-    if (!enabled || !season || details.has(season.number)) return;
+    if (!canQuery || !season || details.has(season.number)) return;
     let cancelled = false;
     setPending({ scope, season: season.number });
     void fetchTvdbSeasonDetails(tvdbKey, season, lang)
@@ -193,7 +205,7 @@ export function useSeasonExplorer({
     return () => {
       cancelled = true;
     };
-  }, [scope, seasons, activeSeason, tvdbKey, lang, enabled, details]);
+  }, [scope, seasons, activeSeason, tvdbKey, lang, canQuery, details]);
 
   return {
     seasons,
@@ -215,9 +227,16 @@ export function englishSeasonItems(
     const n = item.seasonNumber;
     if (n == null || n < 0) return item;
     const sourceName = item.nameLanguage === "en" ? item.name.trim() : undefined;
-    const name =
-      details.get(n)?.name || names.get(n) || sourceName ||
-      (n === 0 ? "Specials" : `Season ${n}`);
+    const candidates = [
+      item.fallbackName,
+      details.get(n)?.name,
+      names.get(n),
+      sourceName,
+    ].filter((candidate): candidate is string => !!candidate && isDisplayableName(candidate));
+    // A provider's generic English fallback ("Season 4") must not replace a
+    // real English title from TMDB or the order data.
+    const preferred = candidates.find((candidate) => !isGenericSeasonName(candidate, n));
+    const name = preferred ?? candidates[0] ?? (n === 0 ? "Specials" : `Season ${n}`);
     return {
       ...item,
       name,

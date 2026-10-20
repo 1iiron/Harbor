@@ -84,6 +84,8 @@ export function buildAnimeOrder(
     items.push({
       key,
       name: s.name,
+      nameLanguage: s.nameLanguage ?? "en",
+      overview: s.overview,
       count: ordered.length,
       year: s.airDate?.slice(0, 4),
       from,

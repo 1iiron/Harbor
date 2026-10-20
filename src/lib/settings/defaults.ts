@@ -155,6 +155,7 @@ export const DEFAULT: Settings = {
   episodeOrderProvider: "tvdb",
   tvdbSeasonType: "aired",
   tvdbOrderPanel: true,
+  tvdbSeasonExplorer: true,
   tvdbPin: "",
   harborAvatar: null,
   harborColor: "#7dd3fc",

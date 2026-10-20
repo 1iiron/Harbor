@@ -68,11 +68,12 @@ export async function fetchTvdbOrder(
   remoteId: string,
   seasonType: string,
   lang?: string,
+  allowProxyNames = false,
 ): Promise<TvdbOrder | null> {
   if (!remoteId) return null;
   const seriesId = await tvdbSeriesByRemote(apiKey, remoteId);
   if (!seriesId) return null;
-  return fetchTvdbOrderBySeriesId(apiKey, seriesId, seasonType, lang);
+  return fetchTvdbOrderBySeriesId(apiKey, seriesId, seasonType, lang, allowProxyNames);
 }
 
 export async function fetchTvdbOrderBySeriesId(
@@ -80,6 +81,7 @@ export async function fetchTvdbOrderBySeriesId(
   seriesId: number,
   seasonType: string,
   lang?: string,
+  allowProxyNames = false,
 ): Promise<TvdbOrder | null> {
   if (!seriesId) return null;
   const mode = apiKey.trim() ? "direct" : "proxy";
@@ -98,19 +100,31 @@ export async function fetchTvdbOrderBySeriesId(
   if (running) return running;
   const load = (async () => {
     const persisted = readOrderCache(seriesId, typeKey);
-    const result = persisted ?? await build(apiKey, seriesId, seasonType, lang).catch(() => null);
+    const result =
+      persisted ??
+      await build(apiKey, seriesId, seasonType, lang, allowProxyNames).catch(() => null);
     if (!result) return null;
     orderCache.set(cacheKey, { t: Date.now(), order: result });
     if (!persisted) writeOrderCache(seriesId, typeKey, result);
-    if (!result.seasonNamesResolved && mode === "direct") {
+    if (!result.seasonNamesResolved && (mode === "direct" || allowProxyNames)) {
       const nameType = seasonType === "aired" || seasonType === "official" ? "official" : seasonType;
-      const enrichment = tvdbSeasonNames(apiKey, seriesId, nameType).then((names) => {
+      const enrichment = tvdbSeasonNames(apiKey, seriesId, nameType, lang).then((names) => {
         const enriched: TvdbOrder = {
           ...result,
           seasonNamesResolved: true,
           seasons: result.seasons.map((season) => {
-            const name = names.get(season.seasonNumber) || season.name;
-            return { ...season, name, isGenericName: isGenericTvdbSeasonName(name, season.seasonNumber) };
+            const translated = names.get(season.seasonNumber);
+            // A generic English fallback must not hide a real season title.
+            const name =
+              translated && !isGenericTvdbSeasonName(translated, season.seasonNumber)
+                ? translated
+                : season.name;
+            return {
+              ...season,
+              name,
+              nameLanguage: "en",
+              isGenericName: isGenericTvdbSeasonName(name, season.seasonNumber),
+            };
           }),
         };
         orderCache.set(cacheKey, { t: Date.now(), order: enriched });
@@ -134,6 +148,7 @@ async function build(
   seriesId: number,
   seasonType: string,
   lang?: string,
+  allowProxyNames = false,
 ): Promise<TvdbOrder | null> {
   const joinedClean = seasonType === "absolute";
   const rawAbsolute = seasonType === "tvdbabsolute";
@@ -147,7 +162,7 @@ async function build(
     tvdbEpisodesByType(apiKey, seriesId, "default"),
     joinedClean || rawAbsolute
       ? Promise.resolve(new Map())
-      : tvdbSeasons(apiKey, seriesId, nameTypeSlug),
+      : tvdbSeasons(apiKey, seriesId, nameTypeSlug, lang),
   ]);
   const names = tvdbBaseSeasonNames(seasonInfos);
   const altEps = slug === "default" ? defaultEps : await tvdbEpisodesByType(apiKey, seriesId, slug);
@@ -258,8 +273,9 @@ async function build(
         id: n,
         seasonNumber: n,
         name,
+        nameLanguage: "en",
         isGenericName: joinedClean || rawAbsolute || isGenericTvdbSeasonName(name, n),
-        overview: "",
+        overview: joinedClean || rawAbsolute ? "" : seasonInfos.get(n)?.overview ?? "",
         // TVDB artwork uses absolute URLs, unlike TMDB poster paths.
         posterPath: joinedClean || rawAbsolute ? null : seasonInfos.get(n)?.image ?? null,
         episodeCount: bySeason.get(n)!.length,
@@ -271,6 +287,6 @@ async function build(
     bySeason,
     absByEpId,
     imageByAbs,
-    seasonNamesResolved: joinedClean || rawAbsolute || !apiKey.trim(),
+    seasonNamesResolved: joinedClean || rawAbsolute || (!apiKey.trim() && !allowProxyNames),
   };
 }

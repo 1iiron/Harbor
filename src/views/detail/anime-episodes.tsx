@@ -51,6 +51,7 @@ import {
   fillAiredPlaceholderTitles,
   isPlaceholderEpisodeText,
 } from "@/lib/providers/episode-placeholder";
+import type { Season } from "@/lib/providers/tmdb";
 import { tmdbLanguageIso } from "@/lib/providers/tmdb/tmdb-client";
 import {
   episodeArtworkFor,
@@ -115,6 +116,7 @@ export function AnimeEpisodes({
   localizedOverview,
   seasonOverviews,
   tmdbTvId,
+  tmdbSeasons,
   seasonPosters,
   onSeasonArt,
 }: {
@@ -129,6 +131,7 @@ export function AnimeEpisodes({
   localizedOverview?: string;
   seasonOverviews?: Record<number, string>;
   tmdbTvId?: number;
+  tmdbSeasons?: Season[];
   seasonPosters?: Record<number, string>;
   onSeasonArt?: (
     sel: {
@@ -644,10 +647,32 @@ export function AnimeEpisodes({
     (effectiveOrderProvider(settings) === "tvdb" ? settings.tvdbSeasonType : "aired");
 
   const showExplorer =
+    settings.tvdbSeasonExplorer !== false &&
     !isOneOff &&
     !soloEntry &&
     !!explorerPicker &&
     !["absolute", "tvdbabsolute"].includes(explorerType);
+  const tmdbSeasonByNumber = useMemo(
+    () => new Map((tmdbSeasons ?? []).map((season) => [season.seasonNumber, season])),
+    [tmdbSeasons],
+  );
+  const explorerItems = useMemo(
+    () =>
+      (tvdbPanel.panel?.items ?? pickerItems).map((item) => {
+        const seasonNumber = item.seasonNumber;
+        if (seasonNumber == null) return item;
+        const tmdb = tmdbSeasonByNumber.get(seasonNumber);
+        if (!tmdb) return item;
+        return {
+          ...item,
+          fallbackName:
+            tmdb.nameLanguage === "en" || !tmdb.nameLanguage ? tmdb.name : undefined,
+          overview: item.overview || tmdb.overview,
+          poster: item.poster || seasonPosters?.[seasonNumber],
+        };
+      }),
+    [tvdbPanel.panel?.items, pickerItems, tmdbSeasonByNumber, seasonPosters],
+  );
   const explorer = useSeasonExplorerView({
     metaId: meta.id,
     imdbId,
@@ -658,9 +683,10 @@ export function AnimeEpisodes({
     titlePoster: meta.poster,
     seasonType: explorerType === "aired" ? "official" : explorerType,
     lang: tvdbLangFromIso1(tmdbLanguageIso()),
-    items: tvdbPanel.panel?.items ?? pickerItems,
+    items: explorerItems,
     activeKey: tvdbPanel.panel?.activeKey ?? franchiseActiveKey ?? explorerPicker?.activeKey ?? "",
     enabled: showExplorer,
+    allowProxy: true,
   });
 
   return (

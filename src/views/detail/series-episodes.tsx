@@ -204,7 +204,13 @@ export function SeriesEpisodes({
     metaId: meta.id,
     preferCustomMeta: settings.preferCustomMetaAddon,
   });
-  const tvdbStills = useSeriesTvdbStills(imdbId, enrichedBase.length, settings.tvdbSeasonType);
+  const tvdbStills = useSeriesTvdbStills(
+    imdbId,
+    enrichedBase.length,
+    settings.tvdbSeasonType,
+    false,
+    !!settings.tvdbKey,
+  );
   const enrichedEpisodes = useMemo(() => {
     if (Object.keys(tvdbStills).length === 0) return enrichedBase;
     return enrichedBase.map((ep) => {
@@ -320,7 +326,7 @@ export function SeriesEpisodes({
     imdbId,
     meta.id,
     settings.tvdbKey,
-    tvdbPanelEnabled(settings),
+    tvdbPanelEnabled(settings) && !!settings.tvdbKey,
   );
   const orderTypesEff =
     settings.tmdbKey && orderTypes.length > 0
@@ -354,6 +360,7 @@ export function SeriesEpisodes({
     userPickedRef,
     tmdbSeasonNameFallback:
       settings.tvdbSeasonType === "aired" || settings.tvdbSeasonType === "official",
+    seasonPosters,
   });
   useEffect(() => {
     let cancelled = false;
@@ -516,6 +523,7 @@ export function SeriesEpisodes({
 
   const explorerType = orderActive ? settings.tvdbSeasonType : "aired";
   const showExplorer =
+    settings.tvdbSeasonExplorer !== false &&
     !arcActive &&
     picker.items.length > 0 &&
     !["absolute", "tvdbabsolute"].includes(explorerType);
@@ -533,6 +541,7 @@ export function SeriesEpisodes({
     items: picker.items,
     activeKey: picker.activeKey,
     enabled: showExplorer,
+    allowProxy: false,
   });
 
   return (

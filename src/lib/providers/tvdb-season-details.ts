@@ -16,6 +16,9 @@ export async function fetchTvdbSeasonDetails(
   season: TvdbSeasonInfo,
   lang: string,
 ): Promise<TvdbSeasonDetails | null> {
+  // The proxy blocks /seasons/*; its /series/extended response already carries
+  // the English names and localized overviews.
+  if (!apiKey.trim()) return { name: season.name, overview: season.overview };
   if (season.id == null) return {};
   const englishRequest = tvdbSeasonText(apiKey, season.id, "eng").catch(() => null);
   const [requested, english] = await Promise.all([
@@ -35,7 +38,9 @@ export async function fetchTvdbSeasonArtwork(
   season: TvdbSeasonInfo,
   lang: string,
 ): Promise<TvdbSeasonArtwork> {
-  if (season.id == null) return { poster: season.image };
+  // /seasons/{id}/extended is not available through the proxy. The series
+  // extended payload already includes the season poster.
+  if (!apiKey.trim() || season.id == null) return { poster: season.image };
   const extended = await tvdbSeasonExtended(apiKey, season.id).catch(() => null);
   const background = [...(extended?.artwork ?? [])]
     // Landscape artwork keeps posters, square icons, and wide banners out of the backdrop.

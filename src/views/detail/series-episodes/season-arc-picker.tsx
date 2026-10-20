@@ -19,6 +19,10 @@ export type PickerItem = {
   /** Season number for the "Season N" pill. Absent for non-season entries. */
   seasonNumber?: number;
   isGenericName?: boolean;
+  /** TMDB fallback when no TVDB metadata is available. */
+  fallbackName?: string;
+  overview?: string;
+  poster?: string;
 };
 
 type MenuPos = { right: number; top?: number; bottom?: number; maxH: number };

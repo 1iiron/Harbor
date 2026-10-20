@@ -1786,6 +1786,11 @@ export function DetailView({
     </>
   );
 
+  const hasHeroProviders = isAnime ? streamers.length > 0 : watchProviders.length > 0;
+  const hasHeroAside = !!(heroAwardsInline || hasHeroProviders);
+  const heroGridColumns =
+    overview && hasHeroAside ? "xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]" : "";
+
   return (
     <main
       ref={scrollRef}
@@ -2112,16 +2117,18 @@ export function DetailView({
       </section>
 
       <div {...contentDrag} className="flex flex-col gap-16 px-12 pb-24 pt-14">
-        {(overview ||
-          heroAwardsInline ||
-          (isAnime ? streamers.length > 0 : watchProviders.length > 0)) && (
-          <div className="grid min-w-0 grid-cols-1 items-start gap-8 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] xl:gap-10">
+        {(overview || hasHeroAside) && (
+          <div
+            className={`grid min-w-0 grid-cols-1 items-start gap-8 xl:gap-10 ${heroGridColumns}`}
+          >
             {overview && <Synopsis text={overview} />}
-            <div className="flex min-w-0 flex-col gap-6">
-              {isAnime && streamers.length > 0 && <StreamingLinks streamers={streamers} />}
-              {!isAnime && watchProviders.length > 0 && <WatchOn providers={watchProviders} />}
-              {heroAwardsInline}
-            </div>
+            {hasHeroAside && (
+              <div className="flex min-w-0 flex-col gap-6">
+                {isAnime && streamers.length > 0 && <StreamingLinks streamers={streamers} />}
+                {!isAnime && watchProviders.length > 0 && <WatchOn providers={watchProviders} />}
+                {heroAwardsInline}
+              </div>
+            )}
           </div>
         )}
         {loading &&
@@ -2154,6 +2161,7 @@ export function DetailView({
                 localizedOverview={localizedAnimeOverview}
                 seasonOverviews={detail.seasonOverviews}
                 tmdbTvId={detail.tmdbTvId}
+                tmdbSeasons={detail.seasons}
                 seasonPosters={detail.seasonPosters}
               />
             </FadeInUp>
@@ -2195,6 +2203,7 @@ export function DetailView({
                 meta={playMeta}
                 tmdbTvId={detail?.tmdbTvId}
                 seasonPosters={detail?.seasonPosters}
+                seasons={detail?.seasons}
                 imdbId={detail?.imdbId ?? (meta.id.startsWith("tt") ? meta.id : null)}
                 videos={cinemetaFull.videos}
                 stremioWatched={stremioWatched}

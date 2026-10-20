@@ -145,7 +145,7 @@ export function useAnimeTvdbPanel(
     let cancelled = false;
     const lang = tvdbLangFromIso1(tmdbLanguageIso());
     const norm = (seasonType === "official" ? "aired" : seasonType) as TvdbOrderType;
-    const requested = fetchTvdbOrderBySeriesId(tvdbKey, seriesId, norm, lang);
+    const requested = fetchTvdbOrderBySeriesId(tvdbKey, seriesId, norm, lang, true);
     // Discover the other order tabs concurrently; the selected order can render
     // while those optional availability checks are still in flight.
     const available = (async () => {
@@ -186,7 +186,7 @@ export function useAnimeTvdbPanel(
         return;
       }
       const effective = nonEmpty.some((c) => c.value === "aired") ? "aired" : nonEmpty[0].value;
-      const fallback = await fetchTvdbOrderBySeriesId(tvdbKey, seriesId, effective, lang);
+      const fallback = await fetchTvdbOrderBySeriesId(tvdbKey, seriesId, effective, lang, true);
       if (cancelled) return;
       if (fallback) publish(effective, fallback);
       else {
@@ -411,6 +411,8 @@ export function useAnimeTvdbPanel(
       items.push({
         key,
         name: s.name,
+        nameLanguage: s.nameLanguage ?? "en",
+        overview: s.overview,
         count: eps.length,
         year: s.airDate?.slice(0, 4),
         from,

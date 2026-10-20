@@ -17,6 +17,7 @@ export function useEpisodeOrder(
   seasonType: string,
   tvdbKey: string,
   enabled = true,
+  allowProxy = false,
 ): TvdbOrder | null {
   const [order, setOrder] = useState<TvdbOrder | null>(null);
   const metadataLanguage = tmdbLanguageIso();
@@ -28,7 +29,11 @@ export function useEpisodeOrder(
         : null;
   const kitsuId = /^(kitsu|mal|anilist|anidb):/.test(metaId) ? parseKitsuId(metaId) : null;
   const active =
-    enabled && provider === "tvdb" && seasonType !== "tmdb" && (!!remoteId || kitsuId != null);
+    enabled &&
+    provider === "tvdb" &&
+    seasonType !== "tmdb" &&
+    (!!tvdbKey.trim() || allowProxy) &&
+    (!!remoteId || kitsuId != null);
 
   useEffect(() => {
     if (!active) {
@@ -42,10 +47,12 @@ export function useEpisodeOrder(
       if (kitsuId != null) {
         const sid = await kitsuToTvdb(kitsuId).catch(() => null);
         if (sid != null)
-          o = await fetchTvdbOrderBySeriesId(tvdbKey, sid, seasonType, lang).catch(() => null);
+          o = await fetchTvdbOrderBySeriesId(tvdbKey, sid, seasonType, lang, allowProxy).catch(
+            () => null,
+          );
       }
       if (!o && remoteId)
-        o = await fetchTvdbOrder(tvdbKey, remoteId, seasonType, lang).catch(() => null);
+        o = await fetchTvdbOrder(tvdbKey, remoteId, seasonType, lang, allowProxy).catch(() => null);
       if (cancelled) return;
       setOrder(o);
       if (o) {
@@ -56,7 +63,7 @@ export function useEpisodeOrder(
     return () => {
       cancelled = true;
     };
-  }, [active, remoteId, kitsuId, tvdbKey, seasonType, metadataLanguage]);
+  }, [active, remoteId, kitsuId, tvdbKey, seasonType, metadataLanguage, allowProxy]);
 
   return active ? order : null;
 }

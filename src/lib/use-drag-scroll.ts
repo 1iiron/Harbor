@@ -1,8 +1,11 @@
-import { useRef } from "react";
+import { useRef, type RefObject } from "react";
 import { horizontalScrollState } from "./horizontal-scroll";
 
-export function useDragScroll<T extends HTMLElement>(opts: { stride?: number } = {}) {
-  const ref = useRef<T | null>(null);
+export function useDragScroll<T extends HTMLElement>(
+  opts: { stride?: number; elementRef?: RefObject<T | null> } = {},
+) {
+  const ownRef = useRef<T | null>(null);
+  const ref = opts.elementRef ?? ownRef;
   const drag = useRef({
     active: false,
     moved: false,
@@ -121,6 +124,12 @@ export function useDragScroll<T extends HTMLElement>(opts: { stride?: number } =
     }
   };
 
+  const onPointerLeave = () => {
+    // Before the drag threshold there is no pointer capture, so releasing
+    // outside the rail must not leave a stale active gesture behind.
+    if (drag.current.active && !drag.current.moved) drag.current.active = false;
+  };
+
   return {
     ref,
     handlers: {
@@ -128,6 +137,7 @@ export function useDragScroll<T extends HTMLElement>(opts: { stride?: number } =
       onPointerMove,
       onPointerUp: endDrag,
       onPointerCancel: endDrag,
+      onPointerLeave,
       onClickCapture,
       onDragStart: (e: React.DragEvent) => e.preventDefault(),
     },

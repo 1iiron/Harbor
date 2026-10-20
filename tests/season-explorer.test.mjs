@@ -4,6 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
 import * as episodeTextLanguage from "../src/lib/episode-text-language.ts";
+import * as tmdbTitleFallback from "../src/lib/providers/tmdb/tmdb-title-fallback.ts";
 import * as React from "react";
 import * as jsxRuntime from "react/jsx-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -101,6 +102,7 @@ const season = {
   id: 31893,
   number: 1,
   name: "East Blue",
+  overview: "East Blue synopsis",
   image: "https://artworks.thetvdb.com/base.jpg",
 };
 
@@ -127,31 +129,27 @@ test("revisiting a season reuses cached requests and English requires just one t
   assert.equal(f.calls.filter((path) => path.includes("/translations/")).length, 1);
 });
 
-test("proxy-only users load translated season details and artwork without authentication", async () => {
+test("proxy users use the season data already embedded in series extended", async () => {
   const f = providerFixture();
   const result = await fetchCompleteSeason(f, "", season, "fra");
-  assert.equal(result.name, "English Saga");
-  assert.equal(result.overview, "English season synopsis");
-  assert.equal(result.poster, "https://artworks.thetvdb.com/french.jpg");
-  assert.equal(f.requests.length, 3);
-  for (const request of f.requests) {
-    assert.ok(request.url.startsWith("https://mock.invalid/api/tvdb/v4/seasons/31893/"));
-    assert.equal(request.options.headers.authorization, undefined);
-  }
+  assert.equal(result.name, "East Blue");
+  assert.equal(result.overview, "East Blue synopsis");
+  assert.equal(result.poster, season.image);
+  assert.equal(f.requests.length, 0);
 });
 
-test("unavailable proxy metadata falls back to the base season", async () => {
+test("unavailable proxy metadata still uses the base season", async () => {
   const f = providerFixture({ fail: true });
   const result = await fetchCompleteSeason(f, "", season, "eng");
-  assert.equal(result.name, undefined);
+  assert.equal(result.name, "East Blue");
   assert.equal(result.poster, season.image);
-  assert.equal(result.overview, undefined);
+  assert.equal(result.overview, "East Blue synopsis");
 });
 
 test("seasons without a TVDB ID preserve base data without requests", async () => {
   const f = providerFixture();
   const result = await fetchCompleteSeason(f, "", { ...season, id: null }, "eng");
-  assert.equal(result.name, undefined);
+  assert.equal(result.name, "East Blue");
   assert.equal(result.poster, season.image);
   assert.equal(f.calls.length, 0);
 });
@@ -161,6 +159,14 @@ test("missing season metadata degrades to the base poster", async () => {
   const result = await fetchCompleteSeason(f, "test-key", season, "eng");
   assert.equal(result.poster, season.image);
   assert.equal(result.overview, undefined);
+});
+
+test("proxy season catalogs request localized overviews and keep them", async () => {
+  const f = providerFixture();
+  const seasons = await f.tvdbSeasons("", 81797, "official", "fra");
+  assert.equal(seasons.get(1).name, "Saga française");
+  assert.equal(seasons.get(1).overview, "East Blue synopsis");
+  assert.ok(f.requests.some((request) => request.url.includes("overviewLang=fra")));
 });
 
 test("season artwork rejects banners and chooses English then textless posters", () => {
@@ -266,6 +272,7 @@ function hookFixture({ catalog, detail, artwork, tmdbGet } = {}) {
     },
     "@/lib/season-name": { isGenericSeasonName: (name, n) => name === `Season ${n}` },
     "@/lib/providers/tvdb": {
+      isDisplayableName: (value) => !/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(value),
       tvdbSeasonNames: async () => new Map(),
       tvdbSeriesByRemote: async () => 81797,
       tvdbSeasons:
@@ -349,9 +356,9 @@ test("changing titles or languages immediately hides previous season details", a
   f.unmount();
 });
 
-test("the explorer enriches the selected season without a personal key", async () => {
+test("the explorer enriches the selected season without a personal key for anime", async () => {
   const f = hookFixture();
-  const noKey = { ...props, tvdbKey: "" };
+  const noKey = { ...props, tvdbKey: "", allowProxy: true };
   f.render(noKey);
   await flush();
   f.render(noKey);
@@ -360,6 +367,20 @@ test("the explorer enriches the selected season without a personal key", async (
   assert.equal(result.details.get(1).overview, "Season 1 synopsis");
   assert.equal(result.loading, false);
   assert.equal(f.calls.length, 1);
+  f.unmount();
+});
+
+test("a regular title without a TVDB key makes no season metadata requests", async () => {
+  const f = hookFixture();
+  const noKey = { ...props, tvdbKey: "" };
+  f.render(noKey);
+  await flush();
+  const result = f.render(noKey);
+  assert.equal(result.seasons.size, 0);
+  assert.equal(result.details.size, 0);
+  assert.equal(result.artwork.size, 0);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.artworkCalls.length, 0);
   f.unmount();
 });
 
@@ -376,14 +397,14 @@ test("extras do not inherit a numbered season synopsis", async () => {
 
 test("season title stays English while the synopsis follows the metadata language", async () => {
   const f = providerFixture({ localizedOverview: "Résumé français" });
-  const result = await fetchCompleteSeason(f, "", season, "fra");
+  const result = await fetchCompleteSeason(f, "test-key", season, "fra");
   assert.equal(result.name, "English Saga");
   assert.equal(result.overview, "Résumé français");
 });
 
 test("missing English translation never falls back to a foreign or original title", async () => {
   const f = providerFixture({ localizedOverview: "Résumé français", missingEnglish: true });
-  const result = await fetchCompleteSeason(f, "", { ...season, name: "日本語" }, "fra");
+  const result = await fetchCompleteSeason(f, "test-key", { ...season, name: "日本語" }, "fra");
   assert.equal(result.name, undefined);
   assert.equal(result.overview, "Résumé français");
 });
@@ -433,6 +454,12 @@ function seasonExplorerComponent({ react = React, visibility = { observeWithin: 
       horizontalScrollState: () => ({ rtl: false, max: 0, position: 0 }),
     },
     "@/lib/use-reduced-motion": { useReducedMotion: () => false },
+    "@/lib/use-drag-scroll": {
+      useDragScroll: (options = {}) => ({
+        ref: options.elementRef ?? { current: null },
+        handlers: {},
+      }),
+    },
     "./season-explorer.css": {},
     "@/components/player/subtitle-menu/marquee-motion": load(
       "src/components/player/subtitle-menu/marquee-motion.ts",
@@ -471,11 +498,12 @@ test("English season titles render beside the original dropdown-style number bad
   assert.match(html, /Résumé français/);
 });
 
-test("season catalog names use English translations and never original-language Latin titles", async () => {
+test("season catalog names use proxy base data and direct-key English translations", async () => {
   const f = providerFixture();
-  assert.equal((await f.tvdbSeasonNames("", 81797, "official")).get(1), "English Saga");
+  assert.equal((await f.tvdbSeasonNames("test-key", 81797, "official")).get(1), "English Saga");
+  assert.equal((await f.tvdbSeasonNames("", 81797, "official")).get(1), "Saga française");
   const unavailable = providerFixture({ missingEnglish: true });
-  assert.equal((await unavailable.tvdbSeasonNames("", 81797, "official")).size, 0);
+  assert.equal((await unavailable.tvdbSeasonNames("test-key", 81797, "official")).size, 0);
 });
 
 test("season row excludes Extras while retaining season zero and episode-picker entries", () => {
@@ -515,18 +543,18 @@ test("season row excludes Extras while retaining season zero and episode-picker 
 test("artwork and text load independently and concurrent artwork consumers share a request", async () => {
   const f = providerFixture();
   const [first, second] = await Promise.all([
-    f.fetchTvdbSeasonArtwork("", season, "fra"),
-    f.fetchTvdbSeasonArtwork("", season, "fra"),
+    f.fetchTvdbSeasonArtwork("test-key", season, "fra"),
+    f.fetchTvdbSeasonArtwork("test-key", season, "fra"),
   ]);
   assert.equal(first.poster, "https://artworks.thetvdb.com/french.jpg");
   assert.equal(second.poster, first.poster);
   assert.equal(f.calls.filter((path) => path.endsWith("/extended")).length, 1);
   assert.equal(f.calls.filter((path) => path.includes("/translations/")).length, 0);
-  await f.fetchTvdbSeasonDetails("", season, "fra");
+  await f.fetchTvdbSeasonDetails("test-key", season, "fra");
   assert.equal(f.calls.filter((path) => path.endsWith("/extended")).length, 1);
   assert.equal(f.calls.filter((path) => path.includes("/translations/")).length, 2);
   const textOnly = providerFixture();
-  await textOnly.fetchTvdbSeasonDetails("", season, "eng");
+  await textOnly.fetchTvdbSeasonDetails("test-key", season, "eng");
   assert.equal(textOnly.calls.filter((path) => path.endsWith("/extended")).length, 0);
 });
 
@@ -810,7 +838,7 @@ test("failed synopsis loads retry on revisit without retrying successful empty r
 
 test("unavailable season translations remain distinguishable from a successful empty translation", async () => {
   const unavailable = providerFixture({ fail: true });
-  assert.equal(await unavailable.fetchTvdbSeasonDetails("", season, "eng"), null);
+  assert.equal(await unavailable.fetchTvdbSeasonDetails("test-key", season, "eng"), null);
 });
 
 test("English season fallback preserves source provenance without accepting unknown or foreign names", () => {
@@ -827,6 +855,32 @@ test("English season fallback preserves source provenance without accepting unkn
   assert.equal(fallback[2].name, "Season 6");
   const translated = englishSeasonItems(original, new Map([[4, "TVDB English Arc"]]), new Map());
   assert.equal(translated[0].name, "TVDB English Arc");
+});
+
+test("a Japanese season detail name cannot override the English fallback", () => {
+  const { englishSeasonItems } = hookFixture();
+  const result = englishSeasonItems(
+    [{ key: "1", seasonNumber: 1, name: "Season 1", fallbackName: "Season 1", count: 12 }],
+    new Map(),
+    new Map([[1, { name: "シーズン1" }]]),
+  );
+  assert.equal(result[0].name, "Season 1");
+});
+
+test("a generic TVDB English name never replaces a real English season title", () => {
+  const { englishSeasonItems } = hookFixture();
+  const items = [
+    { key: "4", seasonNumber: 4, name: "The Final Season", nameLanguage: "en", count: 12 },
+  ];
+  const fromOrder = englishSeasonItems(items, new Map([[4, "Season 4"]]), new Map());
+  assert.equal(fromOrder[0].name, "The Final Season");
+  assert.equal(fromOrder[0].isGenericName, false);
+  const fromDetail = englishSeasonItems(
+    items,
+    new Map(),
+    new Map([[4, { name: "Season 4" }]]),
+  );
+  assert.equal(fromDetail[0].name, "The Final Season");
 });
 
 test("TMDB English season names survive both default and TVDB-fallback picker paths", async () => {
@@ -854,6 +908,7 @@ test("TMDB English season names survive both default and TVDB-fallback picker pa
       "./tmdb-image-lang": { imageLangParam: () => "en", imageLangRank: () => 0 },
       "./tmdb-trailers": { pickTrailers: () => [] },
       "./tmdb-meta-mappers": { isAnimeItem: () => false },
+      "./tmdb-title-fallback": tmdbTitleFallback,
       "@/lib/storage-recovery": {},
       "@/lib/episode-text-language": episodeTextLanguage,
       "@/lib/season-name": seasonNames,
@@ -965,6 +1020,7 @@ test("current series hooks settle with two visible cards even when item arrays a
     "@/lib/providers/kitsu": { parseKitsuId: () => null },
     "@/lib/season-name": { isGenericSeasonName: () => true },
     "@/lib/providers/tvdb": {
+      isDisplayableName: (value) => !/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(value),
       tvdbSeasons: async () => infos,
       tvdbSeasonNames: async () => new Map(),
       tvdbSeriesByRemote: async () => 42,
@@ -1108,6 +1164,36 @@ async function settleExplorer(f, options) {
   }
   return f.render(options);
 }
+
+test("season cards use TMDB posters and localized overviews when TVDB is unavailable", () => {
+  const SeasonExplorer = seasonExplorerComponent();
+  const html = renderToStaticMarkup(
+    React.createElement(SeasonExplorer, {
+      activeKey: "4",
+      onSelect: () => {},
+      data: {
+        items: [
+          {
+            key: "4",
+            seasonNumber: 4,
+            name: "The Final Season",
+            count: 12,
+            poster: "https://image.tmdb.org/t/p/w500/final.jpg",
+            overview: "Résumé français",
+          },
+        ],
+        seasons: new Map(),
+        names: new Map(),
+        artwork: new Map(),
+        setVisibleSeasons: () => {},
+        loading: false,
+        details: new Map(),
+      },
+    }),
+  );
+  assert.match(html, /final\.jpg/);
+  assert.match(html, /Résumé français/);
+});
 
 test("a single season plus Specials uses the main title poster without TVDB records or a TMDB key", async () => {
   const f = hookFixture({ catalog: async () => new Map() });

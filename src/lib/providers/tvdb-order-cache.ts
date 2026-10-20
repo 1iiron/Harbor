@@ -38,8 +38,18 @@ type Serialized = {
 
 export function readOrderCache(seriesId: number, seasonType: string): TvdbOrder | null {
   try {
-    const raw = localStorage.getItem(`${PREFIX}${seriesId}:${seasonType}`);
+    const key = `${PREFIX}${seriesId}:${seasonType}`;
+    const legacyKey = `${PREFIX}${seriesId}:${seasonType.replace(/^(?:direct|proxy):/, "")}`;
+    const raw = localStorage.getItem(key) ?? localStorage.getItem(legacyKey);
     if (!raw) return null;
+    // Keep the new mode-scoped key on the next write so the legacy entry can expire naturally.
+    if (key !== legacyKey && !localStorage.getItem(key)) {
+      try {
+        localStorage.setItem(key, raw);
+      } catch {
+        /* reading the legacy entry is still valid */
+      }
+    }
     const s = JSON.parse(raw) as Serialized;
     if (!s || typeof s.t !== "number" || Date.now() - s.t > TTL) return null;
     if (isStaleTvdbOrder(s.bySeason)) return null;

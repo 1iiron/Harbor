@@ -1,4 +1,5 @@
 import { getViewedSeason, setViewedSeason } from "@/lib/season-view-pref";
+import type { Season } from "@/lib/providers/tmdb";
 import { Check, ChevronDown } from "lucide-react";
 import { Play } from "@/components/icons/play-filled";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -47,6 +48,7 @@ export function CinemetaEpisodes({
   imdbId,
   tmdbTvId,
   seasonPosters,
+  seasons,
 }: {
   meta: Meta;
   videos: NonNullable<Meta["videos"]>;
@@ -55,6 +57,7 @@ export function CinemetaEpisodes({
   imdbId?: string | null;
   tmdbTvId?: number;
   seasonPosters?: Record<number, string>;
+  seasons?: Season[];
 }) {
   const t = useT();
   const { settings, update } = useSettings();
@@ -138,22 +141,30 @@ export function CinemetaEpisodes({
     setViewedSeason(meta.id, season);
     setActive(season);
   };
-  const explorerItems = useMemo(
-    () =>
-      grouped.map((group) => ({
+  const explorerItems = useMemo(() => {
+    const tmdbByNumber = new Map((seasons ?? []).map((season) => [season.seasonNumber, season]));
+    return grouped.map((group) => {
+      const tmdb = tmdbByNumber.get(group.seasonNumber);
+      const name =
+        tmdb?.name ??
+        (group.seasonNumber === NO_SEASON
+          ? t("No Season")
+          : group.seasonNumber === 0
+            ? t("Specials")
+            : t("Season {n}", { n: group.seasonNumber }));
+      return {
         key: String(group.seasonNumber),
         seasonNumber: group.seasonNumber >= 0 ? group.seasonNumber : undefined,
-        name:
-          group.seasonNumber === NO_SEASON
-            ? t("No Season")
-            : group.seasonNumber === 0
-              ? t("Specials")
-              : t("Season {n}", { n: group.seasonNumber }),
+        name,
+        nameLanguage: tmdb?.nameLanguage,
+        isGenericName: tmdb?.isGenericName,
+        overview: tmdb?.overview,
+        poster: seasonPosters?.[group.seasonNumber],
         count: group.episodes.length,
         year: group.episodes[0]?.released?.slice(0, 4),
-      })),
-    [grouped, t],
-  );
+      };
+    });
+  }, [grouped, seasons, seasonPosters, t]);
 
   const activeEps = grouped.find((g) => g.seasonNumber === active)?.episodes ?? [];
 
@@ -223,6 +234,9 @@ export function CinemetaEpisodes({
     ],
   );
 
+  const showExplorer =
+    settings.tvdbSeasonExplorer !== false &&
+    grouped.some((group) => group.seasonNumber >= 1);
   const explorer = useSeasonExplorerView({
     metaId: meta.id,
     imdbId,
@@ -235,13 +249,14 @@ export function CinemetaEpisodes({
     lang: tvdbLangFromIso1(tmdbLanguageIso()),
     items: explorerItems,
     activeKey: String(active),
-    enabled: grouped.some((group) => group.seasonNumber >= 1),
+    enabled: showExplorer,
+    allowProxy: false,
   });
   if (grouped.length === 0) return null;
 
   return (
     <div data-episodes className="flex scroll-mt-24 flex-col gap-6">
-      {grouped.some((group) => group.seasonNumber >= 1) && (
+      {showExplorer && (
         <SeasonExplorer
           key={meta.id}
           data={explorer}

@@ -15,7 +15,7 @@ function tvdbImg(v: unknown): string | undefined {
   return `https://artworks.thetvdb.com${v.startsWith("/") ? "" : "/"}${v}`;
 }
 
-function isDisplayableName(s: string): boolean {
+export function isDisplayableName(s: string): boolean {
   for (let i = 0; i < s.length; i += 1) {
     const c = s.charCodeAt(i);
     if (
@@ -294,8 +294,10 @@ export async function tvdbSeasonTypes(
 export type TvdbSeasonInfo = {
   id: number | null;
   number: number;
-  /** Base (original-language) name; may be empty or non-displayable. Use tvdbSeasonNames for the display name. */
+  /** Display name. The proxy already resolves this in English for /series/extended. */
   name: string;
+  /** Overview from the same response; the proxy localizes it with overviewLang. */
+  overview?: string;
   image?: string;
 };
 
@@ -303,18 +305,25 @@ export async function tvdbSeasons(
   apiKey: string,
   seriesId: number,
   typeSlug: string,
+  lang?: string,
 ): Promise<Map<number, TvdbSeasonInfo>> {
   const map = new Map<number, TvdbSeasonInfo>();
   if (!seriesId) return map;
-  const data = await getJson<any>(apiKey, `/series/${seriesId}/extended?short=true`);
+  const overviewLang =
+    !apiKey.trim() && lang ? `&overviewLang=${encodeURIComponent(lang)}` : "";
+  const data = await getJson<any>(
+    apiKey,
+    `/series/${seriesId}/extended?short=true${overviewLang}`,
+  );
   const seasons = (data?.seasons ?? []) as any[];
   for (const s of seasons) {
     if (s?.type?.type !== typeSlug) continue;
     const num = typeof s.number === "number" ? s.number : null;
     if (num == null) continue;
     const name = typeof s.name === "string" ? s.name.trim() : "";
+    const overview = typeof s.overview === "string" ? s.overview.trim() || undefined : undefined;
     const id = typeof s.id === "number" ? s.id : null;
-    map.set(num, { id, number: num, name, image: tvdbImg(s.image) });
+    map.set(num, { id, number: num, name, overview, image: tvdbImg(s.image) });
   }
   return map;
 }
@@ -361,8 +370,12 @@ export async function tvdbSeasonNames(
   apiKey: string,
   seriesId: number,
   typeSlug: string,
+  lang?: string,
 ): Promise<Map<number, string>> {
-  const infos = await tvdbSeasons(apiKey, seriesId, typeSlug);
+  const infos = await tvdbSeasons(apiKey, seriesId, typeSlug, lang);
+  // The proxy does not expose /seasons/*; it already enriches
+  // /series/extended with the English season names.
+  if (!apiKey.trim()) return tvdbBaseSeasonNames(infos);
   const names = new Map<number, string>();
   // Resolve English names with bounded concurrency for long-running series.
   const pending = [...infos.values()].filter((info) => info.number >= 0 && info.id != null);

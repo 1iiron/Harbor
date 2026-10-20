@@ -20,6 +20,7 @@ export function useSeasonArcPicker({
   setOrderSeason,
   userPickedRef,
   tmdbSeasonNameFallback,
+  seasonPosters,
 }: {
   source: "arcs" | "order" | "default";
   arc: ArcGroupsState;
@@ -38,6 +39,8 @@ export function useSeasonArcPicker({
    * views, where TVDB and TMDB season numbering align.
    */
   tmdbSeasonNameFallback?: boolean;
+  /** TMDB poster URLs used when no TVDB key is configured. */
+  seasonPosters?: Record<number, string>;
 }): { items: PickerItem[]; activeKey: string; onSelect: (key: string) => void } {
   return useMemo(() => {
     if (source === "arcs") {
@@ -48,17 +51,16 @@ export function useSeasonArcPicker({
       };
     }
     if (source === "order" && ordering) {
-      const tmdbByNumber = tmdbSeasonNameFallback
-        ? new Map(seasons.map((s) => [s.seasonNumber, s] as const))
-        : null;
+      const tmdbByNumber = new Map(seasons.map((s) => [s.seasonNumber, s] as const));
       return {
         items: ordering.seasons.map((s) => {
           const { from, to } = seasonDateRange(ordering.bySeason.get(s.seasonNumber) ?? []);
           let name = s.name;
           let nameLanguage = s.nameLanguage;
-          const tmdbSeason = tmdbByNumber?.get(s.seasonNumber);
+          const tmdbSeason = tmdbByNumber.get(s.seasonNumber);
           const tmdbName = tmdbSeason?.name.trim();
           if (
+            tmdbSeasonNameFallback &&
             tmdbName &&
             isGenericTvdbSeasonName(name, s.seasonNumber) &&
             !isGenericSeasonName(tmdbName, s.seasonNumber)
@@ -69,7 +71,7 @@ export function useSeasonArcPicker({
           return {
             key: String(s.seasonNumber),
             name,
-            nameLanguage,
+            nameLanguage: nameLanguage ?? "en",
             count: s.episodeCount,
             year: s.airDate?.slice(0, 4),
             from,
@@ -77,6 +79,8 @@ export function useSeasonArcPicker({
             extra: s.seasonNumber <= 0,
             seasonNumber: s.seasonNumber,
             isGenericName: name === s.name ? s.isGenericName : false,
+            overview: tmdbSeason?.overview || s.overview,
+            poster: seasonPosters?.[s.seasonNumber],
           };
         }),
         activeKey: String(orderSeasonEff),
@@ -96,6 +100,8 @@ export function useSeasonArcPicker({
         isNew: isNewSeason(s, lastEpisodeAir),
         seasonNumber: s.seasonNumber,
         isGenericName: s.isGenericName,
+        overview: s.overview,
+        poster: seasonPosters?.[s.seasonNumber],
       })),
       activeKey: String(active),
       onSelect: (k: string) => {
@@ -119,5 +125,6 @@ export function useSeasonArcPicker({
     setOrderSeason,
     userPickedRef,
     tmdbSeasonNameFallback,
+    seasonPosters,
   ]);
 }

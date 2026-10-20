@@ -6,6 +6,7 @@ import { queueToggle, useQueue } from "@/lib/queue";
 import { useT } from "@/lib/i18n";
 import { pickLocalizedText } from "@/lib/localized-text";
 import { useSettings } from "@/lib/settings";
+import { isAnimeMeta } from "@/lib/anime-id";
 import { effectiveOrderProvider } from "@/lib/settings/episode-order";
 import { getEpisodeProgress, resumeDefaultSeason } from "@/lib/episode-progress";
 import { fetchEpisodeList } from "@/lib/series-episodes";
@@ -136,8 +137,23 @@ export function EpisodePicker({
   const tvId = meta.id.startsWith("tmdb:tv:") ? parseInt(meta.id.slice(8), 10) || 0 : 0;
   const arc = useArcGroups({ tvId, tmdbKey: settings.tmdbKey, enabled: settings.episodeArcGroups });
   const orderProvider = effectiveOrderProvider(settings);
-  const ordering = useEpisodeOrder(imdbId, meta.id, orderProvider, settings.tvdbSeasonType, settings.tvdbKey);
-  const orderTypes = useTvdbSeasonTypes(imdbId, meta.id, settings.tvdbKey, orderProvider === "tvdb");
+  const allowProxy = isAnimeMeta(meta);
+  const ordering = useEpisodeOrder(
+    imdbId,
+    meta.id,
+    orderProvider,
+    settings.tvdbSeasonType,
+    settings.tvdbKey,
+    true,
+    allowProxy,
+  );
+  const orderTypes = useTvdbSeasonTypes(
+    imdbId,
+    meta.id,
+    settings.tvdbKey,
+    orderProvider === "tvdb",
+    allowProxy,
+  );
 
   const [arcMode, setArcMode] = useState<"seasons" | "arcs">("seasons");
   const arcAvailable = settings.episodeArcGroups && arc.hasArcs;
@@ -243,7 +259,13 @@ export function EpisodePicker({
     else setSeason(Number(k));
   };
 
-  const tvdbStills = useSeriesTvdbStills(imdbId, activeEpisodes.length, settings.tvdbSeasonType);
+  const tvdbStills = useSeriesTvdbStills(
+    imdbId,
+    activeEpisodes.length,
+    settings.tvdbSeasonType,
+    allowProxy,
+    !!settings.tvdbKey,
+  );
   const thumbFor = (ep: PlayEpisode) =>
     ep.still ?? tvdbStills[`s${ep.season}e${ep.episode}`] ?? tvdbStills[`abs${ep.episode}`];
   const progressFor = (ep: PlayEpisode) =>

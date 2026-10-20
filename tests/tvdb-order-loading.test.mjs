@@ -13,12 +13,17 @@ function deferred() {
   return { promise, resolve };
 }
 
-function fixture({ storage = new Map(), blockNames = false } = {}) {
+function fixture({
+  storage = new Map(),
+  blockNames = false,
+  seasonName = "シーズン",
+  englishName = "English Arc",
+} = {}) {
   const calls = [];
   const names = deferred();
   if (!blockNames) names.resolve();
   const seasons = Array.from({ length: 30 }, (_, i) => ({
-    id: i + 100, number: i + 1, name: "シーズン",
+    id: i + 100, number: i + 1, name: seasonName,
     type: { type: "official" }, image: "/base.jpg",
   }));
   seasons.push({ id: 99, number: 0, name: "Bonus Stories", type: { type: "official" } });
@@ -37,7 +42,7 @@ function fixture({ storage = new Map(), blockNames = false } = {}) {
     if (path === "/login") data = { token: "test-token" };
     else if (path.includes("/translations/")) {
       await names.promise;
-      data = { name: path.includes("/99/") ? "Bonus Stories" : "English Arc" };
+      data = { name: path.includes("/99/") ? "Bonus Stories" : englishName };
     } else if (path.startsWith("/seasons/")) data = { image: "/base.jpg", artwork: [] };
     else if (path.includes("/episodes/")) data = { episodes };
     else data = { seasons };
@@ -138,6 +143,31 @@ test("concurrent cold loads share one order and name enrichment", async () => {
     assert.equal(a, b);
     assert.equal(f.waitForTvdbSeasonNames(a), f.waitForTvdbSeasonNames(b));
   } finally { f.names.resolve(); }
+});
+
+test("a generic English translation never replaces a real TVDB season name", async () => {
+  const f = fixture({ seasonName: "East Blue", englishName: "Season 1" });
+  const order = await f.fetchTvdbOrderBySeriesId("test-key", 1, "aired", "eng");
+  const named = await f.waitForTvdbSeasonNames(order);
+  assert.equal(named.seasons[0].name, "East Blue");
+  assert.equal(named.seasons[0].isGenericName, false);
+});
+
+test("anime proxy uses the English season names from series extended", async () => {
+  const f = fixture({ seasonName: "East Blue" });
+  const order = await f.fetchTvdbOrderBySeriesId("", 1, "aired", "eng", true);
+  assert.equal(order.seasons[0].name, "East Blue");
+  const named = await f.waitForTvdbSeasonNames(order);
+  assert.equal(named.seasons[0].name, "East Blue");
+  assert.equal(f.calls.filter((p) => p.includes("/translations/")).length, 0);
+});
+
+test("regular series without a key do not request proxy season names", async () => {
+  const f = fixture();
+  const order = await f.fetchTvdbOrderBySeriesId("", 1, "aired", "eng");
+  const named = await f.waitForTvdbSeasonNames(order);
+  assert.equal(named.seasons[0].name, "Season 1");
+  assert.equal(f.calls.filter((p) => p.includes("/translations/")).length, 0);
 });
 
 test("custom specials titles survive both proxy and English translation paths", async () => {

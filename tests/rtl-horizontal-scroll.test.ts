@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 
-function fixture(direction = "rtl", stride?: number) {
+function fixture(
+  direction = "rtl",
+  stride?: number,
+  elementRef?: { current: unknown },
+) {
   let now = 0;
   let frame: ((now: number) => void) | undefined;
   const load = (file: string, requireMock: (name: string) => unknown) => {
@@ -22,11 +26,11 @@ function fixture(direction = "rtl", stride?: number) {
   const coordinates = load("../src/lib/horizontal-scroll.ts", () => ({}));
   const hook = load("../src/lib/use-drag-scroll.ts", (name) => name === "react"
     ? { useRef: (value: unknown) => ({ current: value }) } : coordinates);
-  const api = hook.useDragScroll({ stride });
+  const api = hook.useDragScroll({ stride, elementRef });
   const el = { scrollLeft: 0, scrollWidth: 2400, clientWidth: 600,
     style: { scrollSnapType: "", scrollBehavior: "" }, setPointerCapture() {}, releasePointerCapture() {} };
   api.ref.current = el;
-  return { el, coordinates,
+  return { el, coordinates, api,
     drag(from: number, to: number) {
       api.handlers.onPointerDown({ button: 0, pointerType: "mouse", pointerId: 1, clientX: from });
       now += 24;
@@ -71,6 +75,28 @@ test("LTR snapping and unsnapped RTL rails retain forward momentum", () => {
   assert.ok(ltr.el.scrollLeft > 150 && ltr.el.scrollLeft <= 1800);
   const rtl = fixture(); rtl.drag(100, 250);
   assert.ok(rtl.el.scrollLeft < -150 && rtl.el.scrollLeft >= -1800);
+});
+
+test("a completed drag suppresses the click that follows it", () => {
+  const h = fixture("ltr");
+  h.drag(600, 450);
+  let stopped = false;
+  let prevented = false;
+  h.api.handlers.onClickCapture({
+    stopPropagation: () => { stopped = true; },
+    preventDefault: () => { prevented = true; },
+  });
+  assert.equal(stopped, true);
+  assert.equal(prevented, true);
+});
+
+test("a caller can share its element ref with the drag scroll hook", () => {
+  const external = { current: null as unknown };
+  const h = fixture("ltr", undefined, external);
+  assert.equal(h.api.ref, external);
+  assert.equal(external.current, h.el);
+  h.drag(600, 450);
+  assert.ok(h.el.scrollLeft > 150);
 });
 
 test("rows narrower than the viewport cannot acquire an invalid offset", () => {

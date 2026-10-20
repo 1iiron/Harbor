@@ -7,6 +7,7 @@ import type { useSeasonExplorerView } from "./use-season-explorer";
 import { Synopsis } from "./synopsis";
 import { horizontalScrollState } from "@/lib/horizontal-scroll";
 import { observeWithin } from "@/lib/visibility";
+import { useDragScroll } from "@/lib/use-drag-scroll";
 import { useReducedMotion } from "@/lib/use-reduced-motion";
 import { marqueeDurationMs } from "@/components/player/subtitle-menu/marquee-motion";
 import "./season-explorer.css";
@@ -64,13 +65,19 @@ function SeasonPoster({ src, name, onError }: {
   name: string;
   onError: (src: string) => void;
 }) {
-  return src ? (
+  const [failed, setFailed] = useState<string | null>(null);
+  useEffect(() => setFailed(null), [src]);
+  const usable = src && src !== failed ? src : undefined;
+  return usable ? (
     <img
-      src={src}
+      src={usable}
       alt=""
       loading="lazy"
       decoding="async"
-      onError={() => onError(src)}
+      onError={() => {
+        setFailed(usable);
+        onError(usable);
+      }}
       className="h-full w-full object-cover"
     />
   ) : (
@@ -115,6 +122,7 @@ export function SeasonExplorer({
   const titleId = useId();
   const panelId = useId();
   const railRef = useRef<HTMLDivElement>(null);
+  const dragScroll = useDragScroll<HTMLDivElement>({ elementRef: railRef });
   const reducedMotion = useReducedMotion();
   const [edges, setEdges] = useState({ left: false, right: false });
   const { items: pickerItems, artwork, details, loading, setVisibleSeasons, onPosterError } = data;
@@ -159,10 +167,11 @@ export function SeasonExplorer({
   const active = items.find((item) => item.key === activeKey);
   const detail = active?.seasonNumber == null ? undefined : details.get(active.seasonNumber);
   const activeArtwork = active?.seasonNumber == null ? undefined : artwork.get(active.seasonNumber);
+  const overview = detail?.overview || active?.overview;
   const posterFor = (item: PickerItem) =>
     item.seasonNumber == null
       ? undefined
-      : artwork.get(item.seasonNumber)?.poster;
+      : artwork.get(item.seasonNumber)?.poster || item.poster;
   const rejectPoster = (item: PickerItem, url: string) => {
     if (item.seasonNumber != null) onPosterError(item.seasonNumber, url);
   };
@@ -267,9 +276,10 @@ export function SeasonExplorer({
         <div className="relative min-w-0" data-tauri-drag-region="false">
           <div
             id={titleId + "-rail"}
-            ref={railRef}
+            ref={dragScroll.ref}
             onScroll={syncEdges}
-            className="season-explorer-rail flex min-w-0 items-start snap-x snap-proximity gap-4 overflow-x-auto px-1 pb-3 pt-1"
+            {...dragScroll.handlers}
+            className="season-explorer-rail flex min-w-0 cursor-grab select-none items-start snap-x snap-proximity gap-4 overflow-x-auto px-1 pb-3 pt-1 active:cursor-grabbing"
             role="group"
             aria-labelledby={titleId}
           >
@@ -365,9 +375,9 @@ export function SeasonExplorer({
                       </span>
                     )}
                   </div>
-                  {detail?.overview ? (
+                  {overview ? (
                     <div className="mt-4 [&_p]:whitespace-pre-line [&_p]:text-[14px]">
-                      <Synopsis key={activeKey} text={detail.overview} />
+                      <Synopsis key={activeKey} text={overview} />
                     </div>
                   ) : loading ? (
                     <div aria-hidden className="mt-4 flex animate-pulse flex-col gap-2">
