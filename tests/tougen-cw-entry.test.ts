@@ -38,6 +38,27 @@ function seriesModule(overrides: Record<string, unknown> = {}) {
     imdb_id: "tt32344704",
     videos: tougenVideos,
   };
+  const addon = {
+    animeKitsuMeta: async (id: string) => (id === "mal:63181" ? directMeta : null),
+  };
+  const mapping = {
+    externalToKitsu: async () => {
+      externalCalls += 1;
+      return null;
+    },
+    kitsuToAnilist: async () => null,
+  };
+  const kitsu = {
+    parseKitsuId: (id: string) => {
+      const m = /^kitsu:(\d+)/.exec(id);
+      return m ? Number(m[1]) : null;
+    },
+  };
+  const entry = load("src/lib/providers/anime-entry.ts", {
+    "@/lib/providers/anime-kitsu-addon": addon,
+    "@/lib/providers/anime-mapping": mapping,
+    "@/lib/providers/kitsu": kitsu,
+  });
   const deps: Record<string, unknown> = {
     "@/lib/cache": { lruSet: (map: Map<unknown, unknown>, key: unknown, value: unknown) => map.set(key, value) },
     "@/lib/memory-profiler": { registerCache() {} },
@@ -61,22 +82,10 @@ function seriesModule(overrides: Record<string, unknown> = {}) {
     "./providers/tmdb/tmdb-client": { tmdbLanguageIso: () => "en" },
     "./providers/tmdb/tmdb-image-rungs": { tmdbStillUrl: () => undefined },
     "./localized-text": { pickLocalizedText: () => undefined },
-    "./providers/anime-kitsu-addon": {
-      animeKitsuMeta: async (id: string) => (id === "mal:63181" ? directMeta : null),
-    },
-    "./providers/anime-mapping": {
-      externalToKitsu: async () => {
-        externalCalls += 1;
-        return null;
-      },
-      kitsuToAnilist: async () => null,
-    },
-    "./providers/kitsu": {
-      parseKitsuId: (id: string) => {
-        const m = /^kitsu:(\d+)/.exec(id);
-        return m ? Number(m[1]) : null;
-      },
-    },
+    "./providers/anime-kitsu-addon": addon,
+    "./providers/anime-entry": entry,
+    "./providers/anime-mapping": mapping,
+    "./providers/kitsu": kitsu,
     "./providers/anizip": {
       aniZipByAnilist: async () => null,
       aniZipByKitsu: async () => null,
@@ -118,6 +127,16 @@ test("the external mapping is still used when the addon cannot resolve the id", 
   );
   assert.equal(list.length, 0);
   assert.equal(h.externalCalls(), 1);
+});
+
+test("the anime overview resolves the addon entry before the external graph", () => {
+  const src = readFileSync(
+    new URL("../src/lib/providers/anime-detail.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(src, /const entry = await resolveAnimeEntry\(meta\.id\)/);
+  assert.doesNotMatch(src, /kitsuId = await externalToKitsu\(source, n\)/);
+  assert.match(src, /directMeta &&[\s\S]*?parseKitsuId\(directMeta\.id\) === kitsuId/);
 });
 
 test("a cached miss is retried after the short negative TTL", async () => {

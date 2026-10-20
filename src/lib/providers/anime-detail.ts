@@ -7,7 +7,8 @@ import {
   mergeTmdbEpisodes,
   isTextInLanguage,
 } from "@/lib/providers/anime-episode-build";
-import { animeKitsuMeta } from "@/lib/providers/anime-kitsu-addon";
+import { animeKitsuMeta, type AnimeKitsuMeta } from "@/lib/providers/anime-kitsu-addon";
+import { resolveAnimeEntry } from "@/lib/providers/anime-entry";
 import {
   applyAnidbSeasonWindow,
   kitsuToTvdb,
@@ -349,18 +350,12 @@ export async function animeDetails(
   meta: Meta,
 ): Promise<AnimeDetailResult | null> {
   let kitsuId = parseKitsuId(meta.id);
+  let directMeta: AnimeKitsuMeta | null = null;
   if (kitsuId == null) {
-    const ext: Array<[string, string]> = [
-      ["mal:", "myanimelist"],
-      ["anilist:", "anilist"],
-      ["anidb:", "anidb"],
-    ];
-    for (const [prefix, source] of ext) {
-      if (meta.id.startsWith(prefix)) {
-        const n = parseInt(meta.id.slice(prefix.length), 10);
-        if (Number.isFinite(n)) kitsuId = await externalToKitsu(source, n);
-        break;
-      }
+    const entry = await resolveAnimeEntry(meta.id).catch(() => null);
+    if (entry) {
+      kitsuId = entry.kitsuId;
+      directMeta = entry.meta;
     }
   }
   if (kitsuId == null) return null;
@@ -380,7 +375,12 @@ export async function animeDetails(
       }
     }
   }
-  const addonMeta = await animeKitsuMeta(`kitsu:${kitsuId}`).catch(() => null);
+  const addonMeta =
+    directMeta &&
+    parseKitsuId(directMeta.id) === kitsuId &&
+    directMeta.videos.length > 0
+      ? directMeta
+      : await animeKitsuMeta(`kitsu:${kitsuId}`).catch(() => null);
   if (!anime) return null;
 
   const kind: "movie" | "tv" = anime.subtype === "movie" ? "movie" : "tv";

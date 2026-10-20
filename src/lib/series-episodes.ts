@@ -23,7 +23,8 @@ import {
   resolveMeta,
 } from "./meta-resource";
 import { animeKitsuMeta } from "./providers/anime-kitsu-addon";
-import { externalToKitsu, kitsuToAnilist } from "./providers/anime-mapping";
+import { kitsuToAnilist } from "./providers/anime-mapping";
+import { resolveAnimeEntry } from "./providers/anime-entry";
 import { parseKitsuId } from "./providers/kitsu";
 import { aniZipByAnilist, aniZipByKitsu, pickEpisodeTitle } from "./providers/anizip";
 import { fetchTvdbProxyImages, pickTvdbImage } from "./providers/tvdb-proxy";
@@ -60,39 +61,15 @@ export function animeSeriesFromStreamId(streamId: string | undefined): string | 
   return m ? `${m[1]}:${m[2]}` : null;
 }
 
-async function resolveAnimeKitsuId(id: string): Promise<number | null> {
-  const direct = parseKitsuId(id);
-  if (direct != null) return direct;
-  const ext: Array<[string, string]> = [
-    ["mal:", "myanimelist"],
-    ["anilist:", "anilist"],
-    ["anidb:", "anidb"],
-  ];
-  for (const [prefix, source] of ext) {
-    if (id.startsWith(prefix)) {
-      const n = parseInt(id.slice(prefix.length), 10);
-      return Number.isFinite(n) ? externalToKitsu(source, n) : null;
-    }
-  }
-  return null;
-}
-
 async function getAnimeEpisodes(id: string): Promise<PlayEpisode[] | null> {
   const cacheKey = `anime:${id}`;
   if (addonEpsCache.has(cacheKey)) return addonEpsCache.get(cacheKey)!;
-  // The anime addon resolves the original mal/anilist/anidb id itself, and it
-  // is the same source the Continue Watching card uses for its display season.
-  // Going through the external id graph first can hand back the parent cour
-  // (or nothing at all) for a newly published sequel, while the addon already
-  // knows the sequel entry. Prefer the addon's canonical entry so the episode
-  // list and the card can never disagree about which season they describe.
-  const directMeta = await animeKitsuMeta(id).catch(() => null);
-  const directKitsuId = parseKitsuId(directMeta?.id ?? "");
-  const kitsuId = directKitsuId ?? (await resolveAnimeKitsuId(id).catch(() => null));
-  if (kitsuId == null) return null;
+  const entry = await resolveAnimeEntry(id).catch(() => null);
+  if (!entry) return null;
+  const { kitsuId } = entry;
   const addonMeta =
-    directMeta && directMeta.videos.length > 0
-      ? directMeta
+    entry.meta && entry.meta.videos.length > 0
+      ? entry.meta
       : await animeKitsuMeta(`kitsu:${kitsuId}`).catch(() => null);
   const raw = addonMeta?.videos ?? [];
   const eps: PlayEpisode[] = [];

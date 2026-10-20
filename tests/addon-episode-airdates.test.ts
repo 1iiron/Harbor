@@ -79,7 +79,7 @@ function series(videos: Meta["videos"]) {
     "./meta-resource": { resolveMeta: async () => { requests++; return { videos }; }, preferCustomMeta: () => false },
     "./providers/tmdb": {}, "./providers/tmdb/tmdb-client": {}, "./providers/tmdb/tmdb-image-rungs": {},
     "./localized-text": {}, "./providers/anime-kitsu-addon": {}, "./providers/anime-mapping": {},
-    "./providers/kitsu": {}, "./providers/anizip": {}, "./providers/tvdb-proxy": {},
+    "./providers/anime-entry": {}, "./providers/kitsu": {}, "./providers/anizip": {}, "./providers/tvdb-proxy": {},
     "./providers/anime-franchise-root": {}, "./streams/anime-identity": {},
   };
   return { module: load("src/lib/series-episodes.ts", deps), requests: () => requests };
