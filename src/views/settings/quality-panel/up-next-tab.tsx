@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useSettings } from "@/lib/settings";
 import { useT } from "@/lib/i18n";
 import { SettingRow } from "../kit";
@@ -23,14 +24,83 @@ const END_SCREEN_LEADS = [
   { value: "off", label: "Off", sec: 0 },
   { value: "30", label: "30s", sec: 30 },
   { value: "60", label: "1 min", sec: 60 },
-  { value: "90", label: "1.5 min", sec: 90 },
   { value: "120", label: "2 min", sec: 120 },
-  { value: "150", label: "2.5 min", sec: 150 },
   { value: "180", label: "3 min", sec: 180 },
+  { value: "300", label: "5 min", sec: 300 },
+  { value: "custom", label: "Custom", sec: -2 },
 ] as const;
 
 function endScreenLeadKey(sec: number): string {
-  return END_SCREEN_LEADS.find((o) => o.sec === sec)?.value ?? "end";
+  if (sec === -1) return "end";
+  if (sec === 0) return "off";
+  return END_SCREEN_LEADS.find((o) => o.sec === sec)?.value ?? "custom";
+}
+
+const MAX_LEAD_MIN = 30;
+
+function LeadTimeFields({ value, onChange }: { value: number; onChange: (sec: number) => void }) {
+  const t = useT();
+  const [minutes, setMinutes] = useState(() => (value > 0 ? String(Math.floor(value / 60)) : ""));
+  const [seconds, setSeconds] = useState(() => (value > 0 ? String(value % 60) : ""));
+  const last = useRef(value);
+
+  useEffect(() => {
+    if (value === last.current) return;
+    last.current = value;
+    setMinutes(value > 0 ? String(Math.floor(value / 60)) : "");
+    setSeconds(value > 0 ? String(value % 60) : "");
+  }, [value]);
+
+  const commit = (m: string, s: string) => {
+    const rawMin = Math.floor(Number(m) || 0);
+    const rawSec = Math.floor(Number(s) || 0);
+    const mins = Math.max(0, Math.min(MAX_LEAD_MIN, rawMin));
+    const secs = Math.max(0, Math.min(59, rawSec));
+    const next = mins * 60 + secs;
+    last.current = next;
+    onChange(next);
+    // Show the clamped value when the typed one was out of range.
+    if (mins !== rawMin) setMinutes(mins ? String(mins) : "");
+    if (secs !== rawSec) setSeconds(secs ? String(secs) : "");
+  };
+
+  const inputClass =
+    "w-16 rounded-lg border border-edge-soft bg-canvas px-2 py-1.5 text-center text-[14px] text-ink outline-none focus:border-accent";
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="number"
+        min={0}
+        max={MAX_LEAD_MIN}
+        inputMode="numeric"
+        value={minutes}
+        onChange={(e) => {
+          setMinutes(e.target.value);
+          commit(e.target.value, seconds);
+        }}
+        placeholder="0"
+        aria-label={t("Minutes")}
+        className={inputClass}
+      />
+      <span className="text-[13px] text-ink-muted">{t("min")}</span>
+      <input
+        type="number"
+        min={0}
+        max={59}
+        inputMode="numeric"
+        value={seconds}
+        onChange={(e) => {
+          setSeconds(e.target.value);
+          commit(minutes, e.target.value);
+        }}
+        placeholder="0"
+        aria-label={t("Seconds")}
+        className={inputClass}
+      />
+      <span className="text-[13px] text-ink-muted">{t("sec")}</span>
+    </div>
+  );
 }
 
 const END_SCREEN_COUNTDOWNS = [5, 10, 15, 20, 30] as const;
@@ -38,6 +108,9 @@ const END_SCREEN_COUNTDOWNS = [5, 10, 15, 20, 30] as const;
 export function UpNextTab() {
   const t = useT();
   const { settings, update } = useSettings();
+  const [customLead, setCustomLead] = useState(
+    () => endScreenLeadKey(settings.endScreenLeadSec) === "custom",
+  );
   return (
     <>
       <Section
@@ -107,12 +180,34 @@ export function UpNextTab() {
         )}
       >
         <Segmented
-          value={endScreenLeadKey(settings.endScreenLeadSec)}
+          value={customLead ? "custom" : endScreenLeadKey(settings.endScreenLeadSec)}
           options={END_SCREEN_LEADS.map((o) => ({ value: o.value, label: t(o.label) }))}
-          onChange={(v) =>
-            update({ endScreenLeadSec: END_SCREEN_LEADS.find((o) => o.value === v)?.sec ?? -1 })
-          }
+          onChange={(v) => {
+            if (v === "custom") {
+              setCustomLead(true);
+              const current = settings.endScreenLeadSec;
+              const isPreset = END_SCREEN_LEADS.some((o) => o.sec === current);
+              if (current <= 0 || isPreset) update({ endScreenLeadSec: 240 });
+              return;
+            }
+            setCustomLead(false);
+            update({ endScreenLeadSec: END_SCREEN_LEADS.find((o) => o.value === v)?.sec ?? -1 });
+          }}
         />
+        {customLead && (
+          <SettingRow
+            wide
+            label={t("Custom lead time")}
+            desc={t(
+              "Type an exact time up to 30 minutes. Minutes alone count as 00 seconds; seconds alone count as 0 minutes.",
+            )}
+          >
+            <LeadTimeFields
+              value={Math.max(0, settings.endScreenLeadSec)}
+              onChange={(sec) => update({ endScreenLeadSec: sec })}
+            />
+          </SettingRow>
+        )}
         {settings.endScreenLeadSec !== 0 && (
           <>
             <ToggleRow
@@ -148,9 +243,7 @@ export function UpNextTab() {
                       { value: "close", label: t("Close player") },
                       { value: "play", label: t("Play focused") },
                     ]}
-                    onChange={(v) =>
-                      update({ endScreenOnZero: v === "play" ? "play" : "close" })
-                    }
+                    onChange={(v) => update({ endScreenOnZero: v === "play" ? "play" : "close" })}
                   />
                 </SettingRow>
               </>

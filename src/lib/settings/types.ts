@@ -508,8 +508,8 @@ export type Settings = {
   nextEpisodeLeadSec: number;
   /**
    * When the "More like this" end screen appears. 0 turns it off, -1 shows it
-   * when playback finishes, and 30..180 shows it that many seconds before the
-   * end so the film is still running behind it.
+   * when playback finishes, and a positive number shows it that many seconds
+   * before the end (up to 30 minutes) so the film is still running behind it.
    */
   endScreenLeadSec: number;
   /** Seconds before the end screen closes itself. 0 leaves it open. */

@@ -606,10 +606,18 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     openPicker,
   });
   closePlayerRef.current = () => void closePlayer();
+  // Leaving for another title must go through the same teardown as exiting
+  // playback: snapshot, resume, cast, PiP, room and fullscreen, then the picker.
+  const playFromEndScreen = useCallback(
+    (meta: Parameters<typeof openPicker>[0]) => {
+      void closePlayer().finally(() => openPicker(meta, undefined, { autoPlay: true }));
+    },
+    [closePlayer, openPicker],
+  );
   const endScreen = useEndScreen({
     src,
     snap,
-    enabled: !bigPictureActive && !docked && !pipMode && !src.pipDocked,
+    enabled: !docked && !pipMode && !src.pipDocked,
     leadSec: settings.endScreenLeadSec,
     countdownSec: settings.endScreenCountdownSec,
     onZero: settings.endScreenOnZero,
@@ -618,7 +626,7 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     nextEp: airedNext,
     canChangeEpisode,
     roomGuest,
-    onPlay: (meta) => openPicker(meta, undefined, { autoPlay: true }),
+    onPlay: playFromEndScreen,
     onClose: () => void closePlayer(),
   });
   const shrinkEndScreen = endScreen.open && endScreen.mode === "shrink";
@@ -1622,6 +1630,8 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
           bottom: shrinkEndScreen ? 56 : 0,
           width: shrinkEndScreen ? "clamp(340px, 18vw, 560px)" : "100%",
           height: shrinkEndScreen ? "calc(clamp(340px, 18vw, 560px) * 0.5625)" : "100%",
+          borderRadius: shrinkEndScreen ? 14 : 0,
+          overflow: shrinkEndScreen ? "hidden" : undefined,
           transition:
             "left 340ms cubic-bezier(0.22,1,0.36,1), bottom 340ms cubic-bezier(0.22,1,0.36,1), width 340ms cubic-bezier(0.22,1,0.36,1), height 340ms cubic-bezier(0.22,1,0.36,1)",
         }}
@@ -1730,7 +1740,7 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
           onVolume={onEndScreenVolume}
           onToggleMute={onEndScreenMute}
           onFocus={endScreen.focus}
-          onPlay={(meta) => openPicker(meta, undefined, { autoPlay: true })}
+          onPlay={playFromEndScreen}
           onInfo={(meta) => {
             void closePlayer().then(() => openMeta(meta));
           }}

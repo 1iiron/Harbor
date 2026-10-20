@@ -52,12 +52,14 @@ function sanitizePosterDockTransition(value: unknown): number {
   return Math.min(1500, Math.max(250, Math.round(value)));
 }
 
-const END_SCREEN_LEADS = new Set([-1, 0, 30, 45, 60, 90, 120, 150, 180]);
+const MAX_END_SCREEN_LEAD_SEC = 30 * 60;
 
 function sanitizeEndScreenLead(value: unknown): number {
-  return typeof value === "number" && END_SCREEN_LEADS.has(value)
-    ? value
-    : DEFAULT.endScreenLeadSec;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT.endScreenLeadSec;
+  }
+  if (value < 0) return -1;
+  return Math.min(MAX_END_SCREEN_LEAD_SEC, Math.round(value));
 }
 
 function sanitizeEndScreenCountdown(value: unknown): number {
@@ -412,7 +414,9 @@ function parseStoredSettings(raw: string | null): { settings: Settings; cacheabl
       ...DEFAULT,
       ...parsed,
       togetherRelayUrl: migratePublicRelayUrl(
-        typeof parsed.togetherRelayUrl === "string" ? parsed.togetherRelayUrl : DEFAULT.togetherRelayUrl,
+        typeof parsed.togetherRelayUrl === "string"
+          ? parsed.togetherRelayUrl
+          : DEFAULT.togetherRelayUrl,
       ),
       ...posterCards,
       animePreferImdbStreams: parsed.animePreferImdbStreams === true,

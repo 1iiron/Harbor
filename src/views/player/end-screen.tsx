@@ -75,6 +75,10 @@ function useFocusedDetail(meta: Meta | null, tmdbKey: string | null): TmdbDetail
   return detail;
 }
 
+function roundedHole(x: number, y: number, w: number, h: number, r: number): string {
+  return `M${x + r} ${y}H${x + w - r}A${r} ${r} 0 0 1 ${x + w} ${y + r}V${y + h - r}A${r} ${r} 0 0 1 ${x + w - r} ${y + h}H${x + r}A${r} ${r} 0 0 1 ${x} ${y + h - r}V${y + r}A${r} ${r} 0 0 1 ${x + r} ${y}Z`;
+}
+
 function yearOf(meta: Meta): string {
   const raw = meta.releaseInfo ?? meta.releaseDate ?? "";
   const year = String(raw).slice(0, 4);
@@ -107,7 +111,9 @@ function MetaThumb({ meta, className }: { meta: Meta; className?: string }) {
   const src = hiRes(meta.background ?? meta.poster);
   return (
     <span className={`relative block overflow-hidden bg-elevated ${className ?? ""}`}>
-      {src && <img src={src} alt="" aria-hidden className="h-full w-full object-cover" />}
+      {src && (
+        <img src={src} alt="" aria-hidden decoding="async" className="h-full w-full object-cover" />
+      )}
     </span>
   );
 }
@@ -265,6 +271,18 @@ export function EndScreen({
   const visible = items.slice(pageStart, pageStart + perPage);
   const indexInPage = focused - pageStart;
 
+  useEffect(() => {
+    // Decode every recommendation upfront so the first page change does not
+    // stall on fresh images (the first transition was the only slow one).
+    for (const item of items) {
+      const url = hiRes(item.background ?? item.poster);
+      if (!url) continue;
+      const image = new Image();
+      image.decoding = "async";
+      image.src = url;
+    }
+  }, [items]);
+
   /* Cards are sized and paginated so the row always ends with a whole card. */
   useLayoutEffect(() => {
     const update = () => {
@@ -331,7 +349,7 @@ export function EndScreen({
   }, [mode]);
 
   const clip = mini
-    ? `path(evenodd, "M0 0H${viewportW}V${window.innerHeight}H0Z M${mini.left} ${mini.top}H${mini.left + mini.width}V${mini.top + mini.height}H${mini.left}Z")`
+    ? `path(evenodd, "M0 0H${viewportW}V${window.innerHeight}H0Z ${roundedHole(mini.left, mini.top, mini.width, mini.height, 14)}")`
     : undefined;
 
   /* The expanded card starts on the focused tile's own left edge. Only a tile
@@ -479,8 +497,9 @@ export function EndScreen({
     gutter,
     Math.min(gutter + indexInPage * (cardW + gap), viewportW - gutter - expandW),
   );
-  const nowGenres = (src.meta.genres ?? []).slice(0, 2);
-  const nowLine = [yearOf(src.meta), ...nowGenres].filter(Boolean).join(" · ");
+  const nowGenres = playingDetail?.genres ?? src.meta.genres ?? [];
+  const nowYear = playingDetail?.year ?? yearOf(src.meta);
+  const nowLine = [nowYear, ...nowGenres.slice(0, 2)].filter(Boolean).join(" · ");
 
   return (
     <div
@@ -498,6 +517,7 @@ export function EndScreen({
             alt=""
             aria-hidden
             className="animate-fade-in absolute inset-0 h-full w-full object-cover object-center opacity-55"
+            decoding="async"
           />
         )}
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(4,5,9,0.62)_0%,rgba(4,5,9,0.22)_26%,rgba(4,5,9,0.12)_45%,rgba(4,5,9,0.85)_100%)]" />
@@ -513,12 +533,6 @@ export function EndScreen({
         >
           {t("More like this")}
         </h2>
-        <span
-          className="text-ink-muted"
-          style={{ fontSize: `clamp(12px, ${0.72 * scale}vw, 19px)` }}
-        >
-          {t("Because you watched this")}
-        </span>
         {pages > 1 && (
           <span
             className="ms-auto tracking-[0.06em] text-ink-muted"
@@ -681,7 +695,7 @@ export function EndScreen({
               onDismiss();
             }}
             aria-label={t("Return to playback")}
-            className="absolute z-10 cursor-pointer rounded-[10px]"
+            className="absolute z-10 cursor-pointer rounded-[14px]"
             style={{ left: mini.left, top: mini.top, width: mini.width, height: mini.height }}
           />
           <div
@@ -723,7 +737,7 @@ export function EndScreen({
             style={{ left: mini.left, top: mini.top, width: mini.width, height: mini.height }}
           >
             <div
-              className={`pointer-events-none absolute inset-0 overflow-hidden rounded-[10px] border transition-[box-shadow,border-color] duration-200 ${
+              className={`pointer-events-none absolute inset-0 overflow-hidden rounded-[14px] border transition-[box-shadow,border-color] duration-200 ${
                 zone === "mini"
                   ? "border-accent shadow-[0_0_0_4px_rgba(111,140,255,0.45)]"
                   : "border-white/15 shadow-[0_22px_48px_rgba(0,0,0,0.72)]"
@@ -792,11 +806,18 @@ export function EndScreen({
       >
         {countdown != null && countdownTotal > 0 && (
           <div
-            className="flex items-center gap-2.5 text-ink-muted"
-            style={{ fontSize: `clamp(12.5px, ${0.7 * scale}vw, 18px)` }}
+            className="flex items-center gap-3 text-ink-muted"
+            style={{ fontSize: `clamp(15px, ${0.9 * scale}vw, 24px)` }}
           >
-            <span className="relative grid h-9 w-9 place-items-center">
-              <svg viewBox="0 0 36 36" className="h-9 w-9 -rotate-90">
+            <span
+              className="relative grid place-items-center"
+              style={{ width: "clamp(44px, 2.6vw, 68px)", height: "clamp(44px, 2.6vw, 68px)" }}
+            >
+              <svg
+                viewBox="0 0 36 36"
+                className="-rotate-90"
+                style={{ width: "clamp(44px, 2.6vw, 68px)", height: "clamp(44px, 2.6vw, 68px)" }}
+              >
                 <circle
                   cx="18"
                   cy="18"
@@ -815,10 +836,18 @@ export function EndScreen({
                   strokeLinecap="round"
                   strokeDasharray={100}
                   pathLength={100}
-                  strokeDashoffset={100 - ring * 100}
+                  style={{
+                    strokeDashoffset: 100 - ring * 100,
+                    transition: "stroke-dashoffset 1s linear",
+                  }}
                 />
               </svg>
-              <span className="absolute text-[11.5px] font-bold text-ink">{countdown}</span>
+              <span
+                className="absolute font-bold text-ink"
+                style={{ fontSize: `clamp(13px, ${0.78 * scale}vw, 20px)` }}
+              >
+                {countdown}
+              </span>
             </span>
             {t("Closing in {n}s", { n: countdown })}
           </div>

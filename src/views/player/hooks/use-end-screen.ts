@@ -80,6 +80,12 @@ export function useEndScreen(params: {
     setCountdown(null);
   }, [src.url]);
 
+  // Changing the lead time re-arms the early card even if it was dismissed.
+  useEffect(() => {
+    firedEarlyRef.current = null;
+    earlySinceRef.current = 0;
+  }, [leadSec]);
+
   // Open at the chosen moment. Series episodes with a next episode keep the
   // existing up-next flow; live and resume stubs never show the screen.
   //
@@ -112,9 +118,8 @@ export function useEndScreen(params: {
         return;
       }
 
-      // A lead longer than half the runtime would fire before the film has
-      // started; the end card still covers that case.
-      if (leadSec <= 0 || leadSec >= duration / 2) return;
+      // A lead longer than the film itself can never reach its mark.
+      if (leadSec <= 0 || leadSec >= duration) return;
       const windowStart = duration - leadSec;
       if (position < windowStart) {
         earlySinceRef.current = 0;
