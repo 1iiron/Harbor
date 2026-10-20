@@ -148,7 +148,7 @@ export function useStreamSwitcher(params: {
           startAtSec: resumeAt > 5 ? resumeAt : undefined,
           startupProfile: playbackStartupProfile(stream),
         });
-        await b.play().catch(() => {});
+        await b.play({ reason: "stream-switch" }).catch(() => {});
       } catch (e) {
         if (nextProxySessionId) void unregisterStreamProxy(nextProxySessionId).catch(() => {});
         console.warn("[player] stream swap failed", e);

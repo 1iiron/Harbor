@@ -103,7 +103,7 @@ test("a pending device change is applied by play before audio starts", () => {
   // re-init cannot underrun the first audio callback.
   assert.match(
     mpv,
-    /async play\(\) \{[\s\S]*?if \(pendingAudioDeviceReload && mpvStarted && snap\.status === "paused"\) \{[\s\S]*?await performAudioDeviceReload\(true\)[\s\S]*?name: "pause", value: false/,
+    /async play\([^)]*\) \{[\s\S]*?if \(pendingAudioDeviceReload && mpvStarted && snap\.status === "paused"\) \{[\s\S]*?await performAudioDeviceReload\(true\)[\s\S]*?name: "pause", value: false/,
   );
   // A bare pause=false must not re-arm a deferred recovery on top of resume.
   assert.doesNotMatch(

@@ -434,18 +434,20 @@ export function SettingsProvider({
     };
     void import("@tauri-apps/api/event").then(({ listen }) => {
       const prefs = listen<{
-        closeToTray: boolean;
-        alwaysOnTop: boolean;
-        pauseMinimized: boolean;
-        pauseUnfocused: boolean;
+        closeToTray?: boolean;
+        alwaysOnTop?: boolean;
+        pauseMinimized?: boolean;
+        pauseUnfocused?: boolean;
       }>("harbor://tray-prefs", (e) => {
-        const p = e.payload;
+        // The tray only sends the item that was toggled; absent fields keep
+        // whatever the user has in Settings.
+        const p = e.payload ?? {};
         setSettings((s) => ({
           ...s,
-          closeToTray: p.closeToTray,
-          trayAlwaysOnTop: p.alwaysOnTop,
-          pauseMinimized: p.pauseMinimized,
-          pauseUnfocused: p.pauseUnfocused,
+          closeToTray: p.closeToTray ?? s.closeToTray,
+          trayAlwaysOnTop: p.alwaysOnTop ?? s.trayAlwaysOnTop,
+          pauseMinimized: p.pauseMinimized ?? s.pauseMinimized,
+          pauseUnfocused: p.pauseUnfocused ?? s.pauseUnfocused,
         }));
       }).then(track);
       const cycle = listen("harbor://cycle-theme", () => {

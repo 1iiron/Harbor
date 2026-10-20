@@ -119,7 +119,17 @@ fn toggle(app: &AppHandle, pref: Pref) -> Result<(), String> {
         }
     }
     flag.store(next, Ordering::Relaxed);
-    app.emit("harbor://tray-prefs", current_prefs())
+    // Emit only the value that changed. The frontend owns the other three, and
+    // these statics start at the defaults rather than at the user's saved
+    // values, so echoing the whole set used to be able to turn a setting the
+    // user had switched off back on.
+    let patch = match pref {
+        Pref::CloseToTray => serde_json::json!({ "closeToTray": next }),
+        Pref::AlwaysOnTop => serde_json::json!({ "alwaysOnTop": next }),
+        Pref::PauseMinimized => serde_json::json!({ "pauseMinimized": next }),
+        Pref::PauseUnfocused => serde_json::json!({ "pauseUnfocused": next }),
+    };
+    app.emit("harbor://tray-prefs", patch)
         .map_err(|error| error.to_string())?;
     #[cfg(windows)]
     crate::tray_popup::prefs_changed(app)?;

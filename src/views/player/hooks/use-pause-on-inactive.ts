@@ -49,11 +49,11 @@ export function usePauseOnInactive({
           const shouldPause = minimized ? pauseMinimized : pauseUnfocused;
           if (shouldPause && snapRef.current.status === "playing") {
             autoPausedRef.current = true;
-            bridge.pause();
+            bridge.pause(`inactive focused=false minimized=${minimized}`);
           }
         } else if (autoPausedRef.current) {
           autoPausedRef.current = false;
-          void bridge.play();
+          void bridge.play({ reason: "inactive-resume" });
         }
       }).then((u) => {
         if (cancelled) u();

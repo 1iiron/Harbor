@@ -1664,6 +1664,10 @@ const MPV_ALLOWED_COMMANDS: &[&str] = &[
     "frame-back-step",
     "loadfile",
     "ao-reload",
+    // Writes a line into mpv's log, which is the only log a release build keeps.
+    // The player uses it to name the control behind each pause/play so a user's
+    // log explains itself.
+    "print-text",
 ];
 
 fn mpv_property_blocked(name: &str) -> bool {

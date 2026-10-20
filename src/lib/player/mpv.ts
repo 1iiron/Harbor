@@ -31,6 +31,7 @@ import { PreparedSubtitleCleanupRegistry } from "./prepared-subtitle-cleanups";
 import { SubtitleSelectionCoordinator, type SubtitleSelectionOrigin } from "./subtitle-selection";
 import { PreparedSubtitleSeedBatch } from "@/lib/subtitles/seed-batch";
 import { isSafeProviderSubtitleUrl } from "@/lib/subtitles/provider-url";
+import { traceFrameDrops, tracePlayback } from "./pause-trace";
 import {
   initialPlayerSnapshot,
   type PlayerBridge,
@@ -468,6 +469,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
     if (!opts.embed || !opts.getEmbedRect || geomKickHandler != null || isLinuxDesktop()) return;
 
     let lastRect: MpvRect | null = null;
+      let lastCollapsed: boolean | null = null;
     let frame: number | null = null;
     let active = true;
     let inFlight = false;
@@ -510,6 +512,16 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         ) {
           move?.commit();
           return;
+        }
+        // A surface that loses its client area freezes the picture while mpv
+        // rebuilds its video output (new swapchain, recompiled shaders, starved
+        // audio), so record the transition instead of every size update.
+        const collapsed = r.cssWidth < 64 || r.cssHeight < 64;
+        if (collapsed !== lastCollapsed) {
+          lastCollapsed = collapsed;
+          tracePlayback(
+            `geom ${Math.round(r.cssWidth)}x${Math.round(r.cssHeight)} collapsed=${collapsed}`,
+          );
         }
         await invoke("mpv_set_geometry", { geom: r });
         if (active) {
@@ -837,6 +849,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       if (name === "eof-reached" && data === true) {
         clearAudioDeviceReload();
         snap.status = "ended";
+        traceFrameDrops("eof");
       }
       if (name === "volume" && typeof data === "number") snap.volume = data / 100;
       if (name === "mute" && typeof data === "boolean") snap.muted = data;
@@ -1278,7 +1291,8 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
         emit();
       }
     },
-    async play() {
+    async play(options?: { preserveMuted?: boolean; reason?: string }) {
+      tracePlayback(`play source=${options?.reason ?? "unspecified"}`);
       // mpv has not started the audio callback yet, so reinitialising a device
       // that changed while paused cannot underrun the stream. Do it before
       // unpausing; doing it after resume is what produced the A/V desync.
@@ -1302,7 +1316,9 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       }
       await invoke("mpv_set_property", { name: "pause", value: false }).catch(() => {});
     },
-    pause() {
+    pause(reason = "unspecified") {
+      tracePlayback(`pause source=${reason}`);
+      traceFrameDrops(reason);
       invoke("mpv_set_property", { name: "pause", value: true }).catch(() => {});
     },
     seek(sec, precision: PlayerSeekPrecision = "exact") {

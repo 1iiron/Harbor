@@ -124,8 +124,10 @@ export type PlayerBridge = {
   attach: (host: HTMLElement) => void;
   detach: () => void;
   load: (src: PlayerSource) => Promise<void>;
-  play: (options?: { preserveMuted?: boolean }) => Promise<void>;
-  pause: () => void;
+  // `reason` only names the caller in mpv's log (see pause-trace.ts); playback
+  // behaviour never depends on it.
+  play: (options?: { preserveMuted?: boolean; reason?: string }) => Promise<void>;
+  pause: (reason?: string) => void;
   seek: (sec: number, precision?: PlayerSeekPrecision) => void;
   frameStep?: (dir: 1 | -1) => void;
   setVolume: (v: number) => void;

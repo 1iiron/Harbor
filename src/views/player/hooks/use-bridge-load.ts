@@ -168,7 +168,7 @@ export function useBridgeLoad(params: {
       firstLoadRef.current = false;
       setReadyLoadKey(loadKey);
       if (eligibleForPrompt) {
-        bridge.pause();
+        bridge.pause("resume-prompt");
         setPendingResumeSec(startSec);
         ackRef.current = (action) => {
           ackRef.current = null;
@@ -187,9 +187,9 @@ export function useBridgeLoad(params: {
         return;
       }
       if (!inRoomRef.current && !src.startPaused) {
-        bridge.play().catch(() => {});
+        bridge.play({ reason: "load" }).catch(() => {});
       } else if (src.startPaused) {
-        bridge.pause();
+        bridge.pause("start-paused");
       }
     })();
     return () => {
