@@ -179,9 +179,9 @@ export async function anilistArtById(id: number): Promise<{ banner?: string; cov
     lruSet(artByIdCache, id, art, 500);
     return art;
   } catch {
-    const empty = {};
-    lruSet(artByIdCache, id, empty, 500);
-    return empty;
+    // A rate-limited or failed request is not an answer: leave the entry
+    // uncached so a later background pass can retry the artwork.
+    return {};
   }
 }
 
@@ -216,9 +216,8 @@ export async function anilistArtByMalId(
     lruSet(artByMalCache, malId, art, 500);
     return art;
   } catch {
-    const empty = {};
-    lruSet(artByMalCache, malId, empty, 500);
-    return empty;
+    // Same rule as artById: a failed lookup must stay retryable.
+    return {};
   }
 }
 

@@ -264,7 +264,10 @@ export async function kitsuSimilarByGenres(
   if (genreSlugs.length === 0) return [];
   const slug = genreSlugs[0];
   const ageFilter = adultContentHidden() ? "&filter[ageRating]=G,PG,R" : "";
-  const params = `filter[genres]=${encodeURIComponent(slug)}${ageFilter}&sort=-userCount&page[limit]=${limit + 6}`;
+  // Kitsu rejects page[limit] above 20, so a larger request returned no rows at
+  // all. Twenty is enough to fill the two recommendation rails.
+  const pageLimit = Math.min(limit + 6, 20);
+  const params = `filter[genres]=${encodeURIComponent(slug)}${ageFilter}&sort=-userCount&page[limit]=${pageLimit}`;
   const j = await get<Doc<Resource<KitsuAnimeAttrs>[]>>(`/anime?${params}`);
   if (!j?.data) return [];
   const out: Meta[] = [];

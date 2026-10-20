@@ -6,6 +6,17 @@ export { AnilistApiError } from "./errors";
 
 type GraphqlResponse<T> = { data?: T; errors?: Array<{ message: string }> };
 
+// AniList's anonymous bucket is shared by every read-only surface. Once it is
+// exhausted, retrying immediately only burns more requests, so reads fail fast
+// for the retry window instead of sleeping inside the request.
+let anonymousCooldownUntil = 0;
+
+function rateLimitWaitMs(retryAfter: string | null): number {
+  const retry = Number(retryAfter ?? "60");
+  const seconds = Number.isFinite(retry) ? Math.min(Math.max(retry, 1), 60) : 60;
+  return seconds * 1000;
+}
+
 function doFetch(
   query: string,
   variables: Record<string, unknown>,
@@ -31,13 +42,21 @@ export async function anilistRequest<T>(
   skipAuth = false,
 ): Promise<T> {
   const token = skipAuth ? null : (accessToken ?? getSession()?.accessToken ?? null);
-  let res = await doFetch(query, variables, token);
+  if (skipAuth && Date.now() < anonymousCooldownUntil) {
+    throw new AnilistApiError(429, "anonymous rate limit cooldown");
+  }
+
+  const res = await doFetch(query, variables, token);
 
   if (res.status === 429) {
-    const retry = Number(res.headers.get("retry-after") ?? "1");
-    const waitMs = (Number.isFinite(retry) ? Math.min(Math.max(retry, 1), 30) : 1) * 1000;
-    await new Promise((r) => setTimeout(r, waitMs));
-    res = await doFetch(query, variables, token);
+    const body = await res.text().catch(() => "");
+    if (skipAuth) {
+      anonymousCooldownUntil = Math.max(
+        anonymousCooldownUntil,
+        Date.now() + rateLimitWaitMs(res.headers.get("retry-after")),
+      );
+    }
+    throw new AnilistApiError(429, body);
   }
 
   if (!res.ok) {

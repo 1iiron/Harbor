@@ -74,7 +74,9 @@ async function armFromKitsu(kitsuId: number): Promise<ArmKitsuEntry | null> {
   if (existing) return existing;
   const p = (async () => {
     try {
-      const r = await fetch(`${ARM}?source=kitsu&id=${kitsuId}`);
+      const r = await fetch(`${ARM}?source=kitsu&id=${kitsuId}`, {
+        signal: AbortSignal.timeout(8_000),
+      });
       if (!r.ok) return null;
       const j = (await r.json()) as { mal?: number; anidb?: number; anilist?: number };
       const entry: ArmKitsuEntry = {
@@ -108,7 +110,9 @@ export async function externalToKitsu(source: string, id: number): Promise<numbe
   if (existing) return existing;
   const p = (async () => {
     try {
-      const r = await fetch(`${ARM}?source=${source}&id=${id}`);
+      const r = await fetch(`${ARM}?source=${source}&id=${id}`, {
+        signal: AbortSignal.timeout(8_000),
+      });
       if (!r.ok) return null;
       const j = (await r.json()) as { kitsu?: number };
       const kitsu = typeof j?.kitsu === "number" ? j.kitsu : null;
@@ -138,7 +142,7 @@ export async function loadAnidbMaps(): Promise<AnidbMapCache> {
   xmlRetryAfter = Date.now() + 60_000;
   xmlInflight = (async () => {
     try {
-      const r = await fetch(ANIME_LIST_URL);
+      const r = await fetch(ANIME_LIST_URL, { signal: AbortSignal.timeout(15_000) });
       if (!r.ok) return cached ?? { tvdb: {}, imdb: {}, t: 0 };
       const text = await r.text();
       const tvdb: Record<string, number> = {};
@@ -298,7 +302,9 @@ async function armSourceToMal(source: "anilist" | "anidb", id: number): Promise<
   if (existing) return existing;
   const p = (async () => {
     try {
-      const r = await fetch(`${ARM}?source=${source}&id=${id}`);
+      const r = await fetch(`${ARM}?source=${source}&id=${id}`, {
+        signal: AbortSignal.timeout(8_000),
+      });
       if (!r.ok) return null;
       const j = (await r.json()) as { mal?: number };
       const mal = j?.mal ?? null;

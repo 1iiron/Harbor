@@ -345,6 +345,24 @@ export function franchiseTags(franchise: FranchiseEntry[]): FranchiseTag[] {
 
 const FRANCHISE_CAST_CACHE = new Map<string, CastEntry[]>();
 
+function buildSimilarRails(
+  anilistRecs: Meta[],
+  genreSimilar: Meta[],
+  franchiseIds: Set<string>,
+): { moreLikeThis: Meta[]; youMightLike: Meta[] } {
+  const similarPool: Meta[] = [];
+  const poolSeen = new Set<string>();
+  const poolNames = new Set<string>();
+  for (const m of [...anilistRecs, ...genreSimilar]) {
+    const nameKey = m.name.trim().toLowerCase();
+    if (franchiseIds.has(m.id) || poolSeen.has(m.id) || poolNames.has(nameKey)) continue;
+    poolSeen.add(m.id);
+    poolNames.add(nameKey);
+    similarPool.push(m);
+  }
+  return { moreLikeThis: similarPool.slice(0, 14), youMightLike: similarPool.slice(14, 28) };
+}
+
 export async function animeDetails(
   settings: Settings,
   meta: Meta,
@@ -398,15 +416,23 @@ export async function animeDetails(
   const effectiveSlugs =
     anime.genreSlugs.length > 0 ? anime.genreSlugs : anime.genres.map(slugify).filter(Boolean);
 
+  // Start the optional rails alongside the main batch, but do not await them
+  // here: the episode grid only needs the values below.
+  const genreSimilarPromise =
+    effectiveSlugs.length > 0
+      ? kitsuSimilarByGenres(effectiveSlugs, kitsuId, 34).catch(() => [] as Meta[])
+      : Promise.resolve([] as Meta[]);
+  const anilistRecsPromise = kitsuToAnilist(kitsuId)
+    .then((aid) => (aid ? anilistRecommendations(aid) : []))
+    .catch(() => [] as Meta[]);
+
   const [
     kitsuRawEpisodes,
     characters,
     related,
     studios,
     streamers,
-    genreSimilar,
     aniZip,
-    anilistRecs,
     tvdbEpsRaw,
   ] = await Promise.all([
     kitsuEpisodes(kitsuId, 100),
@@ -414,13 +440,7 @@ export async function animeDetails(
     kitsuRelated(kitsuId),
     kitsuStudios(kitsuId),
     kitsuStreamingLinks(kitsuId),
-    effectiveSlugs.length > 0
-      ? kitsuSimilarByGenres(effectiveSlugs, kitsuId, 34)
-      : Promise.resolve([] as Meta[]),
     aniZipByKitsu(kitsuId).catch(() => null),
-    kitsuToAnilist(kitsuId)
-      .then((aid) => (aid ? anilistRecommendations(aid) : []))
-      .catch(() => [] as Meta[]),
     kitsuToTvdb(kitsuId)
       .then((tid) => {
         if (!tid) return null;
@@ -535,18 +555,13 @@ export async function animeDetails(
   const franchiseIds = new Set<string>([meta.id, `kitsu:${kitsuId}`]);
   for (const r of related) franchiseIds.add(r.meta.id);
 
-  const similarPool: Meta[] = [];
-  const poolSeen = new Set<string>();
-  const poolNames = new Set<string>();
-  for (const m of [...anilistRecs, ...genreSimilar]) {
-    const nameKey = m.name.trim().toLowerCase();
-    if (franchiseIds.has(m.id) || poolSeen.has(m.id) || poolNames.has(nameKey)) continue;
-    poolSeen.add(m.id);
-    poolNames.add(nameKey);
-    similarPool.push(m);
-  }
-  const moreLikeThis = similarPool.slice(0, 14);
-  const youMightLike = similarPool.slice(14, 28);
+  // Recommendation rails are optional chrome: they settle in the background so
+  // a slow or rate-limited AniList response cannot hold the episode grid.
+  const recommendationsPromise = Promise.all([genreSimilarPromise, anilistRecsPromise])
+    .then(([genreSimilar, anilistRecs]) =>
+      buildSimilarRails(anilistRecs, genreSimilar, franchiseIds),
+    )
+    .catch(() => ({ moreLikeThis: [] as Meta[], youMightLike: [] as Meta[] }));
 
   const sortedStudios = [...studios].sort((a, b) => {
     const ra = STUDIO_ROLE_RANK[a.role] ?? 9;
@@ -580,8 +595,8 @@ export async function animeDetails(
     trailerCandidates: anime.trailerYtId ? [anime.trailerYtId] : [],
     gallery: { backdrops: anime.backdrop ? [anime.backdrop] : [], posters: [], logos: [] },
     cast,
-    recommendations: moreLikeThis,
-    similar: youMightLike,
+    recommendations: [],
+    similar: [],
     numberOfEpisodes: anime.episodeCount ?? 0,
     numberOfSeasons: kind === "tv" ? 1 : 0,
     firstAirDate: anime.startDate,
@@ -667,12 +682,15 @@ export async function animeDetails(
           tmdbFull = fullRaw;
       }
     }
+    const rails = await recommendationsPromise;
     const patch: AnimeDetailExtras = {
       logo,
       backdrop,
       poster,
       imdbId: seriesImdb ?? addonMeta?.imdb_id ?? tmdbFull?.imdbId ?? null,
       extraVideos: tmdbFull?.extraVideos ?? [],
+      recommendations: rails.moreLikeThis,
+      similar: rails.youMightLike,
       gallery: {
         backdrops: Array.from(new Set([...backdrops, ...(tmdbFull?.gallery.backdrops ?? [])])),
         posters: tmdbFull?.gallery.posters ?? [],
