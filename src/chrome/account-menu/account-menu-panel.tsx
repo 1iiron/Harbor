@@ -1,10 +1,23 @@
-import { Bell, ChevronDown, Lock, LogIn, LogOut, Pencil, Plus, Settings as SettingsIcon, UserRound, Users } from "lucide-react";
+import {
+  Bell,
+  ChevronDown,
+  Lock,
+  LogIn,
+  LogOut,
+  Pencil,
+  Plus,
+  Settings as SettingsIcon,
+  UserRound,
+  Users,
+} from "lucide-react";
 import { useT } from "@/lib/i18n";
-import { ProfileAvatar } from "./account-menu-parts";
+import { ProfileAvatar, SubtitleText } from "./account-menu-parts";
 import type { AccountMenuController } from "./use-account-menu";
 
-const ITEM = "flex items-center gap-2.5 px-4 py-2.5 text-start text-[13.5px] text-ink-muted transition-colors duration-150 ease-[var(--ease-out)] hover:bg-raised hover:text-ink active:scale-[0.98]";
-const SUB_ITEM = "flex items-center gap-2.5 py-2 ps-11 pe-4 text-start text-[13px] text-ink-subtle transition-colors duration-150 ease-[var(--ease-out)] hover:bg-raised hover:text-ink";
+const ITEM =
+  "flex items-center gap-2.5 px-4 py-2.5 text-start text-[13.5px] text-ink-muted transition-colors duration-150 ease-[var(--ease-out)] hover:bg-raised hover:text-ink active:scale-[0.98]";
+const SUB_ITEM =
+  "flex items-center gap-2.5 py-2 ps-11 pe-4 text-start text-[13px] text-ink-subtle transition-colors duration-150 ease-[var(--ease-out)] hover:bg-raised hover:text-ink";
 
 export function AccountMenuPanel({
   ctrl,
@@ -22,10 +35,25 @@ export function AccountMenuPanel({
   settingsActive?: boolean;
 }) {
   const t = useT();
-  const { user, signOut, profiles, activeProfile, author, openPicker, requestSwitch, viewMyProfile, openNotifications, manageOpen, setManageOpen, setMenuOpen, setAuthOpen } = ctrl;
+  const {
+    user,
+    profiles,
+    activeProfile,
+    author,
+    openPicker,
+    requestSwitch,
+    viewMyProfile,
+    openNotifications,
+    openHarborAuth,
+    signOutHarbor,
+    manageOpen,
+    setManageOpen,
+    setMenuOpen,
+  } = ctrl;
   const otherProfiles = profiles.filter((p) => p.id !== activeProfile?.id);
   const kid = !!activeProfile?.kid;
-  const name = activeProfile?.name ?? user?.fullname ?? user?.email?.split("@")[0] ?? t("profile.fallback");
+  const name =
+    activeProfile?.name ?? user?.fullname ?? user?.email?.split("@")[0] ?? t("profile.fallback");
 
   return (
     <div
@@ -34,7 +62,9 @@ export function AccountMenuPanel({
       {showHeader && (
         <div className="border-b border-edge-soft px-4 py-2.5">
           <div className="truncate text-[13.5px] font-semibold text-ink">{name}</div>
-          {user?.email && <div className="truncate text-[11.5px] text-ink-subtle">{user.email}</div>}
+          <div className="truncate text-[11.5px] text-ink-subtle">
+            <SubtitleText author={author} />
+          </div>
         </div>
       )}
 
@@ -60,7 +90,10 @@ export function AccountMenuPanel({
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className="truncate text-[13.5px] font-medium text-ink">{p.name}</span>
                 {p.isPrimary && (
-                  <span className="shrink-0 text-[9px] font-bold uppercase leading-none tracking-[0.18em]" style={{ color: p.color }}>
+                  <span
+                    className="shrink-0 text-[9px] font-bold uppercase leading-none tracking-[0.18em]"
+                    style={{ color: p.color }}
+                  >
                     {t("profile.primary")}
                   </span>
                 )}
@@ -146,27 +179,15 @@ export function AccountMenuPanel({
               {t("nav.settings")}
             </button>
           )}
-          {user ? (
-            <button
-              onClick={() => {
-                signOut();
-                setMenuOpen(false);
-              }}
-              className={`${ITEM} border-t border-edge-soft`}
-            >
+          {author ? (
+            <button onClick={signOutHarbor} className={`${ITEM} border-t border-edge-soft`}>
               <LogOut size={14} strokeWidth={2.2} />
-              {t("profile.signOut")}
+              {t("Sign out of Harbor")}
             </button>
           ) : (
-            <button
-              onClick={() => {
-                setAuthOpen(true);
-                setMenuOpen(false);
-              }}
-              className={`${ITEM} border-t border-edge-soft`}
-            >
+            <button onClick={openHarborAuth} className={`${ITEM} border-t border-edge-soft`}>
               <LogIn size={14} strokeWidth={2.2} />
-              {t("profile.signIn")}
+              {t("Sign in to Harbor")}
             </button>
           )}
         </div>

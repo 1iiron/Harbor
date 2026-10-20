@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useProfiles, type Profile } from "@/lib/profiles";
-import { currentAuthor, subscribeAuthor, type Author } from "@/lib/theme-auth";
-import { currentStatus, setStatus, subscribeStatus, type PresenceStatus } from "@/lib/social/presence";
+import { currentAuthor, logoutAuthor, subscribeAuthor, type Author } from "@/lib/theme-auth";
+import {
+  currentStatus,
+  setStatus,
+  subscribeStatus,
+  type PresenceStatus,
+} from "@/lib/social/presence";
 import { openMyProfile } from "@/lib/social/open-my-profile";
 import { openNotificationCenter } from "@/lib/social/notification-open";
 
 export function useAccountMenu() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const { profiles, activeProfile, openPicker, selectProfile } = useProfiles();
   const [author, setAuthor] = useState<Author | null>(currentAuthor);
   useEffect(() => subscribeAuthor(() => setAuthor(currentAuthor())), []);
@@ -19,6 +24,9 @@ export function useAccountMenu() {
   const [authOpen, setAuthOpen] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState<Profile | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const authReturnFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => setAuthOpen(false), [activeProfile?.id]);
 
   useEffect(() => {
     if (!menuOpen) setManageOpen(false);
@@ -52,7 +60,7 @@ export function useAccountMenu() {
 
   const viewMyProfile = async () => {
     setMenuOpen(false);
-    if (!(await openMyProfile(author?.handle))) setAuthOpen(true);
+    if (!(await openMyProfile(author?.handle))) openHarborAuth();
   };
 
   const toggleStatus = () => {
@@ -70,10 +78,34 @@ export function useAccountMenu() {
     openNotificationCenter();
   };
 
+  const openHarborAuth = () => {
+    if (activeProfile?.kid) return;
+    const focused = document.activeElement;
+    const trigger = ref.current?.querySelector<HTMLButtonElement>("button[aria-haspopup='menu']");
+    if (trigger) {
+      authReturnFocus.current = trigger;
+    } else if (
+      focused instanceof HTMLElement &&
+      focused !== document.body &&
+      !focused.closest(".harbor-profile-dropdown")
+    ) {
+      authReturnFocus.current = focused;
+    }
+    setMenuOpen(false);
+    setStatusOpen(false);
+    setAuthOpen(true);
+  };
+
+  const signOutHarbor = () => {
+    setMenuOpen(false);
+    setStatusOpen(false);
+    void logoutAuthor();
+  };
+
   return {
     ref,
+    authReturnFocus,
     user,
-    signOut,
     profiles,
     activeProfile,
     openPicker,
@@ -95,6 +127,8 @@ export function useAccountMenu() {
     toggleStatus,
     pickStatus,
     openNotifications,
+    openHarborAuth,
+    signOutHarbor,
   };
 }
 
