@@ -403,14 +403,14 @@ Harbor is built to keep your data on your machine.
 
 ## Install
 
-Download the latest build for macOS or Windows from the [Releases page][releases], use the [unofficial Linux packages](https://github.com/AdityaHebballe/harbor-linux-builds), or open Harbor in your browser.
+Download the latest build for macOS or Windows from the [Releases page][releases], use the [unofficial Linux packages](https://github.com/Thunderhawkk/harbor-linux), or open Harbor in your browser.
 
 | Platform    | Format                                                                                                   |
 | ----------- | -------------------------------------------------------------------------------------------------------- |
 | **macOS**   | `.dmg` (macOS 15.0 or newer, Apple silicon)                                                              |
 | **Windows** | Harbor Shipyard installer (current user install), or `winget install HarborStremio.Harbor`               |
 | **Web**     | Open in any modern browser, nothing to install                                                           |
-| **Linux**   | [Unofficial `.deb`, `.rpm`, and Flatpak packages](https://github.com/AdityaHebballe/harbor-linux-builds) |
+| **Linux**   | [Unofficial `.deb`, `.rpm`, and Flatpak packages](https://github.com/Thunderhawkk/harbor-linux) |
 
 > [!NOTE]
 > Linux packages above are community-maintained. Official Harbor Linux packages are coming soon.
