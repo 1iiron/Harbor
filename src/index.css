@@ -86,9 +86,16 @@ html[data-mpv-embed="1"] #root {
   background: transparent;
 }
 
+/* macOS keeps the NSWindow non-opaque so its corners can be clipped, and the
+   webview background is disabled by the window's configured background colour.
+   Without a painted canvas the transparent root lets the desktop show through
+   whenever macOS recomposites the window, such as after a focus change. */
 html[data-os="linux"]:not([data-mpv-embed="1"]),
 html[data-os="linux"]:not([data-mpv-embed="1"]) body,
-html[data-os="linux"]:not([data-mpv-embed="1"]) #root {
+html[data-os="linux"]:not([data-mpv-embed="1"]) #root,
+html[data-os="macos"]:not([data-mpv-embed="1"]),
+html[data-os="macos"]:not([data-mpv-embed="1"]) body,
+html[data-os="macos"]:not([data-mpv-embed="1"]) #root {
   background: var(--color-canvas);
 }
 
