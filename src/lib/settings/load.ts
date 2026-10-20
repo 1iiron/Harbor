@@ -52,6 +52,21 @@ function sanitizePosterDockTransition(value: unknown): number {
   return Math.min(1500, Math.max(250, Math.round(value)));
 }
 
+const END_SCREEN_LEADS = new Set([-1, 0, 30, 45, 60, 90, 120, 150, 180]);
+
+function sanitizeEndScreenLead(value: unknown): number {
+  return typeof value === "number" && END_SCREEN_LEADS.has(value)
+    ? value
+    : DEFAULT.endScreenLeadSec;
+}
+
+function sanitizeEndScreenCountdown(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT.endScreenCountdownSec;
+  }
+  return Math.min(60, Math.max(0, Math.round(value)));
+}
+
 function sanitizeTopbarAppearance(
   value: unknown,
   transparent: unknown,
@@ -408,6 +423,9 @@ function parseStoredSettings(raw: string | null): { settings: Settings; cacheabl
         parsed.topbarGlassControls,
       ),
       posterDockTransitionMs: sanitizePosterDockTransition(parsed.posterDockTransitionMs),
+      endScreenLeadSec: sanitizeEndScreenLead(parsed.endScreenLeadSec),
+      endScreenCountdownSec: sanitizeEndScreenCountdown(parsed.endScreenCountdownSec),
+      endScreenOnZero: parsed.endScreenOnZero === "play" ? "play" : "close",
       bigPictureDisplay: sanitizeDisplaySelection(parsed.bigPictureDisplay),
       playerSeparateDisplay: sanitizeDisplaySelection(parsed.playerSeparateDisplay),
       playerSeparateCoverTaskbar:

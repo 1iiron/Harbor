@@ -104,6 +104,8 @@ import { useSdrBoostGate } from "./player/hooks/use-sdr-boost-gate";
 import { PlayerOverlayLayers, type PlayerOverlayLayersProps } from "./player/player-overlay-layers";
 import { StillWatchingPrompt } from "./player/still-watching-prompt";
 import { SourceErrorCard } from "./player/source-error-card";
+import { EndScreen } from "./player/end-screen";
+import { useEndScreen } from "./player/hooks/use-end-screen";
 import { LeaveConfirmModal } from "@/components/player/leave-confirm-modal";
 import { HdrStageBridge } from "./player/hdr-stage-bridge";
 import { setSkipSegmentsView } from "@/lib/skip-intro/segment-store";
@@ -135,6 +137,7 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     setChromeHidden: setAppChromeHidden,
     topPath,
     openPicker,
+    openMeta,
     exitPlayback,
     replacePlayerSrc,
     exitPlayer,
@@ -603,6 +606,22 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     openPicker,
   });
   closePlayerRef.current = () => void closePlayer();
+  const endScreen = useEndScreen({
+    src,
+    snap,
+    enabled: !bigPictureActive && !docked && !pipMode && !src.pipDocked,
+    leadSec: settings.endScreenLeadSec,
+    countdownSec: settings.endScreenCountdownSec,
+    onZero: settings.endScreenOnZero,
+    tmdbKey: settings.tmdbKey,
+    isLive: isLiveLike,
+    nextEp: airedNext,
+    canChangeEpisode,
+    roomGuest,
+    onPlay: (meta) => openPicker(meta, undefined, { autoPlay: true }),
+    onClose: () => void closePlayer(),
+  });
+  const shrinkEndScreen = endScreen.open && endScreen.mode === "shrink";
   const backFromPlayer = useCallback(async () => {
     if (src.sportsDocked === false) {
       // Keep the mounted playback engine and current source; only change its surface.
@@ -1228,7 +1247,7 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     canChangeEpisode,
     roomGuest,
     isLive: isLiveLike,
-    suspend: queueOrSleepArmed && !isLiveLike,
+    suspend: (queueOrSleepArmed && !isLiveLike) || endScreen.open,
     startedNearEndRef,
     reloadLive,
     closePlayer,
@@ -1369,6 +1388,23 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     },
     [showVolumeFeedback, isKid, settings.playerVolumeSfx, settings.volumeBoostMax],
   );
+  const onEndScreenVolume = useCallback(
+    (value: number) => {
+      const next = Math.max(0, Math.min(1, value));
+      volumeRef.current = next;
+      bridgeRef.current?.setVolume(next);
+      bridgeRef.current?.setMuted(false);
+      writePlayerVolume({ volume: next, muted: false });
+      showVolumeFeedback(next, false);
+    },
+    [showVolumeFeedback],
+  );
+  const onEndScreenMute = useCallback(() => {
+    const next = !snapRef.current.muted;
+    bridgeRef.current?.setMuted(next);
+    writePlayerVolume({ volume: volumeRef.current, muted: next });
+    showVolumeFeedback(volumeRef.current, next);
+  }, [showVolumeFeedback]);
 
   const onLoaderRetry = useCallback(() => {
     const b = bridgeRef.current;
@@ -1458,7 +1494,7 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     playPrev,
     hasPrevEpisodeNow,
     setAutoNextCancelled,
-    showChrome,
+    showChrome: endScreen.open ? false : showChrome,
     ab,
     frameGrabToast: frameGrab.toast,
     onScreenshot: () => frameGrab.trigger(),
@@ -1580,7 +1616,15 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
       <div
         ref={videoMountRef}
         data-player-video-mount
-        className="absolute inset-0"
+        className="absolute"
+        style={{
+          left: shrinkEndScreen ? 32 : 0,
+          bottom: shrinkEndScreen ? 56 : 0,
+          width: shrinkEndScreen ? "clamp(340px, 18vw, 560px)" : "100%",
+          height: shrinkEndScreen ? "calc(clamp(340px, 18vw, 560px) * 0.5625)" : "100%",
+          transition:
+            "left 340ms cubic-bezier(0.22,1,0.36,1), bottom 340ms cubic-bezier(0.22,1,0.36,1), width 340ms cubic-bezier(0.22,1,0.36,1), height 340ms cubic-bezier(0.22,1,0.36,1)",
+        }}
         onPointerDown={(e) => {
           if (e.target !== e.currentTarget) return;
           if (
@@ -1669,6 +1713,32 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
         />
       )}
       {!docked && !hdrStageActive && <PlayerOverlayLayers {...overlayProps} />}
+      {endScreen.open && (
+        <EndScreen
+          mode={endScreen.mode}
+          src={src}
+          items={endScreen.items}
+          focused={endScreen.focused}
+          countdown={endScreen.countdown}
+          countdownTotal={endScreen.countdownTotal}
+          tmdbKey={settings.tmdbKey}
+          paused={snap.status !== "playing"}
+          durationSec={snap.durationSec}
+          volume={snap.volume}
+          muted={snap.muted}
+          onTogglePlay={playPauseToggle}
+          onVolume={onEndScreenVolume}
+          onToggleMute={onEndScreenMute}
+          onFocus={endScreen.focus}
+          onPlay={(meta) => openPicker(meta, undefined, { autoPlay: true })}
+          onInfo={(meta) => {
+            void closePlayer().then(() => openMeta(meta));
+          }}
+          onInteract={endScreen.interact}
+          onClose={() => void closePlayer()}
+          onDismiss={endScreen.dismiss}
+        />
+      )}
       {!docked && !hdrStageActive && (
         <PlayerInteractionLockControls
           enabled={screenLockEnabled}
