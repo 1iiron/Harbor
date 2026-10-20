@@ -80,9 +80,20 @@ async function resolveAnimeKitsuId(id: string): Promise<number | null> {
 async function getAnimeEpisodes(id: string): Promise<PlayEpisode[] | null> {
   const cacheKey = `anime:${id}`;
   if (addonEpsCache.has(cacheKey)) return addonEpsCache.get(cacheKey)!;
-  const kitsuId = await resolveAnimeKitsuId(id).catch(() => null);
+  // The anime addon resolves the original mal/anilist/anidb id itself, and it
+  // is the same source the Continue Watching card uses for its display season.
+  // Going through the external id graph first can hand back the parent cour
+  // (or nothing at all) for a newly published sequel, while the addon already
+  // knows the sequel entry. Prefer the addon's canonical entry so the episode
+  // list and the card can never disagree about which season they describe.
+  const directMeta = await animeKitsuMeta(id).catch(() => null);
+  const directKitsuId = parseKitsuId(directMeta?.id ?? "");
+  const kitsuId = directKitsuId ?? (await resolveAnimeKitsuId(id).catch(() => null));
   if (kitsuId == null) return null;
-  const addonMeta = await animeKitsuMeta(`kitsu:${kitsuId}`).catch(() => null);
+  const addonMeta =
+    directMeta && directMeta.videos.length > 0
+      ? directMeta
+      : await animeKitsuMeta(`kitsu:${kitsuId}`).catch(() => null);
   const raw = addonMeta?.videos ?? [];
   const eps: PlayEpisode[] = [];
   for (const v of raw) {

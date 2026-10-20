@@ -32,6 +32,11 @@ const ANIME_LIST_URL =
 const ARM_KITSU_KEY = "harbor.armkitsucache.v3";
 const ANIDB_TVDB_KEY = "harbor.anidbtvdbcache.v2";
 const ARM_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// A missing mapping is common right after a new cour is announced: the external
+// id graph catches up days later. Remembering "no Kitsu entry" for a month
+// leaves the show stuck on whichever fallback list the app can find. Keep the
+// miss short so the next lookup can pick up the entry.
+const ARM_NEG_TTL_MS = 6 * 60 * 60 * 1000;
 const XML_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 type ArmKitsuEntry = { mal?: number; anidb?: number; anilist?: number; t: number };
@@ -97,7 +102,8 @@ const extKitsuCache = mappingStore<{ kitsu: number | null; t: number }>(EXT_KITS
 export async function externalToKitsu(source: string, id: number): Promise<number | null> {
   const key = `${source}:${id}`;
   const hit = extKitsuCache.get(key);
-  if (hit && Date.now() - hit.t < ARM_TTL_MS) return hit.kitsu;
+  const ttl = hit?.kitsu == null ? ARM_NEG_TTL_MS : ARM_TTL_MS;
+  if (hit && Date.now() - hit.t < ttl) return hit.kitsu;
   const existing = inflightExt.get(key);
   if (existing) return existing;
   const p = (async () => {
