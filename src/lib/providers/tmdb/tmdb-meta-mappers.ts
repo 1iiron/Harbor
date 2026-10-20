@@ -19,8 +19,6 @@ export function isAnimeItem(item: {
   return hasAnim && isJp;
 }
 
-const JAPANESE_SCRIPT = /[\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/;
-
 export type RawMovie = {
   id: number;
   title: string;
@@ -93,8 +91,6 @@ export const movieMeta = (m: RawMovie, englishName?: string, language?: string):
       })
     ) {
       name = english;
-    } else if (anime && english && JAPANESE_SCRIPT.test(name)) {
-      name = english;
     }
   } else {
     name = anime ? m.title : m.original_title || m.title;
@@ -133,8 +129,6 @@ export const seriesMeta = (s: RawSeries, englishName?: string, language?: string
         translateTitles: translate,
       })
     ) {
-      name = english;
-    } else if (anime && english && JAPANESE_SCRIPT.test(name)) {
       name = english;
     }
   } else {

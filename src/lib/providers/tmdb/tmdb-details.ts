@@ -426,7 +426,6 @@ export async function tmdbDetails(key: string, meta: Meta, lang?: string): Promi
   const anime = isAnimeItem(raw);
   const requestedTitle = raw.title || raw.name;
   const originalTitle = raw.original_title || raw.original_name || requestedTitle;
-  const titleFellBackToOriginal = requestedTitle === originalTitle;
 
   let overview = raw.overview ?? "";
   let tagline = raw.tagline ?? "";
@@ -447,7 +446,7 @@ export async function tmdbDetails(key: string, meta: Meta, lang?: string): Promi
     if (best) finalPosterPath = best.file_path;
   }
 
-  const useEnglishForAnime = anime && (!settings.translateTitles || titleFellBackToOriginal);
+  const useEnglishForAnime = anime && !settings.translateTitles;
   const useEnglishForFallback = shouldUseEnglishTitle({
     localized: requestedTitle,
     original: raw.original_title || raw.original_name || "",
