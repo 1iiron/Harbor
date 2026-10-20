@@ -289,13 +289,18 @@ export function dismissCw(
   const ids = itemIds(item);
   for (const entryId of ids) times.set(entryId, nowMs);
   const dismissVid = item.state?.video_id;
-  if (typeof dismissVid === "string" && dismissVid) videos.set(id, dismissVid);
-  else videos.delete(id);
+  for (const entryId of ids) {
+    if (typeof dismissVid === "string" && dismissVid) videos.set(entryId, dismissVid);
+    else videos.delete(entryId);
+  }
   const positions = new Map(dismissedPos);
   if (item.state) {
     const { season, episode } = resolveEpisode(item);
-    positions.set(id, { s: season, e: episode, p: progressRatio(item) });
-  } else positions.delete(id);
+    const checkpoint = { s: season, e: episode, p: progressRatio(item) };
+    for (const entryId of ids) positions.set(entryId, checkpoint);
+  } else {
+    for (const entryId of ids) positions.delete(entryId);
+  }
   if (item.external) {
     for (const entryId of ids) times.set(`${item.external}|${entryId}`, nowMs);
   }
