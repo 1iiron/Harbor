@@ -52,7 +52,14 @@ export function useSeasonExplorer({
   allowProxy?: boolean;
 }) {
   const scope = JSON.stringify([metaId, imdbId, tvdbKey, seasonType, lang, enabled, allowProxy]);
-  const canQuery = enabled && (!!tvdbKey.trim() || allowProxy);
+  // TVDB catalogs and season text may use the proxy only where allowed. TMDB
+  // artwork is independent: a personal TMDB key can fill posters even when no
+  // TVDB key is configured.
+  const catalogAllowed = enabled && (!!tvdbKey.trim() || allowProxy);
+  const artworkAllowed = enabled && (catalogAllowed || !!tmdbKey.trim());
+  // Without a catalog source there is nothing to wait for; TMDB numbers are
+  // the only mapping available.
+  const artworkWithoutCatalog = artworkAllowed && !catalogAllowed;
   const posterKey = JSON.stringify(seasonPosters ?? {});
   const artworkScope = JSON.stringify([
     scope,
@@ -60,7 +67,7 @@ export function useSeasonExplorer({
     tmdbTvId,
     posterKey,
     titlePoster,
-    canQuery,
+    artworkAllowed,
   ]);
   const [catalog, setCatalog] = useState<{
     scope: string;
@@ -108,7 +115,7 @@ export function useSeasonExplorer({
   const catalogReady = catalog?.scope === scope;
 
   useEffect(() => {
-    if (!canQuery) return;
+    if (!catalogAllowed) return;
     let cancelled = false;
     void (async () => {
       const kitsuId = parseKitsuId(metaId);
@@ -138,10 +145,10 @@ export function useSeasonExplorer({
     return () => {
       cancelled = true;
     };
-  }, [scope, metaId, imdbId, tvdbKey, seasonType, canQuery]);
+  }, [scope, metaId, imdbId, tvdbKey, seasonType, catalogAllowed]);
 
   useEffect(() => {
-    if (!canQuery) return;
+    if (!artworkAllowed) return;
     const posters = JSON.parse(posterKey) as Record<number, string>;
     let tmdbIdRequest: Promise<number | null> | undefined;
     const loader = createSeasonArtworkLoader(tvdbKey, lang, (number, value) => {
@@ -171,22 +178,32 @@ export function useSeasonExplorer({
     };
   }, [
     artworkScope, seasons, tvdbKey, tmdbKey, tmdbTvId, posterKey, titlePoster,
-    metaId, imdbId, seasonType, lang, canQuery,
+    metaId, imdbId, seasonType, lang, artworkAllowed,
   ]);
 
   useEffect(() => {
-    if (!catalogReady) return;
+    // A keyed/proxy catalog must settle first; only the TMDB-only path has no
+    // catalog to wait for.
+    if (!catalogReady && !artworkWithoutCatalog) return;
     const numbers = new Set(visible?.scope === scope ? visible.seasons : []);
     if (activeSeason != null && activeSeason >= 0) numbers.add(activeSeason);
     const requested = [...numbers].map((n): TvdbSeasonInfo =>
       seasons.get(n) ?? { id: null, number: n, name: `Season ${n}` },
     );
     artworkLoader.current?.loader.request(requested, activeSeason);
-  }, [scope, artworkScope, catalogReady, seasons, visible, activeSeason]);
+  }, [
+    scope,
+    artworkScope,
+    catalogReady,
+    artworkWithoutCatalog,
+    seasons,
+    visible,
+    activeSeason,
+  ]);
 
   useEffect(() => {
     const season = activeSeason == null ? undefined : seasons.get(activeSeason);
-    if (!canQuery || !season || details.has(season.number)) return;
+    if (!catalogAllowed || !season || details.has(season.number)) return;
     let cancelled = false;
     setPending({ scope, season: season.number });
     void fetchTvdbSeasonDetails(tvdbKey, season, lang)
@@ -205,7 +222,7 @@ export function useSeasonExplorer({
     return () => {
       cancelled = true;
     };
-  }, [scope, seasons, activeSeason, tvdbKey, lang, canQuery, details]);
+  }, [scope, seasons, activeSeason, tvdbKey, lang, catalogAllowed, details]);
 
   return {
     seasons,

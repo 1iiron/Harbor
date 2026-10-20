@@ -34,9 +34,9 @@ export function useSeasonArcPicker({
   setOrderSeason: (n: number) => void;
   userPickedRef: React.MutableRefObject<boolean>;
   /**
-   * When true, a generic TVDB season name ("Season N") falls back to the
-   * TMDB season name for the same number. Only enable for aired-order
-   * views, where TVDB and TMDB season numbering align.
+   * When true, aired-order views may borrow TMDB season names, posters, and
+   * synopses for the same number. Only enable for aired/official views, where
+   * TVDB and TMDB season numbering align.
    */
   tmdbSeasonNameFallback?: boolean;
   /** TMDB poster URLs used when no TVDB key is configured. */
@@ -79,8 +79,12 @@ export function useSeasonArcPicker({
             extra: s.seasonNumber <= 0,
             seasonNumber: s.seasonNumber,
             isGenericName: name === s.name ? s.isGenericName : false,
-            overview: tmdbSeason?.overview || s.overview,
-            poster: seasonPosters?.[s.seasonNumber],
+            // TMDB numbers other order types differently; only aired-style
+            // views may use its name, poster, and synopsis for this season.
+            overview: tmdbSeasonNameFallback
+              ? tmdbSeason?.overview || s.overview
+              : s.overview,
+            poster: tmdbSeasonNameFallback ? seasonPosters?.[s.seasonNumber] : undefined,
           };
         }),
         activeKey: String(orderSeasonEff),

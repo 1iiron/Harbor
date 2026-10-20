@@ -26,6 +26,7 @@ import { SeasonExplorer } from "./season-explorer";
 import { useSeasonExplorerView } from "./use-season-explorer";
 import { tvdbLangFromIso1 } from "@/lib/providers/tvdb";
 import { tmdbLanguageIso } from "@/lib/providers/tmdb/tmdb-client";
+import { seasonPill } from "@/lib/season-name";
 import { EpisodeLayoutToggle } from "./episode-layout-toggle";
 import { isUpcomingDate } from "./helpers";
 import { EpisodeRatingBadge } from "./episode-rating-badge";
@@ -234,8 +235,15 @@ export function CinemetaEpisodes({
     ],
   );
 
+  // Without any metadata source the shelf can only render placeholders.
+  const hasSeasonMetadata =
+    !!settings.tvdbKey ||
+    !!settings.tmdbKey ||
+    !!seasons?.length ||
+    !!Object.keys(seasonPosters ?? {}).length;
   const showExplorer =
     settings.tvdbSeasonExplorer !== false &&
+    hasSeasonMetadata &&
     grouped.some((group) => group.seasonNumber >= 1);
   const explorer = useSeasonExplorerView({
     metaId: meta.id,
@@ -510,6 +518,9 @@ function SeasonDropdown({
     );
   };
 
+  const activeItem = items.find((item) => item.key === String(active));
+  const activePill = activeItem ? seasonPill(activeItem, t) : null;
+
   return (
     <>
       <button
@@ -518,8 +529,8 @@ function SeasonDropdown({
         onClick={() => (menu ? setMenu(null) : openMenu())}
         className="flex h-10 items-center gap-2 rounded-full bg-white/[0.06] ps-4 pe-3 text-[13.5px] font-medium text-ink transition-colors hover:bg-white/[0.10]"
       >
-        <span className="max-w-[220px] truncate">{items.find((item) => item.key === String(active))?.name ?? seasonLabel(t, active)}</span>
-        {active > 0 && !items.find((item) => item.key === String(active))?.isGenericName && <span className="shrink-0 rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">{`Season ${active}`}</span>}
+        <span className="max-w-[220px] truncate">{activeItem?.name ?? seasonLabel(t, active)}</span>
+        {activePill && <span className="shrink-0 rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">{activePill}</span>}
         <ChevronDown
           size={15}
           className={`text-ink-muted transition-transform ${open ? "rotate-180" : ""}`}
@@ -536,6 +547,8 @@ function SeasonDropdown({
             <div className="overflow-y-auto" style={{ maxHeight: menu.maxH }}>
               {seasons.map((s) => {
                 const isActive = s === active;
+                const item = items.find((entry) => entry.key === String(s));
+                const pill = item ? seasonPill(item, t) : null;
                 return (
                   <button
                     key={s}
@@ -550,8 +563,8 @@ function SeasonDropdown({
                     }`}
                   >
                     <span className="flex min-w-0 flex-col gap-1">
-                      <span className="truncate">{items.find((item) => item.key === String(s))?.name ?? seasonLabel(t, s)}</span>
-                      {s > 0 && !items.find((item) => item.key === String(s))?.isGenericName && <span className="w-fit rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">{`Season ${s}`}</span>}
+                      <span className="truncate">{item?.name ?? seasonLabel(t, s)}</span>
+                      {pill && <span className="w-fit rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">{pill}</span>}
                     </span>
                   </button>
                 );

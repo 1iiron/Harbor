@@ -187,6 +187,22 @@ test("season artwork rejects banners and chooses English then textless posters",
   );
 });
 
+test("a season poster outranks a higher-scored series poster", () => {
+  const { pickSeasonPoster } = providerFixture();
+  const artwork = [
+    { type: 2, image: "/series.jpg", language: "eng", score: 99 },
+    { type: 7, image: "/season.jpg", language: "eng", score: 2 },
+  ];
+  assert.equal(
+    pickSeasonPoster({ artwork, lang: "eng" }),
+    "https://artworks.thetvdb.com/season.jpg",
+  );
+  assert.equal(
+    pickSeasonPoster({ artwork: [artwork[0]], lang: "eng" }),
+    "https://artworks.thetvdb.com/series.jpg",
+  );
+});
+
 function deferred() {
   let resolve;
   const promise = new Promise((r) => {
@@ -381,6 +397,37 @@ test("a regular title without a TVDB key makes no season metadata requests", asy
   assert.equal(result.artwork.size, 0);
   assert.equal(f.calls.length, 0);
   assert.equal(f.artworkCalls.length, 0);
+  f.unmount();
+});
+
+test("a TMDB key alone can fill season posters without a TVDB key", async () => {
+  const f = hookFixture({
+    tmdbGet: async (_key, path) => {
+      if (path.startsWith("find/")) return { tv_results: [{ id: 99 }] };
+      return {
+        posters: [{ file_path: "/season1.jpg", iso_639_1: "en", vote_average: 4 }],
+      };
+    },
+  });
+  const tmdbOnly = {
+    ...props,
+    tvdbKey: "",
+    tmdbKey: "tmdb-key",
+    imdbId: "tt123",
+    allowProxy: false,
+  };
+  f.render(tmdbOnly);
+  await flush();
+  f.render(tmdbOnly);
+  await flush();
+  const result = f.render(tmdbOnly);
+  assert.equal(
+    result.artwork.get(1).poster,
+    "https://image.tmdb.org/t/p/w500/season1.jpg",
+  );
+  assert.equal(f.artworkCalls.length, 0);
+  assert.ok(f.tmdbCalls.some((call) => call.path === "find/tt123"));
+  assert.ok(f.tmdbCalls.some((call) => call.path === "tv/99/season/1/images"));
   f.unmount();
 });
 
@@ -945,6 +992,62 @@ test("TMDB English season names survive both default and TVDB-fallback picker pa
     assert.equal(item.name, "The Final Season");
     assert.equal(item.nameLanguage, "en");
   }
+});
+
+test("TMDB posters and synopses stay out of non-aired order views", () => {
+  const seasonNames = load("src/lib/season-name.ts", {});
+  const { useSeasonArcPicker } = load("src/views/detail/series-episodes/use-season-arc-picker.ts", {
+    react: { useMemo: (compute) => compute() },
+    "@/lib/season-view-pref": {},
+    "@/lib/providers/tvdb-order": {
+      seasonDateRange: () => ({}),
+      isGenericTvdbSeasonName: (name, n) => name === `Season ${n}`,
+    },
+    "../helpers": { isNewSeason: () => false },
+    "@/lib/season-name": seasonNames,
+  });
+  const seasons = [
+    {
+      seasonNumber: 2,
+      name: "TMDB Season 2",
+      nameLanguage: "en",
+      overview: "TMDB synopsis",
+      episodeCount: 10,
+    },
+  ];
+  const ordering = {
+    seasons: [
+      {
+        seasonNumber: 2,
+        name: "Season 2",
+        episodeCount: 10,
+        overview: "TVDB synopsis",
+        isGenericName: true,
+      },
+    ],
+    bySeason: new Map(),
+  };
+  const base = {
+    source: "order",
+    arc: {},
+    ordering,
+    seasons,
+    active: 2,
+    orderSeasonEff: 2,
+    metaId: "tt1",
+    setActive: () => {},
+    setOrderSeason: () => {},
+    userPickedRef: { current: false },
+    seasonPosters: { 2: "https://image.tmdb.org/t/p/w500/tmdb.jpg" },
+  };
+  const aired = useSeasonArcPicker({ ...base, tmdbSeasonNameFallback: true });
+  assert.equal(aired.items[0].name, "TMDB Season 2");
+  assert.equal(aired.items[0].poster, "https://image.tmdb.org/t/p/w500/tmdb.jpg");
+  assert.equal(aired.items[0].overview, "TMDB synopsis");
+  const dvd = useSeasonArcPicker({ ...base, tmdbSeasonNameFallback: false });
+  assert.equal(dvd.items[0].name, "Season 2");
+  assert.equal(dvd.items[0].poster, undefined);
+  assert.equal(dvd.items[0].overview, "TVDB synopsis");
 });
 
 function hookRuntime(initialRef = null) {

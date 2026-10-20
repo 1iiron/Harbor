@@ -50,6 +50,7 @@ function harness(layout: "list" | "grid" | "strip", videos: NonNullable<Meta["vi
     "./use-season-explorer": { useSeasonExplorerView: (options: any) => ({ items: options.items }) },
     "@/lib/providers/tvdb": { tvdbLangFromIso1: () => "eng" },
     "@/lib/providers/tmdb/tmdb-client": { tmdbLanguageIso: () => "en" },
+    "@/lib/season-name": { seasonPill: () => null },
     "./helpers": { isUpcomingDate: () => false },
     "./episode-groups": groups,
     "@/lib/season-view-pref": seasonViewPref,

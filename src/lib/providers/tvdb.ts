@@ -443,8 +443,15 @@ export function pickSeasonPoster(opts: {
   lang?: string | null;
 }): string | undefined {
   const langNorm = normArtLang(opts.lang) || "eng";
-  const posters = (opts.artwork ?? [])
-    .filter((a) => a && [2, 7].includes(Number(a.type)) && typeof a.image === "string" && a.image)
+  const candidates = (opts.artwork ?? []).filter(
+    (a) => a && [2, 7].includes(Number(a.type)) && typeof a.image === "string" && a.image,
+  );
+  // Prefer true season posters. Type 2 is a series poster, so it should only
+  // stand in when TVDB has no season artwork at all.
+  const seasonPosters = candidates.filter((a) => Number(a.type) === 7);
+  const posters = (seasonPosters.length > 0
+    ? seasonPosters
+    : candidates.filter((a) => Number(a.type) === 2))
     .slice()
     .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
   const byLang = (code: string) => posters.find((a) => normArtLang(a.language) === code);

@@ -99,6 +99,7 @@ test("Cinemeta episode grids restore the saved season after recreation", () => {
   });
   assert.equal(explorerInputs.at(-1).metaId, "addon:show");
   assert.equal(explorerInputs.at(-1).imdbId, "tt5071412");
+  assert.equal(explorerInputs.at(-1).enabled, false);
 });
 
 test("TMDB season picker restores and persists selections across detail recreation", () => {

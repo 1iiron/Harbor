@@ -268,11 +268,16 @@ export async function fetchAnilistMediaDetails(
       true,
     );
     const media = data?.Media;
-    const result = media ? shape(media) : null;
+    // A missing entry is an answer; a failed request is not. Leave failures
+    // uncached so a later pass can retry after a transient 429 or timeout.
+    if (!media) {
+      lruSet(cache, anilistId, null, CACHE_MAX);
+      return null;
+    }
+    const result = shape(media);
     lruSet(cache, anilistId, result, CACHE_MAX);
     return result;
   } catch {
-    lruSet(cache, anilistId, null, CACHE_MAX);
     return null;
   }
 }

@@ -656,9 +656,13 @@ export function AnimeEpisodes({
     () => new Map((tmdbSeasons ?? []).map((season) => [season.seasonNumber, season])),
     [tmdbSeasons],
   );
+  // TMDB numbers seasons differently in DVD/regional orders, so its metadata
+  // is only safe to borrow for aired/official views.
+  const tmdbSeasonFallback = explorerType === "aired" || explorerType === "official";
   const explorerItems = useMemo(
     () =>
       (tvdbPanel.panel?.items ?? pickerItems).map((item) => {
+        if (!tmdbSeasonFallback) return item;
         const seasonNumber = item.seasonNumber;
         if (seasonNumber == null) return item;
         const tmdb = tmdbSeasonByNumber.get(seasonNumber);
@@ -671,7 +675,13 @@ export function AnimeEpisodes({
           poster: item.poster || seasonPosters?.[seasonNumber],
         };
       }),
-    [tvdbPanel.panel?.items, pickerItems, tmdbSeasonByNumber, seasonPosters],
+    [
+      tvdbPanel.panel?.items,
+      pickerItems,
+      tmdbSeasonByNumber,
+      tmdbSeasonFallback,
+      seasonPosters,
+    ],
   );
   const explorer = useSeasonExplorerView({
     metaId: meta.id,
