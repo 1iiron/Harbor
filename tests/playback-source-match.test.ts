@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 // @ts-expect-error Node test types are intentionally outside the browser-only tsconfig.
 import test from "node:test";
 import {
+  findPreferredSourceMatch,
   preferredSourceAddonPending,
+  streamMatchesPreferredSource,
   streamMatchesReleaseLineage,
   streamMatchesSource,
 } from "../src/lib/playback-history.ts";
@@ -129,6 +131,158 @@ test("next episode does not cross addons, release groups, or unparsed titles", (
   assert.equal(streamMatchesReleaseLineage(otherGroup, entry), false);
   assert.equal(streamMatchesReleaseLineage(unknownGroup, entry), false);
   assert.equal(streamMatchesReleaseLineage(otherGroup, entryWithoutGroup), false);
+});
+
+test("an aggregator contributor keeps the remembered addon's source", () => {
+  const entry = {
+    infoHash: "episode-one-hash",
+    addonId: "community.aiostreams",
+    resolution: "1080p",
+    releaseGroup: "NTB",
+    source: "WEB-DL",
+    savedAt: Date.now(),
+  };
+  const merged = {
+    infoHash: "episode-two-hash",
+    addonId: "torrentio",
+    contributors: [{ id: "torrentio" }, { id: "community.aiostreams" }],
+    resolution: "1080p",
+    releaseGroupNormalized: "NTB",
+    source: "WEB-DL",
+  };
+
+  assert.equal(streamMatchesReleaseLineage(merged, entry), true);
+  assert.equal(streamMatchesPreferredSource(merged, entry), true);
+});
+
+test("a later episode that drops its release-group suffix keeps the addon source", () => {
+  const entry = {
+    infoHash: "episode-one-hash",
+    addonId: "community.aiostreams",
+    resolution: "4K",
+    releaseGroup: "BENTHEMEN",
+    source: "WEB-DL",
+    savedAt: Date.now(),
+  };
+  const unparsed = {
+    infoHash: "episode-two-hash",
+    addonId: "torrentio",
+    contributors: [{ id: "torrentio" }, { id: "community.aiostreams" }],
+    resolution: "4K",
+    releaseGroupNormalized: null,
+    source: "WEB-DL",
+  };
+
+  assert.equal(streamMatchesReleaseLineage(unparsed, entry), false);
+  assert.equal(streamMatchesPreferredSource(unparsed, entry), true);
+  assert.equal(
+    streamMatchesPreferredSource(
+      { ...unparsed, releaseGroupNormalized: "DIFFERENT" },
+      entry,
+    ),
+    false,
+  );
+});
+
+test("the same release group survives a resolution and source-tag change", () => {
+  const entry = {
+    infoHash: "episode-one-hash",
+    addonId: "community.aiostreams",
+    resolution: "1080p",
+    releaseGroup: "MEGUSTA",
+    source: null,
+    savedAt: Date.now(),
+  };
+  const next = {
+    infoHash: "episode-two-hash",
+    addonId: "community.aiostreams",
+    resolution: "4K",
+    releaseGroupNormalized: "MEGUSTA",
+    source: "WEB-DL",
+  };
+
+  assert.equal(streamMatchesReleaseLineage(next, entry), false);
+  assert.equal(streamMatchesPreferredSource(next, entry), true);
+  assert.equal(
+    streamMatchesPreferredSource(
+      { ...next, releaseGroupNormalized: "FLUX" },
+      entry,
+    ),
+    false,
+  );
+});
+
+test("the same group and quality win over a higher-ranked 4K release", () => {
+  const entry = {
+    infoHash: "episode-one-hash",
+    addonId: "community.aiostreams",
+    resolution: "1080p",
+    releaseGroup: "MEGUSTA",
+    source: "WEB-DL",
+    savedAt: Date.now(),
+  };
+  const flux4k = {
+    infoHash: "episode-two-flux",
+    addonId: "community.aiostreams",
+    resolution: "4K",
+    releaseGroupNormalized: "FLUX",
+    source: "WEB-DL",
+  };
+  const megusta4k = {
+    infoHash: "episode-two-megusta-4k",
+    addonId: "community.aiostreams",
+    resolution: "4K",
+    releaseGroupNormalized: "MEGUSTA",
+    source: "WEB-DL",
+  };
+  const megusta1080 = {
+    infoHash: "episode-two-megusta-1080",
+    addonId: "community.aiostreams",
+    resolution: "1080p",
+    releaseGroupNormalized: "MEGUSTA",
+    source: "WEB-DL",
+  };
+
+  assert.equal(
+    findPreferredSourceMatch(
+      [flux4k, megusta4k, megusta1080],
+      entry,
+      streamMatchesPreferredSource,
+    ),
+    megusta1080,
+  );
+});
+
+test("the selected addon wins over a same-file debrid library copy", () => {
+  const entry = {
+    infoHash: "same-hash",
+    fileIdx: 1,
+    addonId: "torrentio",
+    resolution: "4K",
+    source: "WEB-DL",
+    savedAt: Date.now(),
+  };
+  const library = {
+    infoHash: "same-hash",
+    fileIdx: 1,
+    addonId: "tb-library",
+    addonName: "TorBox Library",
+    resolution: "4K",
+    source: "WEB-DL",
+  };
+  const selected = {
+    infoHash: "same-hash",
+    fileIdx: 1,
+    addonId: "torrentio",
+    addonName: "Torrentio",
+    resolution: "4K",
+    source: "WEB-DL",
+  };
+
+  assert.equal(
+    findPreferredSourceMatch([library, selected], entry, streamMatchesSource),
+    selected,
+  );
 });
 
 test("auto-play waits while the remembered source addon is still loading", () => {

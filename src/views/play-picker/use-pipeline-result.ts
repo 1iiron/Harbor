@@ -36,6 +36,7 @@ export function usePipelineResult({
   strictMode,
   filterDisabled,
   animeTitles,
+  preferredAddonId = null,
 }: {
   meta: Meta;
   episode: PlayEpisode | undefined;
@@ -48,6 +49,7 @@ export function usePipelineResult({
   strictMode: boolean;
   filterDisabled: boolean;
   animeTitles: string[] | null;
+  preferredAddonId?: string | null;
 }) {
   const [result, setResult] = useState<PipelineResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,8 +79,17 @@ export function usePipelineResult({
         filterMode: filterDisabled ? "off" : strictMode ? "strict" : "balanced",
         animePreferImdbStreams: animePreference,
         preferredAnimeImdbId,
+        preferredAddonId,
       }),
-    [addons, debrids, filterDisabled, strictMode, animePreference, preferredAnimeImdbId],
+    [
+      addons,
+      debrids,
+      filterDisabled,
+      strictMode,
+      animePreference,
+      preferredAnimeImdbId,
+      preferredAddonId,
+    ],
   );
 
   useEffect(() => {
@@ -127,6 +138,7 @@ export function usePipelineResult({
         strictMode,
         filterDisabled,
         animeTitles,
+        preferredAddonId,
       }),
       ac.signal,
       (partial) => {
@@ -178,6 +190,7 @@ export function usePipelineResult({
     settings.requirePreferredLanguage,
     strictMode,
     filterDisabled,
+    preferredAddonId,
     (animeTitles ?? []).join("|"),
     refreshNonce,
   ]);

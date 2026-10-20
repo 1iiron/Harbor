@@ -60,6 +60,8 @@ export function buildEpisodePipelineInput(params: {
   strictMode: boolean;
   filterDisabled: boolean;
   animeTitles?: string[] | null;
+  /** Prefer this addon's copy when the same stream is offered by several addons. */
+  preferredAddonId?: string | null;
   /** Resolve the item's own plugin when it names one, even where plugins are otherwise kept out.
    * Background work opts out, so the switch keeps plugins out of it entirely. */
   resolvePinnedPlugin?: boolean;
@@ -154,6 +156,7 @@ export function buildEpisodePipelineInput(params: {
       ? (readPlayback(meta.id, effSeason, effEpisode - 1)?.releaseGroup ?? undefined)
       : undefined;
   return {
+    preferredAddonId: params.preferredAddonId ?? null,
     request: {
       type: requestType,
       ids: streamIds,

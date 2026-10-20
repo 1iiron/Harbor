@@ -347,12 +347,52 @@ export function clearPlayback(metaId: string, season?: number, episode?: number)
   writeAll(all);
 }
 
+function offeredBy(
+  s: { addonId?: string | null; contributors?: Array<{ id: string }> },
+  addonId: string,
+): boolean {
+  return s.addonId === addonId || s.contributors?.some((c) => c.id === addonId) === true;
+}
+
+/** True when the stream came from the given addon or one of its contributors. */
+export function streamOfferedByAddon(
+  s: { addonId?: string | null; contributors?: Array<{ id: string }> },
+  addonId: string | null | undefined,
+): boolean {
+  return !!addonId && offeredBy(s, addonId);
+}
+
+/**
+ * Pick the remembered addon's stream before a same-file stream from another
+ * addon. Debrid library copies and aggregator duplicates share the torrent hash,
+ * so a plain hash match would otherwise select whichever row came first.
+ */
+export function findPreferredSourceMatch<T extends {
+  addonId?: string | null;
+  contributors?: Array<{ id: string }>;
+  resolution?: string | null;
+  releaseGroupNormalized?: string | null;
+}>(
+  streams: T[],
+  entry: PlaybackEntry,
+  match: (stream: T, entry: PlaybackEntry) => boolean,
+): T | null {
+  const candidates = streams.filter((s) => match(s, entry));
+  const score = (s: T): number =>
+    (streamOfferedByAddon(s, entry.addonId) ? 4 : 0) +
+    (entry.releaseGroup && s.releaseGroupNormalized === entry.releaseGroup ? 2 : 0) +
+    (entry.resolution && s.resolution === entry.resolution ? 1 : 0);
+  // Addon first, then the same release group, then the quality the user picked.
+  return candidates.slice().sort((a, b) => score(b) - score(a))[0] ?? null;
+}
+
 export function streamMatchesEntry(
   s: {
     infoHash?: string | null;
     fileIdx?: number | null;
     url?: string | null;
     addonId?: string | null;
+    contributors?: Array<{ id: string }>;
     parsedTitle?: string | null;
     resolution?: string | null;
     source?: string | null;
@@ -367,7 +407,7 @@ export function streamMatchesEntry(
   }
   if (
     e.addonId &&
-    s.addonId === e.addonId &&
+    offeredBy(s, e.addonId) &&
     e.parsedTitle &&
     s.parsedTitle === e.parsedTitle &&
     e.resolution === s.resolution &&
@@ -448,6 +488,7 @@ export function streamMatchesSource(
   s: {
     infoHash?: string | null;
     addonId?: string | null;
+    contributors?: Array<{ id: string }>;
     resolution?: string | null;
     source?: string | null;
     behaviorHints?: { bingeGroup?: string };
@@ -460,7 +501,7 @@ export function streamMatchesSource(
   const sBinge = s.behaviorHints?.bingeGroup ?? null;
   if (e.bingeGroup && sBinge) return sBinge === e.bingeGroup;
   return (
-    !!e.addonId && s.addonId === e.addonId && e.resolution === s.resolution && e.source === s.source
+    !!e.addonId && offeredBy(s, e.addonId) && e.resolution === s.resolution && e.source === s.source
   );
 }
 
@@ -468,6 +509,7 @@ export function streamMatchesReleaseLineage(
   s: {
     infoHash?: string | null;
     addonId?: string | null;
+    contributors?: Array<{ id: string }>;
     resolution?: string | null;
     source?: string | null;
     releaseGroupNormalized?: string | null;
@@ -478,8 +520,31 @@ export function streamMatchesReleaseLineage(
   if (streamMatchesSource(s, e)) return true;
   if (!e.releaseGroup || !s.releaseGroupNormalized) return false;
   if (s.releaseGroupNormalized !== e.releaseGroup) return false;
-  if (e.addonId && s.addonId !== e.addonId) return false;
+  if (e.addonId && !offeredBy(s, e.addonId)) return false;
   return e.resolution === s.resolution && e.source === s.source;
+}
+
+/**
+ * Keep-same-source is more forgiving than the season lock: a per-episode addon
+ * often drops the release-group suffix on later episodes, and an aggregator may
+ * deliver the same torrent under a different contributor. In that case the
+ * addon, resolution, and source still identify the same source.
+ */
+export function streamMatchesPreferredSource(
+  s: Parameters<typeof streamMatchesReleaseLineage>[0],
+  e: PlaybackEntry,
+): boolean {
+  if (streamMatchesReleaseLineage(s, e)) return true;
+  if (!e.addonId || !offeredBy(s, e.addonId)) return false;
+  // The same release group is the strongest identity. Resolution and source tags
+  // often differ between episodes (1080p AV1 vs 4K WEB-DL), so do not reject a
+  // same-group episode merely because its filename carries different tags.
+  if (e.releaseGroup && s.releaseGroupNormalized) {
+    return e.releaseGroup === s.releaseGroupNormalized;
+  }
+  if (e.resolution && s.resolution && e.resolution !== s.resolution) return false;
+  if (e.source && s.source && e.source !== s.source) return false;
+  return true;
 }
 
 export function preferredSourceAddonPending(

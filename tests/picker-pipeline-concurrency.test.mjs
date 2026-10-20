@@ -51,7 +51,7 @@ test("addon settlement cannot overtake asynchronous candidate processing", async
   await h.result;
 });
 
-function harness({ anime = false, deferredParse = false } = {}) {
+function harness({ anime = false, deferredParse = false, preferredAddonId = null } = {}) {
   const addons = deferred(),
     listings = deferred(),
     checks = [],
@@ -134,6 +134,7 @@ function harness({ anime = false, deferredParse = false } = {}) {
       score: { activeDebrids: ["rd"] },
       isAnime: anime,
       animeAbsoluteEpisode: anime ? 1 : undefined,
+      preferredAddonId,
     },
     controller.signal,
     (p) => partials.push(p),
@@ -161,7 +162,9 @@ function harness({ anime = false, deferredParse = false } = {}) {
       return listingCalls;
     },
     batch: (hashes) => onBatch(hashes.map(stream)),
+    batchStreams: (streams) => onBatch(streams),
     finish: (hashes) => addons.resolve(hashes.map(stream)),
+    finishStreams: (streams) => addons.resolve(streams),
     tick: async (ms = 0) => {
       now += ms;
       for (const [id, timer] of timers)
@@ -288,4 +291,68 @@ test("abort cancels queued verification and prevents late partials", async () =>
   for (const p of h.parses) p.resolve();
   await h.result;
   assert.equal(h.partials.length, 0);
+});
+
+test("the remembered addon owns a duplicate stream instead of the fastest addon", async () => {
+  const h = harness({ preferredAddonId: "aiostreams" });
+  h.listings.resolve({ ok: true, data: [] });
+  const streams = [
+    {
+      infoHash: "same",
+      addonId: "torrentio",
+      addonName: "Torrentio",
+      addonPriority: 0,
+      url: "https://torrentio.example/stream",
+    },
+    {
+      infoHash: "same",
+      addonId: "aiostreams",
+      addonName: "AIOStreams",
+      addonPriority: 1,
+      url: "https://aiostreams.example/stream",
+    },
+  ];
+  await h.tick();
+  h.finishStreams(streams);
+  await drain();
+  for (const check of h.checks) check.resolve({ ok: true, data: {} });
+  await drain();
+  const final = await h.result;
+  const merged = final.picker.all.find((s) => s.infoHash === "same");
+  assert.equal(merged.addonId, "aiostreams");
+  assert.equal(merged.url, "https://aiostreams.example/stream");
+  assert.deepEqual(
+    merged.contributors.map((c) => c.id).sort(),
+    ["aiostreams", "torrentio"],
+  );
+});
+
+test("without a remembered addon, the configured addon order owns duplicates", async () => {
+  const h = harness();
+  h.listings.resolve({ ok: true, data: [] });
+  const streams = [
+    {
+      infoHash: "same",
+      addonId: "torrentio",
+      addonName: "Torrentio",
+      addonPriority: 1,
+      url: "https://torrentio.example/stream",
+    },
+    {
+      infoHash: "same",
+      addonId: "aiostreams",
+      addonName: "AIOStreams",
+      addonPriority: 0,
+      url: "https://aiostreams.example/stream",
+    },
+  ];
+  await h.tick();
+  h.finishStreams(streams);
+  await drain();
+  for (const check of h.checks) check.resolve({ ok: true, data: {} });
+  await drain();
+  const final = await h.result;
+  const merged = final.picker.all.find((s) => s.infoHash === "same");
+  assert.equal(merged.addonId, "aiostreams");
+  assert.equal(merged.url, "https://aiostreams.example/stream");
 });

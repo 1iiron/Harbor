@@ -4,8 +4,10 @@ import { engineP2pEligible } from "@/lib/torrent/stremio-stream";
 import type { ScoredStream } from "@/lib/streams/types";
 import {
   streamMatchesEntry,
+  streamMatchesPreferredSource,
   streamMatchesReleaseLineage,
   streamMatchesSource,
+  findPreferredSourceMatch,
   type PlaybackEntry,
 } from "@/lib/playback-history";
 import type { SourceDescriptor } from "@/lib/together/protocol";
@@ -27,6 +29,7 @@ export function useAutoCandidates(args: {
   previousPlayback: PlaybackEntry | null;
   sourceEntry: PlaybackEntry | null;
   sourceEntryLineage?: boolean;
+  sourceEntryBestEffort?: boolean;
   isCached: (s: ScoredStream) => boolean;
   addons: Array<{ manifest?: { id?: string } }> | null;
   hasStrongAddon: boolean;
@@ -47,6 +50,7 @@ export function useAutoCandidates(args: {
     previousPlayback,
     sourceEntry,
     sourceEntryLineage,
+    sourceEntryBestEffort,
     isCached,
     addons,
     hasStrongAddon,
@@ -172,9 +176,13 @@ export function useAutoCandidates(args: {
       seen.add(k);
       out.push(s);
     };
-    const matchSource = sourceEntryLineage ? streamMatchesReleaseLineage : streamMatchesSource;
+    const matchSource = sourceEntryBestEffort
+      ? streamMatchesPreferredSource
+      : sourceEntryLineage
+        ? streamMatchesReleaseLineage
+        : streamMatchesSource;
     const sourceMatch = sourceEntry
-      ? (filteredPicker.allRaw.find((s) => matchSource(s, sourceEntry)) ?? null)
+      ? findPreferredSourceMatch(filteredPicker.allRaw, sourceEntry, matchSource)
       : null;
     const instantPlayable = (s: ScoredStream | null) => !!s && (isCached(s) || !!s.url);
     if (!matchScores) {
@@ -195,6 +203,7 @@ export function useAutoCandidates(args: {
     previousPlayback,
     sourceEntry,
     sourceEntryLineage,
+    sourceEntryBestEffort,
     isCached,
     addons,
     hasStrongAddon,
