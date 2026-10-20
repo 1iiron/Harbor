@@ -132,6 +132,8 @@ struct Inner {
     next_request_id: u64,
     next_worker_id: u64,
     wanted: Option<u32>,
+    in_flight: Option<u32>,
+    wanted_notify: Arc<Notify>,
     active_worker: Option<u64>,
 }
 
@@ -142,6 +144,12 @@ struct Shadow {
     pipe: String,
     seek_notify: Arc<Notify>,
     filter_ready: Arc<OnceCell<()>>,
+}
+
+enum ThumbResult {
+    Ready(String),
+    Superseded,
+    Failed,
 }
 
 impl ThumbsState {
@@ -156,6 +164,8 @@ impl ThumbsState {
                 next_request_id: 1000,
                 next_worker_id: 1,
                 wanted: None,
+                in_flight: None,
+                wanted_notify: Arc::new(Notify::new()),
                 active_worker: None,
             })),
             spawn_lock: Arc::new(Mutex::new(())),
@@ -275,6 +285,7 @@ pub async fn thumbs_set_url(state: State<'_, ThumbsState>, url: String) -> Resul
         inner.session = Some(Uuid::new_v4().simple().to_string());
         inner.cache.clear();
         inner.wanted = None;
+        inner.in_flight = None;
         inner.active_worker = None;
         shadow
     };
@@ -335,7 +346,14 @@ pub async fn thumbs_get(
     if inner.url.is_none() || inner.session.is_none() {
         return Err("no url".to_string());
     }
-    inner.wanted = Some(bucket);
+    // Polls for the frame already being generated must not cancel it.
+    if inner.active_worker.is_some() && inner.in_flight == Some(bucket) {
+        return Ok(None);
+    }
+    if inner.wanted != Some(bucket) {
+        inner.wanted = Some(bucket);
+        inner.wanted_notify.notify_waiters();
+    }
     if inner.active_worker.is_none() {
         let worker_id = inner.next_worker_id;
         inner.next_worker_id = inner.next_worker_id.wrapping_add(1);
@@ -361,6 +379,7 @@ async fn worker(inner_arc: Arc<Mutex<Inner>>, spawn_lock: Arc<Mutex<()>>, worker
                     return;
                 }
             };
+            inner.in_flight = Some(bucket);
             if inner.cache.contains(bucket) {
                 continue;
             }
@@ -429,7 +448,7 @@ async fn worker(inner_arc: Arc<Mutex<Inner>>, spawn_lock: Arc<Mutex<()>>, worker
                 drop_shadow(&mut stale).await;
             }
         }
-        let (bucket, writer_tx, dir, request_id, seek_notify, filter_ready) = {
+        let (bucket, writer_tx, dir, request_id, seek_notify, filter_ready, wanted_notify) = {
             let mut inner = inner_arc.lock().await;
             if inner.active_worker != Some(worker_id)
                 || inner.session.as_deref() != Some(session.as_str())
@@ -454,8 +473,14 @@ async fn worker(inner_arc: Arc<Mutex<Inner>>, spawn_lock: Arc<Mutex<()>>, worker
                 request_id,
                 shadow.seek_notify.clone(),
                 shadow.filter_ready.clone(),
+                inner.wanted_notify.clone(),
             )
         };
+        // A newer position arrived while this one was being set up; skip it so
+        // the seek is spent on what the pointer is actually over.
+        if inner_arc.lock().await.wanted.is_some() {
+            continue;
+        }
         let uri = generate_thumb(
             bucket,
             &writer_tx,
@@ -464,6 +489,7 @@ async fn worker(inner_arc: Arc<Mutex<Inner>>, spawn_lock: Arc<Mutex<()>>, worker
             &pending,
             &seek_notify,
             &filter_ready,
+            &wanted_notify,
         )
         .await;
         let mut inner = inner_arc.lock().await;
@@ -475,7 +501,7 @@ async fn worker(inner_arc: Arc<Mutex<Inner>>, spawn_lock: Arc<Mutex<()>>, worker
             }
             return;
         }
-        if let Ok(u) = uri {
+        if let ThumbResult::Ready(u) = uri {
             inner.cache.insert(bucket, u);
         }
     }
@@ -489,7 +515,8 @@ async fn generate_thumb(
     pending: &Pending,
     seek_notify: &Arc<Notify>,
     filter_ready: &OnceCell<()>,
-) -> Result<String, String> {
+    wanted_notify: &Arc<Notify>,
+) -> ThumbResult {
     use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
     let target_time = (bucket as f64) * BUCKET_SECONDS;
     let thumb_path = cache_dir.join(format!("{}.jpg", bucket));
@@ -498,17 +525,29 @@ async fn generate_thumb(
     let restart = seek_notify.notified();
     tokio::pin!(restart);
     restart.as_mut().enable();
-    send_ipc_message(
+    let superseded = wanted_notify.notified();
+    tokio::pin!(superseded);
+    superseded.as_mut().enable();
+    if send_ipc_message(
         writer_tx,
         json!({"command": ["seek", target_time, "absolute", "keyframes"]}),
         Duration::from_millis(REQUEST_TIMEOUT_MS),
     )
-    .await?;
-    let _ = tokio::time::timeout(Duration::from_millis(SEEK_WAIT_MS), restart).await;
+    .await
+    .is_err()
+    {
+        return ThumbResult::Failed;
+    }
+    // A new hover position cancels the wait immediately: re-seeking the same
+    // decoder is far cheaper than finishing a frame the pointer has left.
+    let _ = tokio::select! {
+        result = tokio::time::timeout(Duration::from_millis(SEEK_WAIT_MS), restart) => result,
+        _ = superseded => return ThumbResult::Superseded,
+    };
 
     // Read metadata from the decoder that already opened the stream instead of
     // opening it a second time with ffprobe (especially costly for remote media).
-    filter_ready
+    if filter_ready
         .get_or_try_init(|| async {
             let gamma = ipc_request(
                 writer_tx,
@@ -528,23 +567,31 @@ async fn generate_thumb(
             }
             Ok::<(), String>(())
         })
-        .await?;
+        .await
+        .is_err()
+    {
+        return ThumbResult::Failed;
+    }
 
-    ipc_request(
+    if ipc_request(
         writer_tx,
         pending,
         request_id,
         json!(["screenshot-to-file", thumb_str, "video"]),
     )
-    .await?;
-    let bytes = tokio::fs::read(&thumb_path)
-        .await
-        .map_err(|e| format!("read: {}", e))?;
+    .await
+    .is_err()
+    {
+        return ThumbResult::Failed;
+    }
+    let Ok(bytes) = tokio::fs::read(&thumb_path).await else {
+        return ThumbResult::Failed;
+    };
     let _ = tokio::fs::remove_file(&thumb_path).await;
     if bytes.is_empty() {
-        return Err("screenshot empty".to_string());
+        return ThumbResult::Failed;
     }
-    Ok(format!("data:image/jpeg;base64,{}", B64.encode(&bytes)))
+    ThumbResult::Ready(format!("data:image/jpeg;base64,{}", B64.encode(&bytes)))
 }
 
 async fn ipc_request(
@@ -602,6 +649,7 @@ impl ThumbsState {
             inner.session = None;
             inner.cache.clear();
             inner.wanted = None;
+            inner.in_flight = None;
             inner.active_worker = None;
             shadow
         };
@@ -651,6 +699,10 @@ async fn spawn_shadow(url: &str, session: &str, pending: Pending) -> Result<Shad
         "--ytdl=no".into(),
         "--cache=yes".into(),
         "--demuxer-max-bytes=32MiB".into(),
+        // A single frame is all a preview needs. Frame-threaded decoding batches
+        // frames (and their packets) before the first one comes out, which made
+        // seeks over the network wait for far more data than necessary.
+        "--vd-lavc-threads=1".into(),
         format!("--vf={}", thumb_filter(false)),
         "--screenshot-format=jpg".into(),
         format!("--screenshot-jpeg-quality={}", SCREENSHOT_QUALITY),
