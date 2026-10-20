@@ -5,11 +5,21 @@ import {
 import { DEFAULT_THEME } from "@/lib/theme";
 import { DEFAULT_FULLSCREEN_CLOCK_SIZE_PX } from "@/lib/local-time";
 import { AUTO_DISPLAY } from "@/lib/monitors";
-import type { Settings } from "./types";
+import type { Settings, SecondaryProfilePrivileges } from "./types";
 
 export const STORAGE_KEY = "harbor.settings";
 
+export const DEFAULT_SECONDARY_PRIVILEGES: SecondaryProfilePrivileges = {
+  canAddProfiles: false,
+  canManageStartup: false,
+  canViewAccountProvider: false,
+  canViewHarborAccount: false,
+  canViewProviderAccount: false,
+  canSignOutRoot: false,
+};
+
 export const DEFAULT: Settings = {
+  accountProvider: "stremio",
   soundTheme: "none",
   sfxVolume: 50,
   playerVolumeSfx: false,
@@ -436,6 +446,7 @@ export const DEFAULT: Settings = {
   skipProfileScreen: false,
   profilePromptInterval: "launch",
   defaultProfileId: "",
+  nuvioDefaultProfileId: "",
   sportsLeagues: [],
   sportsShowOdds: false,
   sportsWithoutProvider: false,
@@ -463,6 +474,7 @@ export const DEFAULT: Settings = {
   musicSeekThumbHover: true,
   musicSpeedPresets: [],
   homeMode: "harbor",
+  classicCatalogSource: "all",
   homeShowAllAddonRows: false,
   homeNewEpisodes: false,
   libraryBookmarkedOnly: true,
@@ -634,4 +646,53 @@ export const DEFAULT: Settings = {
   xrayEnabled: false,
   xrayLiveScan: true,
   auddApiKey: "",
+  secondaryPrivileges: { ...DEFAULT_SECONDARY_PRIVILEGES },
+  nuvioSecondaryPrivileges: { ...DEFAULT_SECONDARY_PRIVILEGES },
 };
+
+export function getSecondaryPrivileges(
+  settings?: {
+    accountProvider?: string;
+    secondaryPrivileges?: Partial<SecondaryProfilePrivileges> | null;
+    nuvioSecondaryPrivileges?: Partial<SecondaryProfilePrivileges> | null;
+  } | null,
+  isNuvioOverride?: boolean,
+): SecondaryProfilePrivileges {
+  let isNuvio = typeof isNuvioOverride === "boolean" ? isNuvioOverride : false;
+  if (typeof isNuvioOverride !== "boolean") {
+    if (settings?.accountProvider) {
+      isNuvio = settings.accountProvider === "nuvio";
+    } else {
+      try {
+        isNuvio = localStorage.getItem("harbor.account-provider") === "nuvio";
+      } catch {}
+    }
+  }
+
+  const directSource = isNuvio ? settings?.nuvioSecondaryPrivileges : settings?.secondaryPrivileges;
+  if (directSource) {
+    return {
+      ...DEFAULT_SECONDARY_PRIVILEGES,
+      ...directSource,
+    };
+  }
+
+  let sharedBlob: {
+    secondaryPrivileges?: Partial<SecondaryProfilePrivileges> | null;
+    nuvioSecondaryPrivileges?: Partial<SecondaryProfilePrivileges> | null;
+  } | null = null;
+  try {
+    const raw =
+      localStorage.getItem("harbor.settings.shared") ?? localStorage.getItem("harbor.settings");
+    if (raw) sharedBlob = JSON.parse(raw);
+  } catch {}
+
+  const fallbackSource = isNuvio
+    ? sharedBlob?.nuvioSecondaryPrivileges
+    : sharedBlob?.secondaryPrivileges;
+
+  return {
+    ...DEFAULT_SECONDARY_PRIVILEGES,
+    ...(fallbackSource ?? {}),
+  };
+}

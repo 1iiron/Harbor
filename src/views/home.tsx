@@ -39,6 +39,15 @@ import { hasTmdbProviderAddon, loadAddonRows, userAddons, type AddonRow } from "
 import { isAnimeRow } from "@/views/anime";
 import { buildArabicHomeRows } from "@/lib/arabic/home-rows";
 import { buildRussianHomeRows } from "@/lib/russian/home-rows";
+import { resolveAddonOrigin } from "@/lib/nuvio/nuvio-addon-registry";
+import {
+  deleteWatchProgressFromNuvio,
+  isNuvioProviderActive,
+  reconcileNuvioWatched,
+  resolveNuvioProfileIndex,
+} from "@/lib/nuvio/nuvio-sync";
+import { isNuvioSignedIn } from "@/lib/nuvio/nuvio-client";
+import { clearResume } from "@/lib/resume";
 import { useAuth } from "@/lib/auth";
 import { anyProfileSharesStremioWith, useProfiles } from "@/lib/profiles";
 import { type Meta } from "@/lib/cinemeta";
@@ -75,12 +84,6 @@ import { useTrakt } from "@/lib/trakt/provider";
 import { buildTraktHomeRows } from "@/lib/trakt/home-rails";
 import { fetchWatchedKeySet } from "@/lib/trakt/history";
 import { peekTraktWatched } from "@/lib/trakt/watched-keys";
-import { usePublicMetaDb } from "@/lib/publicmetadb/provider";
-import {
-  loadPmdbTitleWatchedKeys,
-  peekPmdbWatched,
-  rememberPmdbWatched,
-} from "@/lib/publicmetadb/watched-keys";
 import { recentlyPlayed, subscribePlayback, type WatchedSet } from "@/lib/playback-history";
 import { collapseWatchedKeys, isTitleWatched } from "@/lib/watched-title";
 import { useWatchedFlagIds } from "@/lib/watched-flag";
@@ -95,7 +98,7 @@ import {
   peekSimklWatchedMap,
   type WatchlistStatus,
 } from "@/lib/simkl/list-status";
-import { useExternalCw } from "@/lib/feed/external-cw";
+import { removeExternalCwItem, useExternalCw } from "@/lib/feed/external-cw";
 import { useSimkl } from "@/lib/simkl/provider";
 import { useAnilist } from "@/lib/anilist/provider";
 import { loadAnilistWatchedMap } from "@/lib/anilist/watched-map";
@@ -104,7 +107,6 @@ import { buildLetterboxdHomeRows } from "@/lib/stremboxd/home-rails";
 import { useMediaFavorites, type MediaEntry } from "@/lib/media-favorites";
 import { useLocalWatchlist } from "@/lib/local-watchlist";
 import { useScrollMemory, useHomeResetTick } from "@/lib/view";
-import { recordRenderCause } from "@/lib/render-cause";
 import { CustomizableRows } from "./home/customizable-rows";
 import { CustomizeBar } from "./home/customize-bar";
 import { CWSection } from "./home/cw-section";
@@ -135,7 +137,6 @@ export function Home({
   onReady?: () => void;
   seasonalInvitation?: ReactNode;
 }) {
-  recordRenderCause("view.home");
   const { authKey, user } = useAuth();
   const { activeProfile, profiles } = useProfiles();
   const { settings, update } = useSettings();
@@ -154,12 +155,11 @@ export function Home({
   const [traktRows, setTraktRows] = useState<HomeRow[]>([]);
   const [simklRows, setSimklRows] = useState<HomeRow[]>([]);
   const [letterboxdRows, setLetterboxdRows] = useState<HomeRow[]>([]);
+  const isNuvioProvider = settings.accountProvider === "nuvio";
   const externalCw = useExternalCw(
-    !hideSharedCw &&
-      (settings.cwSources.trakt || settings.cwSources.simkl || settings.cwSources.publicmetadb),
+    isNuvioProvider || (!hideSharedCw && (settings.cwSources.trakt || settings.cwSources.simkl)),
   );
   const [traktWatched, setTraktWatched] = useState<Set<string>>(() => peekTraktWatched());
-  const [pmdbWatched, setPmdbWatched] = useState<Set<string>>(() => peekPmdbWatched());
   const [simklWatchedMap, setSimklWatchedMap] = useState<Map<string, Set<string>>>(() =>
     peekSimklWatchedMap(),
   );
@@ -185,7 +185,6 @@ export function Home({
   const [addonsTick, setAddonsTick] = useState(0);
   const [buildTick, setBuildTick] = useState(0);
   const { isConnected: traktConnected, session: traktSession } = useTrakt();
-  const { isConnected: pmdbConnected } = usePublicMetaDb();
   const { isConnected: simklConnected } = useSimkl();
   const { isConnected: anilistConnected } = useAnilist();
   const letterboxd = useLetterboxd();
@@ -299,8 +298,21 @@ export function Home({
         return [] as AddonRow[];
       });
       if (cancelled) return;
+      const classicSource = settings.classicCatalogSource;
+      const classicFiltered =
+        classicSource === "all"
+          ? addons
+          : classicSource === "nuvio"
+          ? addons.filter((a) => {
+              const o = resolveAddonOrigin(a.more?.base || a.key);
+              return o === "nuvio" || o === "both";
+            })
+          : addons.filter((a) => {
+              const o = resolveAddonOrigin(a.more?.base || a.key);
+              return o === "stremio" || o === "both";
+            });
       const usable = isClassic
-        ? addons
+        ? classicFiltered
         : addons.filter((a) => !isAnimeRow(a) && !isStreamingServiceRow(a.name));
       const nextRows = mergeRows(built.rows, usable, { dedup: dedupRows });
       startTransition(() => {
@@ -331,6 +343,7 @@ export function Home({
     settings.tmdbLanguage,
     settings.region,
     settings.homeMode,
+    settings.classicCatalogSource,
     settings.homeShowAllAddonRows,
     settings.heroFeed,
     addonsTick,
@@ -402,32 +415,6 @@ export function Home({
       cancelled = true;
     };
   }, [uiLang, settings.homeMode, settings.tmdbKey, settings.tmdbLanguage]);
-
-  // PMDB keys arrive Trakt-shaped (see watched-keys.ts), so one merged set
-  // serves both the catalog truncation and the CW full-key check.
-  const watchedSetCombined = useMemo(
-    () => new Set([...traktWatched, ...pmdbWatched]),
-    [traktWatched, pmdbWatched],
-  );
-
-  useEffect(() => {
-    if (!pmdbConnected) {
-      setPmdbWatched(new Set());
-      return;
-    }
-    let cancelled = false;
-    loadPmdbTitleWatchedKeys()
-      .then((set) => {
-        if (!cancelled) {
-          setPmdbWatched(set);
-          rememberPmdbWatched(set);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [pmdbConnected, activeProfile?.id]);
 
   useEffect(() => {
     if (!traktConnected) {
@@ -540,7 +527,7 @@ export function Home({
 
   const trackedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!authKey) {
+    if (isNuvioProvider || !authKey) {
       setItems([]);
       return;
     }
@@ -553,8 +540,8 @@ export function Home({
             ? libItems.filter((i) => !isCorruptAnimeEntry(i))
             : libItems;
           setItems(view);
-          if (!hideSharedCw) absorbCloudAnimeCw(view);
-          reconcileRemoteWatched(view);
+          if (!hideSharedCw && !isNuvioProvider) absorbCloudAnimeCw(view);
+          if (!isNuvioProvider) reconcileRemoteWatched(view);
           const importKey = `harbor.discover.libImported.${user?._id ?? "anon"}`;
           let importedSince = 0;
           try {
@@ -633,7 +620,30 @@ export function Home({
     return () => {
       cancelled = true;
     };
-  }, [authKey, active, hideSharedCw]);
+  }, [authKey, active, hideSharedCw, isNuvioProvider]);
+
+  useEffect(() => {
+    const onProfile = () => {
+      setBuildTick((n) => n + 1);
+      if (isNuvioProvider) void reconcileNuvioWatched();
+    };
+    if (isNuvioProvider) void reconcileNuvioWatched();
+    const onFocus = () => {
+      if (document.visibilityState === "visible" && isNuvioProvider) {
+        void reconcileNuvioWatched();
+      }
+    };
+    window.addEventListener("harbor:nuvio-profile-changed", onProfile);
+    window.addEventListener("harbor:account-provider-changed", onProfile);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("harbor:nuvio-profile-changed", onProfile);
+      window.removeEventListener("harbor:account-provider-changed", onProfile);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [isNuvioProvider]);
 
   const localCwVer = useSyncExternalStore(subscribeLocalCw, localCwVersion);
   const manualWatchedVer = useSyncExternalStore(subscribeManualWatched, manualWatchedVersion);
@@ -645,7 +655,7 @@ export function Home({
   }, [items]);
   const localCwItems = useMemo<LibraryItem[]>(() => {
     void localCwVer;
-    return listLocalCw(hideSharedCw).map((e) => ({
+    return listLocalCw(isNuvioProvider ? false : hideSharedCw).map((e) => ({
       _id: e.id,
       type: e.type,
       name: e.name,
@@ -669,12 +679,26 @@ export function Home({
       _mtime: new Date(e.t).toISOString(),
       local: true,
     }));
-  }, [localCwVer, hideSharedCw, activeProfile?.id]);
+  }, [localCwVer, hideSharedCw, activeProfile?.id, isNuvioProvider]);
   const continueWatching = useMemo(() => {
-    const cwBase = hideSharedCw
-      ? []
-      : [...items.filter((i) => !ANIME_CLOUD_ID.test(i._id)), ...externalCw];
-    const eligible = [...cwBase, ...localCwItems]
+    const cwBase = isNuvioProvider
+      ? externalCw.filter((i) => i.external === "nuvio")
+      : hideSharedCw
+        ? []
+        : [
+            ...items.filter((i) => !ANIME_CLOUD_ID.test(i._id)),
+            ...externalCw.filter((i) => i.external !== "nuvio"),
+          ];
+    const eligible = (
+      isNuvioProvider
+        ? (cwBase.length > 0
+            ? cwBase
+            : localCwItems.map((i) => ({ ...i, external: "nuvio" as const })))
+        : [
+            ...cwBase,
+            ...localCwItems,
+          ]
+    )
       .filter(
         (i) =>
           (i.type as string) !== "other" &&
@@ -732,6 +756,7 @@ export function Home({
     settings.hideContent.anime,
     hideSharedCw,
     animeDetectVer,
+    isNuvioProvider,
   ]);
   useEffect(() => {
     let cancelled = false;
@@ -748,6 +773,9 @@ export function Home({
     };
   }, [localCwItems, externalCw]);
   const resurfaceLibrary = useMemo(() => {
+    if (isNuvioProvider) {
+      return externalCw.filter((i) => i.external === "nuvio" && i.type === "series");
+    }
     const pool = [
       ...items.filter((i) => !ANIME_CLOUD_ID.test(i._id)),
       ...localCwItems.filter((i) => i.type === "series"),
@@ -759,7 +787,7 @@ export function Home({
     if (usable.length === 0) return pool;
     const overrideIds = new Set(usable.map((i) => i._id));
     return [...pool.filter((i) => !overrideIds.has(i._id)), ...usable];
-  }, [items, localCwItems, manualWatchedVer]);
+  }, [items, localCwItems, manualWatchedVer, isNuvioProvider, externalCw]);
   useEffect(() => {
     if (!anilistConnected) {
       setAnilistWatchedMap((prev) => (prev.size ? new Map() : prev));
@@ -806,16 +834,37 @@ export function Home({
   const onDismissCw = useCallback(
     (item: LibraryItem) => {
       if (item.manualWatched) {
-        dismissManualWatched(item._id, { acknowledged: true });
+        dismissManualWatched(item._id);
+        return;
+      }
+      if (isNuvioProvider || item.external === "nuvio" || (isNuvioSignedIn() && isNuvioProviderActive())) {
+        const slot = resolveNuvioProfileIndex();
+        removeExternalCwItem(item);
+        clearLocalCw(item._id, `nuvio-${slot}`);
+        clearLocalCw(item._id);
+        const se = episodeFromVideoId(item.state?.video_id);
+        const season = item.state?.season ?? se?.season;
+        const episode = item.state?.episode ?? se?.episode;
+        clearResume(item._id, undefined, undefined, `nuvio-${slot}`);
+        clearResume(item._id);
+        dismissCw(item, authKey);
+        void deleteWatchProgressFromNuvio(
+          slot,
+          item._id,
+          undefined,
+          season,
+          episode,
+        );
         return;
       }
       if (item.local) {
-        clearLocalCw(item._id, { acknowledged: true });
-        return dismissCw(item, authKey, { acknowledged: true });
+        clearLocalCw(item._id);
+        dismissCw(item, authKey);
+        return;
       }
-      return dismissCw(item, authKey, { acknowledged: true });
+      dismissCw(item, authKey);
     },
-    [authKey],
+    [authKey, isNuvioProvider],
   );
 
   const { items: favItems } = useMediaFavorites();
@@ -1267,7 +1316,7 @@ export function Home({
           <CWSection
             signedIn={!!authKey}
             items={cwItems}
-            watchedSet={watchedSetCombined}
+            watchedSet={traktWatched}
             onDismiss={onDismissCw}
           />
         )}
@@ -1287,11 +1336,7 @@ export function Home({
       className="flex-1 overflow-y-auto overflow-x-hidden px-5 pt-24 pb-14 sm:px-8 lg:px-12 lg:pt-28"
     >
       <ScrollRootContext.Provider value={scrollEl}>
-        <div
-          {...contentDrag}
-          data-context-page-background
-          className="relative flex flex-col gap-12"
-        >
+        <div {...contentDrag} className="relative flex flex-col gap-12">
           <div className={tmdbNudgePosition}>
             <div className="pointer-events-auto">
               <TmdbNudge suppress={tmdbProvidedByAddon || settings.homeMode === "classic"} />
@@ -1471,7 +1516,7 @@ export function Home({
               onDeleteCustomSource={handleDeleteCustomSource}
               onEditFolderImages={handleEditFolderImages}
               hideWatched={settings.hideWatchedInCatalogs}
-              watchedSet={watchedSetCombined}
+              watchedSet={traktWatched}
               localWatched={localWatched}
               stremioWatched={stremioWatchedIds}
               homeLanguages={settings.homeLanguages}

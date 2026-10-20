@@ -7817,3 +7817,22 @@ button.hset-rail-me:hover,
     transition: none;
   }
 }
+
+@keyframes harbor-picker-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-picker-in {
+  animation: harbor-picker-in 280ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.animate-picker-scrim {
+  animation: harbor-fade-in 240ms ease-out both;
+}

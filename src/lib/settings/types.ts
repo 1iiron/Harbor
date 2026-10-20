@@ -52,6 +52,15 @@ export type WebhookTrigger =
   | { event: "fromTraktWatchlist" }
   | { event: "liveTvEvent"; channelIds?: string[]; favoritesOnly?: boolean; leadMinutes?: number };
 
+export type SecondaryProfilePrivileges = {
+  canAddProfiles: boolean;
+  canManageStartup: boolean;
+  canViewAccountProvider: boolean;
+  canViewHarborAccount: boolean;
+  canViewProviderAccount: boolean;
+  canSignOutRoot: boolean;
+};
+
 export type ContentCategory = "anime" | "sports" | "adult";
 
 export type ContentFilters = Record<ContentCategory, boolean>;
@@ -104,7 +113,10 @@ export type MusicSpeedPreset = {
   keepPitch: boolean;
 };
 
+export type AccountProvider = "stremio" | "nuvio";
+
 export type Settings = {
+  accountProvider: AccountProvider;
   soundTheme: "none" | "glass" | "modern" | "retro" | "cinematic";
   sfxVolume: number;
   playerVolumeSfx: boolean;
@@ -547,6 +559,7 @@ export type Settings = {
   skipProfileScreen: boolean;
   profilePromptInterval: "launch" | "15m" | "30m" | "never";
   defaultProfileId: string;
+  nuvioDefaultProfileId: string;
   sportsLeagues: string[];
   sportsShowOdds: boolean;
   /** Scores and schedules need no provider; streams do. Off until asked for. */
@@ -571,6 +584,7 @@ export type Settings = {
   musicSeekThumbHover: boolean;
   musicSpeedPresets: MusicSpeedPreset[];
   homeMode: "harbor" | "classic";
+  classicCatalogSource: "all" | "stremio" | "nuvio";
   homeShowAllAddonRows: boolean;
   homeNewEpisodes: boolean;
   libraryBookmarkedOnly: boolean;
@@ -777,4 +791,6 @@ export type Settings = {
   xrayEnabled: boolean;
   xrayLiveScan: boolean;
   auddApiKey: string;
+  secondaryPrivileges: SecondaryProfilePrivileges;
+  nuvioSecondaryPrivileges: SecondaryProfilePrivileges;
 };

@@ -1,5 +1,4 @@
 import { cwProfileScope, privateCwProfileId } from "./cw-profile";
-import { noteNotify } from "./render-cause";
 
 const KEY_PREFIX = "harbor.localcw.v1.";
 const PRIVATE_PREFIX = "harbor.localcw.private.v1.";
@@ -28,8 +27,28 @@ const subs = new Set<() => void>();
 let version = 0;
 const cache = new Map<string, Record<string, LocalCwEntry>>();
 
+function isNuvioMode(): boolean {
+  try {
+    const explicit = localStorage.getItem("harbor.account-provider");
+    if (explicit === "nuvio") return true;
+    if (explicit === "stremio") return false;
+    for (const key of ["harbor.settings.shared", "harbor.settings", "harbor.settings.v1"]) {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.accountProvider === "nuvio") return true;
+        if (parsed.accountProvider === "stremio") return false;
+      }
+    }
+  } catch {}
+  return false;
+}
+
 function primaryProfileId(): string {
   try {
+    if (isNuvioMode()) {
+      return cwProfileScope().sharedId;
+    }
     const raw = localStorage.getItem(PROFILES_KEY);
     const s = raw
       ? (JSON.parse(raw) as { profiles?: Array<{ id?: string; isPrimary?: boolean }> })
@@ -42,6 +61,10 @@ function primaryProfileId(): string {
 }
 
 function storeKey(privateOnly = false, ownerId?: string): string {
+  if (isNuvioMode()) {
+    const scope = cwProfileScope(ownerId);
+    return KEY_PREFIX + scope.profileId;
+  }
   const scope = cwProfileScope(ownerId);
   if (privateOnly) return PRIVATE_PREFIX + scope.profileId;
   const id = scope.sharedId;
@@ -49,6 +72,7 @@ function storeKey(privateOnly = false, ownerId?: string): string {
 }
 
 function migrateLegacy(): void {
+  if (isNuvioMode()) return;
   try {
     const legacy = localStorage.getItem(LEGACY_KEY);
     if (!legacy) return;
@@ -78,6 +102,7 @@ function readAll(key: string): Record<string, LocalCwEntry> {
 }
 
 function writeAll(key: string, all: Record<string, LocalCwEntry>, acknowledged = false): void {
+  cache.set(key, all);
   try {
     localStorage.setItem(key, JSON.stringify(all));
   } catch (error) {
@@ -86,12 +111,10 @@ function writeAll(key: string, all: Record<string, LocalCwEntry>, acknowledged =
         cause: error,
       });
   }
-  cache.set(key, all);
 }
 
 function emit(): void {
   version += 1;
-  noteNotify("store:local-cw");
   for (const fn of subs) fn();
 }
 
@@ -116,13 +139,23 @@ function saveEntry(key: string, entry: LocalCwEntry): void {
 // writing the shared store; its history cannot establish who watched a title.
 export function saveLocalCw(entry: LocalCwEntry, ownerId?: string, shared = true): void {
   if (!entry.id || (entry.type !== "movie" && entry.type !== "series")) return;
+  if (isNuvioMode()) {
+    saveEntry(storeKey(false, ownerId), entry);
+    emit();
+    return;
+  }
   if (ownerId) saveEntry(storeKey(true, ownerId), entry);
   if (shared) saveEntry(storeKey(false, ownerId), entry);
   emit();
 }
 
-export function listLocalCw(privateOnly = !!privateCwProfileId()): LocalCwEntry[] {
-  return Object.values(readAll(storeKey(privateOnly))).sort((a, b) => b.t - a.t);
+export function listLocalCw(privateOnly = !!privateCwProfileId(), ownerId?: string): LocalCwEntry[] {
+  const isNuvio = isNuvioMode();
+  const entries = Object.values(readAll(storeKey(privateOnly, ownerId)));
+  if (!isNuvio) {
+    return entries.filter((e) => !(e.id && (e as any).external === "nuvio")).sort((a, b) => b.t - a.t);
+  }
+  return entries.sort((a, b) => b.t - a.t);
 }
 
 export function localCwEntry(
@@ -141,17 +174,37 @@ export function clearLocalCw(
   const ownerId = typeof ownerOrOptions === "string" ? ownerOrOptions : undefined;
   const acknowledged =
     typeof ownerOrOptions === "object" ? ownerOrOptions.acknowledged : options.acknowledged;
-  const keys = ownerId
-    ? [storeKey(true, ownerId), storeKey(false, ownerId)]
-    : [storeKey(!!privateCwProfileId())];
+  const targetKeys = new Set<string>();
+  if (ownerId) {
+    targetKeys.add(storeKey(true, ownerId));
+    targetKeys.add(storeKey(false, ownerId));
+  } else {
+    targetKeys.add(storeKey(!!privateCwProfileId()));
+  }
+  targetKeys.add(LEGACY_KEY);
   let changed = false;
-  for (const key of keys) {
+  for (const key of targetKeys) {
     const all = readAll(key);
     if (!(id in all)) continue;
     const next = { ...all };
     delete next[id];
     writeAll(key, next, acknowledged);
     changed = true;
+  }
+  if (changed) emit();
+}
+
+export function clearAllLocalCw(ownerId?: string): void {
+  const keys = ownerId
+    ? [storeKey(true, ownerId), storeKey(false, ownerId)]
+    : [storeKey(!!privateCwProfileId())];
+  let changed = false;
+  for (const key of keys) {
+    const all = readAll(key);
+    if (Object.keys(all).length > 0) {
+      writeAll(key, {});
+      changed = true;
+    }
   }
   if (changed) emit();
 }
@@ -182,4 +235,7 @@ if (typeof window !== "undefined") {
   };
   window.addEventListener("harbor:active-profile-changed", onProfileChange);
   window.addEventListener("harbor:profiles-updated", onProfileChange);
+  window.addEventListener("harbor:nuvio-profile-changed", onProfileChange);
+  window.addEventListener("harbor:nuvio-state-changed", onProfileChange);
+  window.addEventListener("harbor:account-provider-changed", onProfileChange);
 }
