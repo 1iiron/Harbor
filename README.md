@@ -403,7 +403,7 @@ Harbor is built to keep your data on your machine.
 
 ## Install
 
-Download the latest build for macOS or Windows from the [Releases page][releases], use the [unofficial Linux packages](https://github.com/Thunderhawkk/harbor-linux), or open Harbor in your browser.
+Download the latest build for macOS or Windows from the [Releases page][https://github.com/Harborofficial/Harbor/releases], use the [unofficial Linux packages](https://github.com/Thunderhawkk/harbor-linux), or open Harbor in your browser.
 
 | Platform    | Format                                                                                                   |
 | ----------- | -------------------------------------------------------------------------------------------------------- |
