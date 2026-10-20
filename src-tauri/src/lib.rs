@@ -13,7 +13,6 @@ mod cast_subs;
 mod context_review;
 mod crash_report;
 mod diagnostics;
-mod log_privacy;
 mod download;
 mod download_file_policy;
 mod download_files;
@@ -22,13 +21,14 @@ mod fonts;
 mod gamepad;
 mod http_fetch;
 mod http_redirect;
-mod playback_redirect;
 mod local_lib;
+mod log_privacy;
 mod media_server;
 #[cfg(windows)]
 mod native_context_menu;
 #[cfg(windows)]
 mod native_context_policy;
+mod playback_redirect;
 mod power;
 mod privacy;
 mod proc_guard;
@@ -84,29 +84,25 @@ mod dlna;
 #[cfg(desktop)]
 mod dvr;
 #[cfg(desktop)]
+mod external_player;
+#[cfg(desktop)]
 mod fullscreen;
 #[cfg(desktop)]
 mod games;
 #[cfg(desktop)]
-mod monitors;
-#[cfg(desktop)]
 mod harbor_lan;
 #[cfg(desktop)]
 mod hdr_overlay;
-#[cfg(desktop)]
-mod installer_handoff;
 mod install_features;
 #[cfg(desktop)]
+mod installer_handoff;
+#[cfg(desktop)]
 mod media_controls;
-#[cfg(target_os = "windows")]
-mod taskbar;
 mod modal_overlay;
 #[cfg(desktop)]
-mod external_player;
+mod monitors;
 #[cfg(desktop)]
 mod mpv;
-#[cfg(desktop)]
-mod playback_cache;
 #[cfg(target_os = "linux")]
 mod mpv_render_linux;
 #[cfg(target_os = "macos")]
@@ -117,9 +113,11 @@ mod multiview;
 mod music;
 #[cfg(desktop)]
 mod pip;
-mod pip_window;
 #[cfg(target_os = "macos")]
 mod pip_mac;
+mod pip_window;
+#[cfg(desktop)]
+mod playback_cache;
 #[cfg(desktop)]
 mod roku;
 #[cfg(desktop)]
@@ -134,12 +132,16 @@ mod sub_extract;
 mod subsync;
 #[cfg(desktop)]
 mod svp;
+#[cfg(target_os = "windows")]
+mod taskbar;
 #[cfg(desktop)]
 mod thumbs;
 #[cfg(desktop)]
 mod trailer;
 #[cfg(desktop)]
 mod tray;
+#[cfg(windows)]
+mod tray_popup;
 #[cfg(desktop)]
 mod webview_helpers;
 #[cfg(windows)]
@@ -200,6 +202,33 @@ static CLOSE_IN_PROGRESS: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 // Fullscreen must cover it, so the clamp is lifted while fullscreen is active.
 #[cfg(desktop)]
 static MAXGUARD_CLAMP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+#[cfg(desktop)]
+fn desktop_invoke_handler<F>(
+    handler: F,
+) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static
+where
+    F: Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static,
+{
+    move |invoke| {
+        // Plugin commands use capabilities; local app commands need this explicit popup boundary.
+        #[cfg(windows)]
+        {
+            let webview = invoke.message.webview_ref();
+            if !tray_popup::app_command_allowed(
+                webview.window().label(),
+                webview.label(),
+                invoke.message.command(),
+            ) {
+                invoke
+                    .resolver
+                    .reject("Command unavailable to the tray menu");
+                return true;
+            }
+        }
+        handler(invoke)
+    }
+}
 
 #[cfg(desktop)]
 #[tauri::command]
@@ -272,13 +301,143 @@ async fn save_text_file(path: String, contents: String) -> Result<(), String> {
     std::fs::write(&target, contents.as_bytes()).map_err(|e| format!("write file: {}", e))
 }
 
+/// The tray popup is a plain surface with no frame of its own. The window
+/// style still carries a caption, so the shell paints one whenever the window
+/// is activated. Owning the non-client calculation keeps the client area over
+/// the whole window and leaves nothing for the shell to paint.
 #[cfg(windows)]
-fn make_main_transparent(app: &tauri::AppHandle) {
-    use tauri::Manager;
-    let Some(window) = app.get_webview_window("main") else {
-        eprintln!("[harbor::transparent] main window missing");
+const HARBOR_TRAY_SUBCLASS_ID: usize = 0x4842_5452;
+
+#[cfg(windows)]
+unsafe extern "system" fn tray_subclass_proc(
+    hwnd: windows::Win32::Foundation::HWND,
+    msg: u32,
+    wparam: windows::Win32::Foundation::WPARAM,
+    lparam: windows::Win32::Foundation::LPARAM,
+    _id: usize,
+    _data: usize,
+) -> windows::Win32::Foundation::LRESULT {
+    use windows::Win32::UI::Shell::DefSubclassProc;
+    use windows::Win32::UI::WindowsAndMessaging::{WM_NCACTIVATE, WM_NCCALCSIZE, WM_NCPAINT};
+    match msg {
+        // Leaving the proposed rectangle unchanged makes the whole window client
+        // area, for both RECT and NCCALCSIZE_PARAMS forms of this message.
+        WM_NCCALCSIZE | WM_NCPAINT => return windows::Win32::Foundation::LRESULT(0),
+        WM_NCACTIVATE => return windows::Win32::Foundation::LRESULT(1),
+        _ => {}
+    }
+    DefSubclassProc(hwnd, msg, wparam, lparam)
+}
+
+#[cfg(all(test, windows))]
+#[test]
+fn tray_frame_messages_preserve_the_client_area_without_painting_a_caption() {
+    use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        NCCALCSIZE_PARAMS, WM_NCACTIVATE, WM_NCCALCSIZE, WM_NCPAINT,
+    };
+    unsafe {
+        let mut rect = RECT {
+            left: 10,
+            top: 20,
+            right: 530,
+            bottom: 470,
+        };
+        let mut params = NCCALCSIZE_PARAMS::default();
+        params.rgrc[0] = rect;
+        for (extended, pointer) in [
+            (0, (&mut rect as *mut RECT) as isize),
+            (1, (&mut params as *mut NCCALCSIZE_PARAMS) as isize),
+        ] {
+            assert_eq!(
+                tray_subclass_proc(
+                    HWND::default(),
+                    WM_NCCALCSIZE,
+                    WPARAM(extended),
+                    LPARAM(pointer),
+                    0,
+                    0,
+                )
+                .0,
+                0
+            );
+        }
+        assert_eq!(rect.top, 20);
+        assert_eq!(params.rgrc[0].top, 20);
+        assert_eq!(params.rgrc[0].right, 530);
+        for (message, expected) in [(WM_NCPAINT, 0), (WM_NCACTIVATE, 1)] {
+            for active in [0, 1] {
+                assert_eq!(
+                    tray_subclass_proc(HWND::default(), message, WPARAM(active), LPARAM(0), 0, 0).0,
+                    expected
+                );
+            }
+        }
+    }
+}
+
+/// Gives the tray popup a client area that covers the whole window.
+#[cfg(windows)]
+pub(crate) fn install_tray_subclass(window: &tauri::WebviewWindow) {
+    use windows::Win32::UI::Shell::SetWindowSubclass;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    };
+    let Ok(hwnd) = window.hwnd() else {
         return;
     };
+    // SetWindowSubclass must run on the thread that owns the window. Popup
+    // creation runs on a worker to avoid blocking WebView2's event loop.
+    let handle = hwnd.0 as isize;
+    if let Err(error) = window.run_on_main_thread(move || unsafe {
+        let hwnd = windows::Win32::Foundation::HWND(handle as *mut _);
+        if !SetWindowSubclass(hwnd, Some(tray_subclass_proc), HARBOR_TRAY_SUBCLASS_ID, 0).as_bool()
+        {
+            eprintln!("[harbor::tray] install window subclass failed");
+            return;
+        }
+        if let Err(error) = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER,
+        ) {
+            eprintln!("[harbor::tray] refresh window frame: {error}");
+        }
+    }) {
+        eprintln!("[harbor::tray] schedule window subclass: {error}");
+    }
+}
+
+/// Keeps a window from taking activation, so showing it leaves the foreground
+/// where it was. The shell closes its notification area flyout when another
+/// window activates.
+#[cfg(windows)]
+pub(crate) fn set_no_activate(window: &tauri::WebviewWindow, no_activate: bool) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
+    };
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let updated = if no_activate {
+            style | WS_EX_NOACTIVATE.0 as isize
+        } else {
+            style & !(WS_EX_NOACTIVATE.0 as isize)
+        };
+        if updated != style {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, updated);
+        }
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn make_webview_transparent(window: &tauri::WebviewWindow) {
     let res = window.with_webview(|webview| unsafe {
         use webview2_com::Microsoft::Web::WebView2::Win32::{
             ICoreWebView2Controller2, COREWEBVIEW2_COLOR,
@@ -293,14 +452,11 @@ fn make_main_transparent(app: &tauri::AppHandle) {
                     G: 0,
                     B: 0,
                 };
-                match controller2.SetDefaultBackgroundColor(color) {
-                    Ok(()) => {
-                        eprintln!("[harbor::transparent] SetDefaultBackgroundColor OK (alpha=0)")
-                    }
-                    Err(e) => eprintln!(
+                if let Err(e) = controller2.SetDefaultBackgroundColor(color) {
+                    eprintln!(
                         "[harbor::transparent] SetDefaultBackgroundColor FAILED: {:?}",
                         e
-                    ),
+                    );
                 }
             }
             Err(e) => eprintln!("[harbor::transparent] cast to Controller2 FAILED: {:?}", e),
@@ -309,6 +465,16 @@ fn make_main_transparent(app: &tauri::AppHandle) {
     if let Err(e) = res {
         eprintln!("[harbor::transparent] with_webview FAILED: {:?}", e);
     }
+}
+
+#[cfg(windows)]
+fn make_main_transparent(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let Some(window) = app.get_webview_window("main") else {
+        eprintln!("[harbor::transparent] main window missing");
+        return;
+    };
+    make_webview_transparent(&window);
 }
 
 #[cfg(windows)]
@@ -759,13 +925,20 @@ pub fn run() {
 
 #[cfg(desktop)]
 pub fn run() {
-    if music::try_run_connector_worker() { return; }
-    if games::try_run_achievement_worker() { return; }
-    if games::try_run_archive_worker() { return; }
-    if games::try_run_hydra_import_worker() { return; }
+    if music::try_run_connector_worker() {
+        return;
+    }
+    if games::try_run_achievement_worker() {
+        return;
+    }
+    if games::try_run_archive_worker() {
+        return;
+    }
+    if games::try_run_hydra_import_worker() {
+        return;
+    }
     let context = tauri::generate_context!();
-    context_review::prepare(context.config())
-        .expect("unsafe context review configuration");
+    context_review::prepare(context.config()).expect("unsafe context review configuration");
     if !cfg!(feature = "context-review") {
         let args: Vec<String> = std::env::args().skip(1).collect();
         if let Some(p) = media_file_from_args(&args) {
@@ -825,7 +998,11 @@ pub fn run() {
             }
         }))
         // tauri-plugin-opener injects a page script that itself opens target="_blank" anchors, duplicating Harbor's own openUrl.
-        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
@@ -836,11 +1013,13 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin({
-            let builder = tauri_plugin_window_state::Builder::default().with_denylist(&["harbor-ytmusic-embed"]).with_state_flags(
-                tauri_plugin_window_state::StateFlags::SIZE
-                    | tauri_plugin_window_state::StateFlags::POSITION
-                    | tauri_plugin_window_state::StateFlags::MAXIMIZED,
-            );
+            let builder = tauri_plugin_window_state::Builder::default()
+                .with_denylist(&["harbor-ytmusic-embed", "harbor-tray-menu"])
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                );
             // Restore the Windows main window only after its maximize guard is
             // installed, so startup uses the same work-area rules as user maximize.
             #[cfg(windows)]
@@ -1081,12 +1260,16 @@ pub fn run() {
                     );
                 }
                 tauri::WindowEvent::Destroyed => {
+                    #[cfg(windows)]
+                    if let Err(error) = tray_popup::destroy(window.app_handle()) {
+                        eprintln!("[harbor::tray] cleanup failed: {error}");
+                    }
                     shutdown_services(window.app_handle());
                 }
                 _ => {}
             }
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(desktop_invoke_handler(tauri::generate_handler![
             games::games_pokemon,
             games::games_scan_steam,
             games::steam_shortcut_commands::games_scan_steam_shortcuts,
@@ -1240,7 +1423,36 @@ pub fn run() {
             games::games_transfer_storage,
             games::games_download_locations,
             games::games_set_transfer_bandwidth,
-            games::games_source_public_review,games::games_source_public_prepare,games::games_source_public_prepare_batch,games::games_source_public_cancel_batch,games::games_hydra_import_review,games::games_hydra_import_cancel,games::games_cloud_list,games::games_cloud_download,games::games_cloud_resolve_link,games::games_cloud_host_check,games::games_cloud_ad_prepare,games::games_cloud_ad_status,games::games_cloud_web_create,games::games_cloud_web_list,games::games_cloud_web_status,games::games_cloud_web_download,games::games_cloud_web_find,games::games_cloud_pm_create,games::games_cloud_pm_list,games::games_cloud_pm_status,games::games_cloud_pm_download,games::games_cloud_pm_retry,games::games_modrinth,games::games_mod_workspace,games::games_review_mods,games::games_install_mods,games::games_mod_action,games::games_cancel_mods,games::games_discard_mods,games::games_list_torrents,
+            games::games_source_public_review,
+            games::games_source_public_prepare,
+            games::games_source_public_prepare_batch,
+            games::games_source_public_cancel_batch,
+            games::games_hydra_import_review,
+            games::games_hydra_import_cancel,
+            games::games_cloud_list,
+            games::games_cloud_download,
+            games::games_cloud_resolve_link,
+            games::games_cloud_host_check,
+            games::games_cloud_ad_prepare,
+            games::games_cloud_ad_status,
+            games::games_cloud_web_create,
+            games::games_cloud_web_list,
+            games::games_cloud_web_status,
+            games::games_cloud_web_download,
+            games::games_cloud_web_find,
+            games::games_cloud_pm_create,
+            games::games_cloud_pm_list,
+            games::games_cloud_pm_status,
+            games::games_cloud_pm_download,
+            games::games_cloud_pm_retry,
+            games::games_modrinth,
+            games::games_mod_workspace,
+            games::games_review_mods,
+            games::games_install_mods,
+            games::games_mod_action,
+            games::games_cancel_mods,
+            games::games_discard_mods,
+            games::games_list_torrents,
             games::games_inspect_torrent,
             games::games_cancel_torrent_inspection,
             games::games_discard_torrent,
@@ -1260,9 +1472,13 @@ pub fn run() {
             games::games_restore_save_snapshot,
             games::games_cancel_save_operation,
             games::games_discard_save_restore,
-            games::games_source_browser_choose, games::games_source_browser_close,
-            games::games_source_verify, games::games_source_verify_cancel, games::games_source_verified_fetch,
-            games::games_source_http_fetch, games::games_source_http_cancel,
+            games::games_source_browser_choose,
+            games::games_source_browser_close,
+            games::games_source_verify,
+            games::games_source_verify_cancel,
+            games::games_source_verified_fetch,
+            games::games_source_http_fetch,
+            games::games_source_http_cancel,
             games::games_add_transfer,
             games::games_add_transfer_batch,
             games::games_transfer_action,
@@ -1306,9 +1522,9 @@ pub fn run() {
             installer_handoff::handoff_launch,
             installer_handoff::handoff_confirm,
             installer_handoff::handoff_save_backup,
-    installer_handoff::modify_probe,
-    installer_handoff::modify_open,
-    install_features::install_features,
+            installer_handoff::modify_probe,
+            installer_handoff::modify_open,
+            install_features::install_features,
             power::power_inhibit,
             harbor_set_webview_memory_low,
             harbor_set_webview_visible,
@@ -1628,6 +1844,18 @@ pub fn run() {
             local_lib::harbor_scan_folder,
             tray::tray_set_prefs,
             tray::tray_set_custom_themes,
+            #[cfg(windows)]
+            tray_popup::tray_popup_publish,
+            #[cfg(windows)]
+            tray_popup::tray_popup_snapshot,
+            #[cfg(windows)]
+            tray_popup::tray_popup_present,
+            #[cfg(windows)]
+            tray_popup::tray_popup_dismiss,
+            #[cfg(windows)]
+            tray_popup::tray_popup_submenu,
+            #[cfg(windows)]
+            tray_popup::tray_popup_action,
             stremio_auth::stremio_auth_start,
             song_id::recognize_now_playing,
             song_id::recognize_now_playing_ai,
@@ -1635,7 +1863,7 @@ pub fn run() {
             deeplink_set_stremio,
             deeplink_is_stremio_registered,
             harbor_take_pending_file,
-        ])
+        ]))
         .build(context)
         .expect("error while building tauri application")
         .run(|app_handle, event| {
