@@ -89,11 +89,16 @@ async function harness(onAction: (action: TrayAction) => Promise<void> = async (
     act(async () => {
       element.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
     });
+  const pointer = async (element: Element, type: "pointerover" | "pointerout") =>
+    act(async () => {
+      element.dispatchEvent(new dom.window.Event(type, { bubbles: true }));
+    });
   await render();
   return {
     render,
     key,
     click,
+    pointer,
     submenu,
     dismissed: () => dismissed,
     cleanup: async () => {
@@ -158,6 +163,36 @@ test("arrows enter theme radios, Escape closes submenu before main, and focus su
     assert.equal(document.activeElement?.textContent, "Theme");
     await h.key("Escape");
     assert.equal(h.dismissed(), 1);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test("the theme submenu opens on hover and closes when the pointer leaves", async () => {
+  const h = await harness();
+  try {
+    const row = document.querySelector('[data-tray-action="theme"]')!;
+    await h.pointer(row, "pointerover");
+    assert.equal(h.submenu.at(-1), true);
+    assert.ok(document.querySelector("[data-tray-themes]"));
+    await h.pointer(row, "pointerout");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    assert.equal(h.submenu.at(-1), false);
+    assert.equal(document.querySelector("[data-tray-themes]"), null);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test("the focus ring waits for keyboard navigation", async () => {
+  const h = await harness();
+  try {
+    const envelope = document.querySelector(".tray-envelope")!;
+    assert.equal(envelope.getAttribute("data-modality"), "pointer");
+    await h.key("ArrowDown");
+    assert.equal(envelope.getAttribute("data-modality"), "keyboard");
   } finally {
     await h.cleanup();
   }

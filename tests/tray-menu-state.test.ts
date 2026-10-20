@@ -104,6 +104,40 @@ test("long translated labels and user theme names expand menus within native wid
   assert.equal(longError.menuWidth, short.menuWidth);
 });
 
+test("tray row highlight stays visible when a theme's elevated tone matches the surface", async () => {
+  const { contrastRatio, trayRowHoverColor } = await import("../src/lib/tray-menu-state.ts");
+  // ElegantFin paints its elevated tone darker than the surface it sits on.
+  const elegantfin = {
+    surface: { r: 30, g: 41, b: 54 },
+    elevated: { r: 30, g: 40, b: 54 },
+    raised: { r: 55, g: 65, b: 81 },
+  };
+  const hover = trayRowHoverColor(elegantfin.surface, elegantfin.elevated, elegantfin.raised);
+  assert.ok(
+    contrastRatio(elegantfin.surface, hover) >= 1.12,
+    "the hover tone must separate from the surface",
+  );
+  assert.notDeepEqual(hover, elegantfin.elevated);
+  // Light palettes can share one tone for both surface and elevated.
+  const light = {
+    surface: { r: 255, g: 255, b: 255 },
+    elevated: { r: 255, g: 255, b: 255 },
+    raised: { r: 253, g: 238, b: 243 },
+  };
+  const lightHover = trayRowHoverColor(light.surface, light.elevated, light.raised);
+  assert.ok(contrastRatio(light.surface, lightHover) >= 1.12);
+  // A theme whose elevated tone already separates keeps its own color.
+  const classic = {
+    surface: { r: 20, g: 21, b: 20 },
+    elevated: { r: 39, g: 38, b: 38 },
+    raised: { r: 64, g: 64, b: 65 },
+  };
+  assert.deepEqual(
+    trayRowHoverColor(classic.surface, classic.elevated, classic.raised),
+    classic.elevated,
+  );
+});
+
 test("main tray bridge publishes theme and CSS changes, syncs custom themes, and disposes observers", async (context) => {
   const { startTrayMenuBridge } = await import("../src/lib/tray-menu-bridge.ts");
   const { saveCustomTheme, removeCustomTheme } = await import("../src/lib/custom-themes.ts");
@@ -173,6 +207,11 @@ test("main tray bridge publishes theme and CSS changes, syncs custom themes, and
     assert.equal(snapshots.at(-1)?.labels.pauseMinimized, "Pause When Minimized");
     assert.equal(snapshots.at(-1)?.labels.pauseUnfocused, "Pause When Unfocused");
     assert.equal(snapshots.at(-1)?.labels.error, "Could not apply this change. Try again.");
+    assert.equal(
+      snapshots.at(-1)?.tokens["--tray-row-hover"],
+      "oklch(0.27 0.004 260)",
+      "the popup needs its own row highlight tone",
+    );
 
     await context.test(
       "Arabic tray preferences reuse the existing translated settings labels",

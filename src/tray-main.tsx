@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { TrayMenu } from "./tray/tray-menu";
-import { fadeTrayMenu, presentTrayMenu } from "./tray/tray-motion";
+import { fadeTrayMenu, presentTrayMenu, prefersReducedMotion } from "./tray/tray-motion";
 import { newerSnapshot, type TrayAction, type TraySnapshot } from "./tray/types";
 import "./tray/tray-menu.css";
 
@@ -53,7 +53,7 @@ function TrayRoot() {
   useLayoutEffect(() => {
     const element = motion.current;
     if (!element || !hasDisplay) return;
-    const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reducedMotion = () => prefersReducedMotion();
     if (open) {
       if (presented.current === openId) return;
       presented.current = openId;

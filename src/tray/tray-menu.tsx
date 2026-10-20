@@ -20,6 +20,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { HarborMark } from "../components/icons/harbor-mark";
+import { dismissTraySubmenu, presentTraySubmenu, prefersReducedMotion } from "./tray-motion";
 import type { TrayAction, TrayLayout, TrayPrefs, TraySnapshot } from "./types";
 
 type Props = {
@@ -35,6 +36,22 @@ const preferenceRows: { id: keyof TrayPrefs; icon: LucideIcon }[] = [
   { id: "pauseUnfocused", icon: EyeOff },
   { id: "closeToTray", icon: PanelBottomClose },
 ];
+
+const navigationKeys = new Set([
+  "Escape",
+  "Tab",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Home",
+  "End",
+  "Enter",
+  " ",
+]);
+
+/** Grace period that lets the pointer cross the gap between the row and the submenu. */
+const SUBMENU_CLOSE_DELAY = 90;
 
 function panelStyle(layout: TrayLayout, theme = false): CSSProperties {
   return {
@@ -52,12 +69,19 @@ function focus(button: HTMLButtonElement | null | undefined) {
 
 export function TrayMenu({ snapshot, onAction, onDismiss, onSubmenuChange }: Props) {
   const [submenu, setSubmenu] = useState(false);
+  const [submenuClosing, setSubmenuClosing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const running = useRef(false);
   const live = useRef(true);
   const submenuRequest = useRef(0);
   const moveThemeFocus = useRef(false);
+  const envelope = useRef<HTMLDivElement>(null);
+  const submenuTimer = useRef<number | null>(null);
+  const submenuExit = useRef<(() => void) | null>(null);
+  const entranceCancel = useRef<(() => void) | null>(null);
+  const pointerOnTheme = useRef(false);
+  const themePanel = useRef<HTMLDivElement>(null);
   const mainButtons = useRef<(HTMLButtonElement | null)[]>([]);
   const themeButtons = useRef<(HTMLButtonElement | null)[]>([]);
   const display = snapshot.display;
@@ -69,6 +93,27 @@ export function TrayMenu({ snapshot, onAction, onDismiss, onSubmenuChange }: Pro
       live.current = false;
     };
   }, [snapshot.openId]);
+
+  useEffect(
+    () => () => {
+      if (submenuTimer.current !== null) window.clearTimeout(submenuTimer.current);
+      submenuExit.current?.();
+    },
+    [],
+  );
+
+  useLayoutEffect(() => {
+    if (!submenu) return;
+    const element = themePanel.current;
+    if (!element) return;
+    // The panel is in place before the first paint, so it never flashes open.
+    const cancel = presentTraySubmenu(element, prefersReducedMotion(), snapshot.layout.submenuSide);
+    entranceCancel.current = cancel;
+    return () => {
+      cancel();
+      entranceCancel.current = null;
+    };
+  }, [submenu, snapshot.layout.submenuSide]);
 
   useLayoutEffect(() => {
     if (!submenu || !moveThemeFocus.current) return;
@@ -83,17 +128,35 @@ export function TrayMenu({ snapshot, onAction, onDismiss, onSubmenuChange }: Pro
   const openKey = direction === "rtl" ? "ArrowLeft" : "ArrowRight";
   const closeKey = direction === "rtl" ? "ArrowRight" : "ArrowLeft";
 
-  const changeSubmenu = async (open: boolean, moveFocus = false) => {
+  const cancelSubmenuClose = () => {
+    if (submenuTimer.current !== null) {
+      window.clearTimeout(submenuTimer.current);
+      submenuTimer.current = null;
+    }
+  };
+
+  const cancelSubmenuExit = () => {
+    if (submenuExit.current) {
+      submenuExit.current();
+      submenuExit.current = null;
+    }
+    setSubmenuClosing(false);
+  };
+
+  // Opens the theme list. The native window grows before the panel appears, so
+  // the pointer can travel into it.
+  const openSubmenu = async (moveFocus: boolean) => {
     const request = ++submenuRequest.current;
-    if (!open) setSubmenu(false);
+    cancelSubmenuClose();
+    cancelSubmenuExit();
+    const alreadyOpen = submenu;
+    // The focus moves into the panel once it is mounted.
+    moveThemeFocus.current = !alreadyOpen && moveFocus;
+    setSubmenu(true);
     try {
-      await onSubmenuChange(open);
+      await onSubmenuChange(true);
       if (!live.current || request !== submenuRequest.current) return;
-      moveThemeFocus.current = open && moveFocus;
-      setSubmenu(open);
-      if (moveFocus && !open) focus(mainButtons.current[1]);
-      if (moveFocus && open && submenu) {
-        moveThemeFocus.current = false;
+      if (moveFocus && alreadyOpen) {
         focus(
           themeButtons.current[
             Math.max(
@@ -107,6 +170,49 @@ export function TrayMenu({ snapshot, onAction, onDismiss, onSubmenuChange }: Pro
       console.error("[harbor::tray] submenu failed", cause);
       if (live.current) setError(true);
     }
+  };
+
+  // Closes the theme list with a short fade. The native window only shrinks
+  // once the panel is gone, so the pointer never lands on the window behind.
+  const closeSubmenu = (moveFocus: boolean) => {
+    const request = ++submenuRequest.current;
+    cancelSubmenuClose();
+    if (moveFocus) focus(mainButtons.current[1]);
+    if (!submenu) return;
+    const element = themePanel.current;
+    const finish = () => {
+      submenuExit.current = null;
+      if (!live.current || request !== submenuRequest.current) return;
+      setSubmenu(false);
+      setSubmenuClosing(false);
+      void onSubmenuChange(false).catch((cause) => {
+        console.error("[harbor::tray] submenu failed", cause);
+        if (live.current) setError(true);
+      });
+    };
+    setSubmenuClosing(true);
+    entranceCancel.current?.();
+    if (!element) {
+      finish();
+      return;
+    }
+    submenuExit.current = dismissTraySubmenu(
+      element,
+      prefersReducedMotion(),
+      snapshot.layout.submenuSide,
+      finish,
+    );
+  };
+
+  // A native menu drops the submenu when the pointer leaves it.
+  const scheduleSubmenuClose = () => {
+    if (!submenu) return;
+    cancelSubmenuClose();
+    submenuTimer.current = window.setTimeout(() => {
+      submenuTimer.current = null;
+      if (pointerOnTheme.current) return;
+      closeSubmenu(false);
+    }, SUBMENU_CLOSE_DELAY);
   };
 
   const run = async (action: TrayAction) => {
@@ -126,6 +232,9 @@ export function TrayMenu({ snapshot, onAction, onDismiss, onSubmenuChange }: Pro
   };
 
   const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (navigationKeys.has(event.key)) {
+      envelope.current?.setAttribute("data-modality", "keyboard");
+    }
     const inThemes = !!(event.target as HTMLElement).closest("[data-tray-themes]");
     const buttons = (inThemes ? themeButtons : mainButtons).current.filter(
       (button): button is HTMLButtonElement => !!button,
@@ -133,7 +242,7 @@ export function TrayMenu({ snapshot, onAction, onDismiss, onSubmenuChange }: Pro
     const index = buttons.indexOf(event.target as HTMLButtonElement);
     if (event.key === "Escape") {
       event.preventDefault();
-      if (submenu) void changeSubmenu(false, true);
+      if (submenu) closeSubmenu(true);
       else onDismiss();
     } else if (event.key === "Tab") {
       event.preventDefault();
@@ -154,10 +263,10 @@ export function TrayMenu({ snapshot, onAction, onDismiss, onSubmenuChange }: Pro
       focus(buttons[next]);
     } else if (!inThemes && event.key === openKey && index === 1) {
       event.preventDefault();
-      void changeSubmenu(true, true);
+      void openSubmenu(true);
     } else if (inThemes && event.key === closeKey) {
       event.preventDefault();
-      void changeSubmenu(false, true);
+      closeSubmenu(true);
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       (event.target as HTMLButtonElement).click();
@@ -200,6 +309,8 @@ export function TrayMenu({ snapshot, onAction, onDismiss, onSubmenuChange }: Pro
   return (
     <div
       className="tray-envelope"
+      ref={envelope}
+      data-modality="pointer"
       dir={direction}
       onKeyDown={onKey}
       onContextMenu={(event) => event.preventDefault()}
@@ -225,10 +336,13 @@ export function TrayMenu({ snapshot, onAction, onDismiss, onSubmenuChange }: Pro
             aria-controls="tray-theme-menu"
             data-tray-action="theme"
             onPointerEnter={() => {
-              if (!submenu) void changeSubmenu(true);
+              cancelSubmenuClose();
+              if (!submenu && !submenuClosing) void openSubmenu(false);
             }}
+            onPointerLeave={() => scheduleSubmenuClose()}
             onClick={() => {
-              void changeSubmenu(!submenu, true);
+              if (submenu) closeSubmenu(true);
+              else void openSubmenu(true);
             }}
           >
             <span className="tray-row-icon">
@@ -251,14 +365,23 @@ export function TrayMenu({ snapshot, onAction, onDismiss, onSubmenuChange }: Pro
           </div>
         )}
       </div>
-      {submenu && (
+      {(submenu || submenuClosing) && (
         <div
           id="tray-theme-menu"
           className="tray-panel tray-theme-panel"
+          ref={themePanel}
           role="menu"
           aria-label={labels.theme}
           data-tray-themes
           style={panelStyle(snapshot.layout, true)}
+          onPointerEnter={() => {
+            cancelSubmenuClose();
+            pointerOnTheme.current = true;
+          }}
+          onPointerLeave={() => {
+            pointerOnTheme.current = false;
+            scheduleSubmenuClose();
+          }}
         >
           {themes.map((theme, index) => (
             <button

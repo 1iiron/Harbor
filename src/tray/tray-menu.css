@@ -79,11 +79,12 @@ button {
   cursor: default;
   text-align: start;
 }
-.tray-row:hover,
-.tray-row:focus-visible {
-  background: var(--color-elevated);
+.tray-row:hover {
+  background: var(--tray-row-hover);
 }
-.tray-row:focus-visible {
+/* The menu takes focus when it opens, so the ring belongs to keyboard users only. */
+.tray-envelope[data-modality="keyboard"] .tray-row:focus-visible {
+  background: var(--tray-row-hover);
   outline: 1px solid var(--color-accent);
   outline-offset: -1px;
 }
@@ -149,7 +150,7 @@ button {
     color: ButtonText;
   }
   .tray-row:hover,
-  .tray-row:focus-visible {
+  .tray-envelope[data-modality="keyboard"] .tray-row:focus-visible {
     outline: 1px solid Highlight;
   }
 }

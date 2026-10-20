@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
-import { fadeTrayMenu, presentTrayMenu } from "../src/tray/tray-motion.ts";
+import { fadeTrayMenu, presentTrayMenu, presentTraySubmenu } from "../src/tray/tray-motion.ts";
 
 function deferred() {
   let resolve: () => void = () => {};
@@ -196,6 +196,46 @@ test("reduced motion presents and dismisses immediately without animation work",
     assert.equal(h.element.style.opacity, "0");
     assert.equal(h.animations.length, 0);
     cancelExit();
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("the theme submenu slides out of the main panel while it fades in", () => {
+  const h = harness();
+  try {
+    const cancel = presentTraySubmenu(h.element, false, "right");
+    assert.equal(h.animations.length, 1);
+    assert.deepEqual(h.animations[0].frames, [
+      { opacity: "0", transform: "translateX(-6px)" },
+      { opacity: "1", transform: "translateX(0)" },
+    ]);
+    assert.equal(h.animations[0].options.duration, 120);
+    cancel();
+    assert.equal(h.animations[0].cancelled, true);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("a left side submenu slides in from the other edge", () => {
+  const h = harness();
+  try {
+    presentTraySubmenu(h.element, false, "left");
+    assert.deepEqual(h.animations[0].frames, [
+      { opacity: "0", transform: "translateX(6px)" },
+      { opacity: "1", transform: "translateX(0)" },
+    ]);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("reduced motion opens the submenu without animation work", () => {
+  const h = harness();
+  try {
+    presentTraySubmenu(h.element, true, "right");
+    assert.equal(h.animations.length, 0);
   } finally {
     h.cleanup();
   }

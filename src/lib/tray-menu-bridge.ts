@@ -9,11 +9,14 @@ import type { Settings } from "./settings/types";
 import { DEFAULT_THEME, getTrayThemes, isLightColor, resolveTokens } from "./theme";
 import {
   resolveTrayTokens,
+  TRAY_HOVER_TOKEN,
   TRAY_MENU_FONT,
   TRAY_TOKEN_KEYS,
   trayMenuWidths,
+  trayRowHoverColor,
   type TrayDisplay,
   type TrayLabels,
+  type TrayRgb,
 } from "./tray-menu-state";
 
 export type TrayMenuBridge = { refresh: () => void; dispose: () => void };
@@ -75,6 +78,25 @@ export function startTrayMenuBridge(readSettings: () => Settings): TrayMenuBridg
     }
   }
 
+  function readColor(value: string): TrayRgb | null {
+    if (!context) return null;
+    context.fillStyle = value;
+    context.fillRect(0, 0, 1, 1);
+    const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
+    return { r, g, b };
+  }
+
+  // The theme's elevated tone can match the surface it sits on, which leaves the
+  // row highlight invisible. Publish a row color that always separates.
+  function hoverToken(tokens: Record<string, string>): string {
+    const surface = readColor(tokens["--color-surface"]);
+    const elevated = readColor(tokens["--color-elevated"]);
+    const raised = readColor(tokens["--color-raised"]);
+    if (!surface || !elevated || !raised) return defaults["--color-elevated"];
+    const hover = trayRowHoverColor(surface, elevated, raised);
+    return `rgb(${hover.r}, ${hover.g}, ${hover.b})`;
+  }
+
   function publish(): void {
     frame = 0;
     queued = false;
@@ -88,6 +110,7 @@ export function startTrayMenuBridge(readSettings: () => Settings): TrayMenuBridg
       CSS.supports("color", value),
     );
     solidSurfaces(tokens);
+    tokens[TRAY_HOVER_TOKEN] = hoverToken(tokens);
     const labels: TrayLabels = {
       show: t("Show Harbor"),
       theme: t("Theme"),

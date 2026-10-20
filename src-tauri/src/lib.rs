@@ -297,13 +297,32 @@ async fn save_text_file(path: String, contents: String) -> Result<(), String> {
     std::fs::write(&target, contents.as_bytes()).map_err(|e| format!("write file: {}", e))
 }
 
+/// Keeps a window from taking activation, so showing it leaves the foreground
+/// where it was. The shell closes its notification area flyout when another
+/// window activates.
 #[cfg(windows)]
-fn make_main_transparent(app: &tauri::AppHandle) {
-    use tauri::Manager;
-    let Some(window) = app.get_webview_window("main") else {
-        eprintln!("[harbor::transparent] main window missing");
+pub(crate) fn set_no_activate(window: &tauri::WebviewWindow, no_activate: bool) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
+    };
+    let Ok(hwnd) = window.hwnd() else {
         return;
     };
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let updated = if no_activate {
+            style | WS_EX_NOACTIVATE.0 as isize
+        } else {
+            style & !(WS_EX_NOACTIVATE.0 as isize)
+        };
+        if updated != style {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, updated);
+        }
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn make_webview_transparent(window: &tauri::WebviewWindow) {
     let res = window.with_webview(|webview| unsafe {
         use webview2_com::Microsoft::Web::WebView2::Win32::{
             ICoreWebView2Controller2, COREWEBVIEW2_COLOR,
@@ -318,14 +337,8 @@ fn make_main_transparent(app: &tauri::AppHandle) {
                     G: 0,
                     B: 0,
                 };
-                match controller2.SetDefaultBackgroundColor(color) {
-                    Ok(()) => {
-                        eprintln!("[harbor::transparent] SetDefaultBackgroundColor OK (alpha=0)")
-                    }
-                    Err(e) => eprintln!(
-                        "[harbor::transparent] SetDefaultBackgroundColor FAILED: {:?}",
-                        e
-                    ),
+                if let Err(e) = controller2.SetDefaultBackgroundColor(color) {
+                    eprintln!("[harbor::transparent] SetDefaultBackgroundColor FAILED: {:?}", e);
                 }
             }
             Err(e) => eprintln!("[harbor::transparent] cast to Controller2 FAILED: {:?}", e),
@@ -334,6 +347,16 @@ fn make_main_transparent(app: &tauri::AppHandle) {
     if let Err(e) = res {
         eprintln!("[harbor::transparent] with_webview FAILED: {:?}", e);
     }
+}
+
+#[cfg(windows)]
+fn make_main_transparent(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let Some(window) = app.get_webview_window("main") else {
+        eprintln!("[harbor::transparent] main window missing");
+        return;
+    };
+    make_webview_transparent(&window);
 }
 
 #[cfg(windows)]
