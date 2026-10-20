@@ -7,6 +7,7 @@ import { FolderOpen } from "../icons";
 import { SettingGroup, SettingRow } from "../kit";
 import { ToggleRow } from "../shared";
 import { SButton } from "../ui";
+import { Tag } from "./choice";
 
 const FIELD =
   "h-11 w-full max-w-[520px] min-w-0 rounded-[10px] border border-edge-soft bg-elevated px-4 font-mono text-[16.5px] text-ink outline-none placeholder:text-ink-subtle/55 focus-visible:border-edge focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
@@ -69,6 +70,7 @@ export function ExternalPlayerSection() {
     <SettingGroup label={t("External player")}>
       <ToggleRow
         label={t("Play in my own mpv")}
+        badge={<Tag text={t("Experimental")} />}
         sub={t(
           "Opens videos in your installed mpv with your own mpv.conf, scripts and keys. Harbor follows it to save your progress and mark episodes watched.",
         )}
