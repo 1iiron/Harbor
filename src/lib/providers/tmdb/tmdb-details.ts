@@ -7,6 +7,12 @@ import { imageLangParam, imageLangRank } from "./tmdb-image-lang";
 import { pickTrailers, type Video } from "./tmdb-trailers";
 import type { PersonRef } from "./tmdb-people";
 import { isAnimeItem } from "./tmdb-meta-mappers";
+import {
+  pickTmdbTitle,
+  shouldUseEnglishTitle,
+  tmdbEnglishTranslation,
+  tmdbEnglishTitle,
+} from "./tmdb-title-fallback";
 import { setItemWithRecovery } from "@/lib/storage-recovery";
 import { episodeTextLanguage } from "@/lib/episode-text-language";
 
@@ -339,10 +345,49 @@ export async function tmdbDetails(key: string, meta: Meta, lang?: string): Promi
     name: displayName(c),
   }));
 
+  const recommendationResults: any[] = raw.recommendations?.results ?? [];
+  const similarResults: any[] = raw.similar?.results ?? [];
+  const needsEnglishRelated =
+    settings.translateTitles &&
+    [...recommendationResults, ...similarResults].some((entry) =>
+      shouldUseEnglishTitle({
+        localized: entry.title ?? entry.name ?? "",
+        original: entry.original_title ?? entry.original_name ?? "",
+        originalLanguage: entry.original_language,
+        targetLanguage: metaLang,
+        translateTitles: true,
+      }),
+    );
+  let englishRelatedNames: Map<number, string> | null = null;
+  if (needsEnglishRelated) {
+    const english = await get<any>(key, `${kind}/${id}`, {
+      append_to_response: "recommendations,similar",
+      language: "en-US",
+    });
+    if (english) {
+      englishRelatedNames = new Map();
+      for (const list of [english.recommendations?.results, english.similar?.results]) {
+        for (const entry of list ?? []) {
+          const title = entry?.title ?? entry?.name;
+          if (typeof entry?.id === "number" && typeof title === "string" && title.trim()) {
+            englishRelatedNames.set(entry.id, title.trim());
+          }
+        }
+      }
+    }
+  }
+
   const toMeta = (r: any): Meta => ({
     id: kind === "movie" ? `tmdb:movie:${r.id}` : `tmdb:tv:${r.id}`,
     type: kind === "movie" ? "movie" : "series",
-    name: r.title ?? r.name,
+    name: pickTmdbTitle({
+      localized: r.title ?? r.name ?? "",
+      original: r.original_title ?? r.original_name ?? "",
+      english: englishRelatedNames?.get(r.id),
+      originalLanguage: r.original_language,
+      targetLanguage: metaLang,
+      translateTitles: settings.translateTitles,
+    }),
     poster: tmdbPosterUrl(r.poster_path),
     background: tmdbBackdropUrl(r.backdrop_path),
     description: r.overview,
@@ -352,8 +397,8 @@ export async function tmdbDetails(key: string, meta: Meta, lang?: string): Promi
     adult: r.adult,
   });
 
-  const recommendations: Meta[] = (raw.recommendations?.results ?? []).map(toMeta);
-  const similar: Meta[] = (raw.similar?.results ?? []).map(toMeta);
+  const recommendations: Meta[] = recommendationResults.map(toMeta);
+  const similar: Meta[] = similarResults.map(toMeta);
 
   const seasons: Season[] = (raw.seasons ?? [])
     .filter((s: any) => s.season_number > 0 && (s.episode_count ?? 0) > 0)
@@ -381,16 +426,15 @@ export async function tmdbDetails(key: string, meta: Meta, lang?: string): Promi
   const anime = isAnimeItem(raw);
   const requestedTitle = raw.title || raw.name;
   const originalTitle = raw.original_title || raw.original_name || requestedTitle;
-  const titleFellBackToOriginal = requestedTitle === originalTitle;
 
   let overview = raw.overview ?? "";
   let tagline = raw.tagline ?? "";
-  const enTrans = raw.translations?.translations?.find((t: any) => t.iso_639_1 === "en")?.data;
+  const enTrans = tmdbEnglishTranslation(raw.translations);
   if (!settings.translateDescriptions && !lang) {
     if (enTrans?.overview) overview = enTrans.overview;
     if (enTrans?.tagline) tagline = enTrans.tagline;
   }
-  const enTitle = enTrans?.title || enTrans?.name;
+  const enTitle = tmdbEnglishTitle(raw.translations);
 
   let finalPosterPath = raw.poster_path;
   if (!settings.posterBaseUrl && posterSource?.length) {
@@ -402,17 +446,25 @@ export async function tmdbDetails(key: string, meta: Meta, lang?: string): Promi
     if (best) finalPosterPath = best.file_path;
   }
 
-  const useEnglishForAnime = anime && (!settings.translateTitles || titleFellBackToOriginal);
+  const useEnglishForAnime = anime && !settings.translateTitles;
+  const useEnglishForFallback = shouldUseEnglishTitle({
+    localized: requestedTitle,
+    original: raw.original_title || raw.original_name || "",
+    originalLanguage: raw.original_language,
+    targetLanguage: metaLang,
+    translateTitles: settings.translateTitles,
+  });
 
   return {
     kind,
     id: raw.id,
     imdbId: raw.external_ids?.imdb_id ?? null,
-    title: useEnglishForAnime
-      ? (enTitle || requestedTitle)
-      : settings.translateTitles
-        ? requestedTitle
-        : originalTitle,
+    title:
+      useEnglishForFallback || useEnglishForAnime
+        ? (enTitle || requestedTitle)
+        : settings.translateTitles
+          ? requestedTitle
+          : originalTitle,
     originalTitle: raw.original_title ?? raw.original_name ?? "",
     tagline,
     overview,
