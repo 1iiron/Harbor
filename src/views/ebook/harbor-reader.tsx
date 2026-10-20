@@ -649,6 +649,7 @@ export function HarborReader({
   const flipLayerSequence = useRef(0);
   const [activeFlipLayerId, setActiveFlipLayerId] = useState<number | null>(null);
   const activeFlipLayerIdRef = useRef<number | null>(null);
+  const [flipFailed, setFlipFailed] = useState(false);
   const flipLayerRetireTimer = useRef<number | undefined>(undefined);
   const flipGeneration = useRef(0);
   const [flipPage, setFlipPage] = useState(0);
@@ -762,6 +763,7 @@ export function HarborReader({
     setFlipLayers([]);
     activeFlipLayerIdRef.current = null;
     setActiveFlipLayerId(null);
+    setFlipFailed(false);
     bookApi.current = null;
     flipPagesRef.current = { urls: [], paragraphStarts: [] };
     setFlipPages({ urls: [], paragraphStarts: [] });
@@ -781,6 +783,7 @@ export function HarborReader({
 
   useEffect(() => {
     if (prefs.mode !== "book") return;
+    setFlipFailed(false);
     const controller = new AbortController();
     const generation = ++flipGeneration.current;
     const active = flipPagesRef.current;
@@ -813,8 +816,10 @@ export function HarborReader({
             });
           })
           .catch((error) => {
-            if (!(error instanceof DOMException) || error.name !== "AbortError")
+            if (!(error instanceof DOMException) || error.name !== "AbortError") {
               console.warn("[ebook/book-pages]", error);
+              if (generation === flipGeneration.current) setFlipFailed(true);
+            }
           });
       },
       active.urls.length ? 180 : 0,
@@ -1837,6 +1842,9 @@ export function HarborReader({
                   resumePage={layer.resumePage}
                   soundEnabled={isActive}
                   onReady={(api) => activateFlipLayer(layer.id, api)}
+                  onError={() => {
+                    if (flipLayersRef.current.at(-1)?.id === layer.id) setFlipFailed(true);
+                  }}
                   onProgress={(page) => {
                     if (activeFlipLayerIdRef.current !== layer.id) return;
                     const paragraph = layer.pages.paragraphStarts[page] ?? 0;
@@ -1850,8 +1858,24 @@ export function HarborReader({
             );
           })}
           {activeFlipLayerId == null && (
-            <div className="grid h-full place-items-center text-sm" style={{ color: colors.muted }}>
-              {t("Preparing book…")}
+            <div
+              className="grid h-full place-items-center px-6 text-center text-sm"
+              style={{ color: colors.muted }}
+            >
+              {flipFailed ? (
+                <div>
+                  <p>{t("This chapter could not be loaded.")}</p>
+                  <button
+                    type="button"
+                    onClick={() => patchPrefs({ mode: "harbor" })}
+                    className="mt-4 rounded-xl bg-raised px-4 py-2 text-sm text-ink"
+                  >
+                    {t("Harbor")}
+                  </button>
+                </div>
+              ) : (
+                t("Preparing book…")
+              )}
             </div>
           )}
         </div>

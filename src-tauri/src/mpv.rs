@@ -193,6 +193,46 @@ impl MpvState {
         guard.as_ref().map(|session| session.mpv.ctx.as_ptr() as usize)
     }
 
+    /// Preserve the exact selected video track while Linux moves the libmpv
+    /// render context between the main and detached PiP windows.
+    #[cfg(target_os = "linux")]
+    pub(crate) async fn selected_video_track(&self) -> Result<Option<String>, String> {
+        let mpv = {
+            let guard = self.inner.lock().await;
+            guard
+                .as_ref()
+                .map(|session| session.mpv.clone())
+                .ok_or_else(|| "mpv not started".to_string())?
+        };
+
+        let vid = mpv
+            .get_property::<String>("vid")
+            .map_err(|error| format!("get vid before render retarget: {error}"))?;
+
+        if vid == "no" {
+            return Ok(None);
+        }
+
+        vid.parse::<u64>()
+            .map_err(|_| format!("unexpected mpv video track id: {vid}"))?;
+
+        Ok(Some(vid))
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) async fn restore_video_track(&self, vid: &str) -> Result<(), String> {
+        let mpv = {
+            let guard = self.inner.lock().await;
+            guard
+                .as_ref()
+                .map(|session| session.mpv.clone())
+                .ok_or_else(|| "mpv not started".to_string())?
+        };
+
+        mpv.set_property("vid", vid)
+            .map_err(|error| format!("restore vid after render retarget: {error}"))
+    }
+
     pub(crate) async fn active_file_path(&self) -> Result<Option<String>, String> {
         let session = self.inner.lock().await;
         let Some(session) = session.as_ref() else {

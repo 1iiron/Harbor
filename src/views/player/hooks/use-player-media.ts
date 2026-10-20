@@ -36,7 +36,6 @@ import { useSubDrop } from "./use-sub-drop";
 import { useSubStyleApply } from "./use-sub-style-apply";
 import { useAssNormalize } from "./use-ass-normalize";
 import { useTrackAutoload } from "./use-track-autoload";
-import { useTranslationAutoSelect } from "./use-translation-auto-select";
 import { useSecondarySub } from "./use-secondary-sub";
 import { useAutoSync } from "./use-auto-sync";
 import { publishAutoSync } from "@/components/player/autosync/autosync-store";
@@ -169,8 +168,6 @@ export function usePlayerMedia(params: {
     settings,
     authKey,
   });
-
-  useTranslationAutoSelect({ bridgeRef, mediaUrl: src.url });
 
   const autoSync = useAutoSync({
     bridgeRef,

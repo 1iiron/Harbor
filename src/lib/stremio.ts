@@ -38,6 +38,8 @@ export type LibraryItem = {
   _ctime: string;
   _mtime: string;
   external?: ExternalCwSource;
+  /** Other canonical ids for the same title, used to merge and dismiss CW entries. */
+  altIds?: string[];
   isAnime?: boolean;
   upNext?: boolean;
   local?: boolean;
