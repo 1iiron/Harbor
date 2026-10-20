@@ -420,6 +420,7 @@ export function StreamSwitcher({
                   stream={s}
                   addonLogo={addonLogos.get(rowAddon?.id ?? s.addonId) ?? null}
                   currentAddon={rowAddon}
+                  currentName={isCurrent ? (currentRef?.name ?? null) : null}
                   onPick={() => onPick(s)}
                   resolving={resolvingKey === streamKey(s)}
                   isCurrent={isCurrent}

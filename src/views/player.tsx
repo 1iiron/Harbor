@@ -16,7 +16,13 @@ import { nameColor } from "@/lib/together/colors";
 import { useTogether } from "@/lib/together/provider";
 import { buildPlayInvite } from "@/lib/together/build-invite";
 import { useView, type PlayerSrc, type PlayEpisode } from "@/lib/view";
-import { useQueue, useSleepAtEnd, queueIndexOf, setQueuePlaying } from "@/lib/queue";
+import {
+  useQueue,
+  useSleepAtEnd,
+  queueIndexOf,
+  queueItemAfter,
+  setQueuePlaying,
+} from "@/lib/queue";
 import { useSkipSegments, useAdSegments } from "@/lib/skip-intro";
 import { withinAdWindow } from "@/lib/ad-report/window";
 import { isLocalUrl } from "@/lib/player/local-url";
@@ -410,6 +416,8 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
   const queue = useQueue();
   const sleepAtEndArmed = useSleepAtEnd();
   const queueOwnsCurrent = queueIndexOf(src.meta, src.episode) >= 0;
+  const queueNextSameSeries =
+    queueItemAfter(src.meta, src.episode)?.meta.id === src.meta.id;
 
   useEffect(() => {
     setQueuePlaying(src.meta, src.episode ?? undefined);
@@ -1618,7 +1626,8 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
   const prefetchNextEpisode =
     settings.keepSourceNextEpisode &&
     settings.autoPlayNextEpisode &&
-    !queueOrSleepArmed &&
+    !sleepAtEndArmed &&
+    (!queueOwnsCurrent || queueNextSameSeries) &&
     !isLiveLike &&
     canChangeEpisode &&
     !!airedNext &&

@@ -253,6 +253,45 @@ test("the same group and quality win over a higher-ranked 4K release", () => {
   );
 });
 
+test("a Russian dub stays ahead of an unlabelled English release", () => {
+  const entry = {
+    infoHash: "episode-one-rusdub",
+    addonId: "community.aiostreams",
+    resolution: "1080p",
+    releaseGroup: null,
+    source: "WEBRip",
+    audioLanguages: ["Russian"],
+    savedAt: Date.now(),
+  };
+  const megusta = {
+    infoHash: "episode-two-megusta",
+    addonId: "community.aiostreams",
+    resolution: "1080p",
+    releaseGroupNormalized: "MEGUSTA",
+    source: "WEB-DL",
+    audioLanguages: null,
+  };
+  const rusdub = {
+    infoHash: "episode-two-rusdub",
+    addonId: "community.aiostreams",
+    resolution: "1080p",
+    releaseGroupNormalized: "RUDUB",
+    source: "WEBRip",
+    audioLanguages: ["Russian"],
+  };
+  const english = {
+    ...rusdub,
+    infoHash: "episode-two-english",
+    audioLanguages: ["English"],
+  };
+
+  assert.equal(streamMatchesPreferredSource(english, entry), false);
+  assert.equal(
+    findPreferredSourceMatch([megusta, rusdub, english], entry, streamMatchesPreferredSource),
+    rusdub,
+  );
+});
+
 test("the selected addon wins over a same-file debrid library copy", () => {
   const entry = {
     infoHash: "same-hash",

@@ -48,6 +48,7 @@ export function SwitcherRow({
   stream,
   addonLogo,
   currentAddon,
+  currentName,
   onPick,
   resolving,
   isCurrent,
@@ -56,6 +57,7 @@ export function SwitcherRow({
   stream: ScoredStream;
   addonLogo: string | null;
   currentAddon?: { id: string; name: string } | null;
+  currentName?: string | null;
   onPick: () => void;
   resolving: boolean;
   isCurrent: boolean;
@@ -69,7 +71,9 @@ export function SwitcherRow({
   const addonId = isCurrent && currentAddon ? currentAddon.id : stream.addonId;
   const addonName =
     isCurrent && currentAddon ? currentAddon.name : (stream.addonName ?? t("Source"));
-  const headline = stripFlagEmoji(stream.name?.trim() || addonName) || addonName;
+  const headlineSource =
+    isCurrent && currentName ? currentName : (stream.name?.trim() || addonName);
+  const headline = stripFlagEmoji(headlineSource) || addonName;
   const description = stripFlagEmoji(stream.title?.trim() || stream.description?.trim() || "");
   const badges = streamBadges(stream);
   const anchor = badges[0];

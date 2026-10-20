@@ -14,6 +14,7 @@ export type PlaybackEntry = {
   resolution?: string | null;
   releaseGroup?: string | null;
   source?: string | null;
+  audioLanguages?: string[] | null;
   size?: number | null;
   bingeGroup?: string | null;
   cachedSlugs?: string[];
@@ -372,17 +373,20 @@ export function findPreferredSourceMatch<T extends {
   contributors?: Array<{ id: string }>;
   resolution?: string | null;
   releaseGroupNormalized?: string | null;
+  audioLanguages?: string[] | null;
 }>(
   streams: T[],
   entry: PlaybackEntry,
   match: (stream: T, entry: PlaybackEntry) => boolean,
 ): T | null {
   const candidates = streams.filter((s) => match(s, entry));
+  const rememberedLangs = (entry.audioLanguages ?? []).filter((l) => l !== "Multi");
   const score = (s: T): number =>
     (streamOfferedByAddon(s, entry.addonId) ? 4 : 0) +
     (entry.releaseGroup && s.releaseGroupNormalized === entry.releaseGroup ? 2 : 0) +
+    (rememberedLangs.some((l) => (s.audioLanguages ?? []).includes(l)) ? 2 : 0) +
     (entry.resolution && s.resolution === entry.resolution ? 1 : 0);
-  // Addon first, then the same release group, then the quality the user picked.
+  // Addon first, then the same release group/dub, then the quality the user picked.
   return candidates.slice().sort((a, b) => score(b) - score(a))[0] ?? null;
 }
 
@@ -531,11 +535,25 @@ export function streamMatchesReleaseLineage(
  * addon, resolution, and source still identify the same source.
  */
 export function streamMatchesPreferredSource(
-  s: Parameters<typeof streamMatchesReleaseLineage>[0],
+  s: Parameters<typeof streamMatchesReleaseLineage>[0] & {
+    audioLanguages?: string[] | null;
+  },
   e: PlaybackEntry,
 ): boolean {
   if (streamMatchesReleaseLineage(s, e)) return true;
   if (!e.addonId || !offeredBy(s, e.addonId)) return false;
+  // A dub is part of the source identity. Only reject when both sides name a
+  // concrete language and they have none in common; an unlabelled release must
+  // remain eligible.
+  const rememberedLangs = (e.audioLanguages ?? []).filter((l) => l !== "Multi");
+  const candidateLangs = (s.audioLanguages ?? []).filter((l) => l !== "Multi");
+  if (
+    rememberedLangs.length > 0 &&
+    candidateLangs.length > 0 &&
+    !rememberedLangs.some((l) => candidateLangs.includes(l))
+  ) {
+    return false;
+  }
   // The same release group is the strongest identity. Resolution and source tags
   // often differ between episodes (1080p AV1 vs 4K WEB-DL), so do not reject a
   // same-group episode merely because its filename carries different tags.

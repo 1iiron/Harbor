@@ -145,12 +145,17 @@ export type PlayerStreamRef = {
   infoHash?: string | null;
   fileIdx?: number | null;
   addonId?: string | null;
+  /** Picker row name, e.g. "[TB+] Comet 1080p". Kept so the switcher can label
+   * the playing row before a refreshed duplicate list settles. */
+  name?: string | null;
+  addonName?: string | null;
   title?: string | null;
   parsedTitle?: string | null;
   resolution?: string | null;
   quality?: string | null;
   releaseGroup?: string | null;
   source?: string | null;
+  audioLanguages?: string[] | null;
   size?: number | null;
   bingeGroup?: string | null;
   cachedSlugs?: string[];
