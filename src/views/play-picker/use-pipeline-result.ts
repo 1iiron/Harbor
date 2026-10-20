@@ -9,7 +9,7 @@ import {
   setPickerCache,
 } from "@/lib/picker-cache";
 import { useSettings } from "@/lib/settings";
-import type { AddonProgress } from "@/lib/streams/addons";
+import { clearAddonStreamCache, type AddonProgress } from "@/lib/streams/addons";
 import { pluginCacheTokens } from "@/lib/streams/plugins";
 import { runPipeline, type PipelineResult } from "@/lib/streams/pipeline";
 import { buildEpisodePipelineInput } from "@/lib/streams/episode-pipeline-input";
@@ -183,6 +183,7 @@ export function usePipelineResult({
   ]);
 
   const refresh = useCallback(() => {
+    clearAddonStreamCache();
     clearOnePickerCache(meta, episode);
     setRefreshNonce((n) => n + 1);
   }, [meta, episode]);

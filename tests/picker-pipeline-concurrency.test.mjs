@@ -34,13 +34,32 @@ const drain = async () => {
 };
 const stream = (hash) => ({ infoHash: hash, addonId: "fixture", addonName: "Fixture" });
 
+test("addon settlement cannot overtake asynchronous candidate processing", async () => {
+  const h = harness({ anime: true, deferredParse: true });
+  h.batch(["late-source"]);
+  h.settle();
+  await drain();
+  assert.equal(h.progress.length, 0);
+  for (const parse of h.parses) parse.resolve();
+  await drain();
+  assert.deepEqual(h.progress.at(-1)?.candidates, ["late-source"]);
+  h.controller.abort();
+  h.listings.resolve([]);
+  h.finish(["late-source"]);
+  await drain();
+  for (const parse of h.parses) parse.resolve();
+  await h.result;
+});
+
 function harness({ anime = false, deferredParse = false } = {}) {
   const addons = deferred(),
     listings = deferred(),
     checks = [],
     parses = [],
-    partials = [];
+    partials = [],
+    progress = [];
   let onBatch,
+    onSettlement,
     now = 10000,
     timerId = 0,
     listingCalls = 0;
@@ -66,8 +85,9 @@ function harness({ anime = false, deferredParse = false } = {}) {
     {
       "@/lib/debug": { dlog() {} },
       "./addons": {
-        fetchAddonStreams: (_a, _r, _s, batch) => {
+        fetchAddonStreams: (_a, _r, _s, batch, settlement) => {
           onBatch = batch;
+          onSettlement = settlement;
           return addons.promise;
         },
       },
@@ -117,6 +137,8 @@ function harness({ anime = false, deferredParse = false } = {}) {
     },
     controller.signal,
     (p) => partials.push(p),
+    (p) =>
+      progress.push({ ...p, candidates: partials.at(-1)?.picker.all.map((s) => s.infoHash) ?? [] }),
   );
   return {
     addons,
@@ -124,6 +146,14 @@ function harness({ anime = false, deferredParse = false } = {}) {
     checks,
     parses,
     partials,
+    progress,
+    settle: () =>
+      onSettlement({
+        settled: 1,
+        total: 2,
+        queriedAddonIds: ["fixture", "slow"],
+        settledAddonIds: ["fixture"],
+      }),
     timers,
     result,
     controller,

@@ -115,6 +115,8 @@ const en: Record<string, string> = {
   Translations: "Translations",
   "Translating…": "Translating…",
   "Showing {lang}": "Showing {lang}",
+  "Waiting for {name}…": "Waiting for {name}…",
+  "Keeping the source you were watching.": "Keeping the source you were watching.",
   "Show all": "Show all",
   "games.download.queueOrder": "Queue order {position}",
   "games.download.earlier": "Move {name} earlier",

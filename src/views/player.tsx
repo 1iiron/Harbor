@@ -67,6 +67,7 @@ import { useT } from "@/lib/i18n";
 import { useEpisodeNavigation } from "./player/hooks/use-episode-navigation";
 import { useAbLoop } from "./player/hooks/use-ab-loop";
 import { useAutoNextEpisode } from "./player/hooks/use-auto-next-episode";
+import { NextEpisodePrefetch } from "./player/next-episode-prefetch";
 import { useStillWatching } from "./player/hooks/use-still-watching";
 import { useStartedNearEnd } from "./player/hooks/use-started-near-end";
 import { useFrameGrab } from "./player/hooks/use-frame-grab";
@@ -1613,6 +1614,28 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     syncToast,
     onSyncPlayPause: playPauseToggle,
   };
+  const prefetchAddonId = liveStreamRef?.addonId ?? src.streamRef?.addonId ?? null;
+  const prefetchNextEpisode =
+    settings.keepSourceNextEpisode &&
+    settings.autoPlayNextEpisode &&
+    !queueOrSleepArmed &&
+    !isLiveLike &&
+    canChangeEpisode &&
+    !!airedNext &&
+    (src.meta.type === "series" || /^(kitsu|mal|anilist|anidb):/.test(src.meta.id)) &&
+    prefetchAddonId
+      ? airedNext
+      : null;
+  const prefetchTarget = useMemo(
+    () =>
+      prefetchNextEpisode &&
+      src.meta.id.startsWith("tt") &&
+      src.episode?.sourceMetaId &&
+      !prefetchNextEpisode.sourceMetaId
+        ? { ...prefetchNextEpisode, sourceMetaId: src.episode.sourceMetaId }
+        : prefetchNextEpisode,
+    [prefetchNextEpisode, src.meta.id, src.episode?.sourceMetaId],
+  );
   return (
     <main
       ref={stageRef}
@@ -1633,6 +1656,17 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
       onMouseMove={wakeChrome}
       onMouseEnter={wakeChrome}
     >
+      {prefetchNextEpisode && prefetchAddonId && (
+        <NextEpisodePrefetch
+          key={`${src.meta.id}:${prefetchNextEpisode.season}:${prefetchNextEpisode.episode}:${prefetchNextEpisode.videoId ?? ""}`}
+          meta={src.meta}
+          nextEpisode={prefetchTarget ?? prefetchNextEpisode}
+          imdbId={resolvedImdbId}
+          imdbVerified={resolvedImdbVerified}
+          addonId={prefetchAddonId}
+          durationSec={snap.durationSec}
+        />
+      )}
       <div
         ref={videoMountRef}
         data-player-video-mount

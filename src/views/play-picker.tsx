@@ -35,6 +35,7 @@ import {
   streamMatchesEntry,
   streamMatchesReleaseLineage,
   streamMatchesSource,
+  preferredSourceAddonPending,
 } from "@/lib/playback-history";
 import { readSeasonLock } from "@/lib/season-lock";
 import { continuationStream } from "@/lib/player/continue-playback";
@@ -520,9 +521,10 @@ export function PlayPicker({
     !roomGuestPick;
   useEffect(() => {
     if (!autoActive) return;
+    if (preferredSourceAddonPending(lastSeriesSource, false, pipelineDone, addonQuorum)) return;
     const t = window.setTimeout(() => setAutoCancelled(true), 45_000);
     return () => window.clearTimeout(t);
-  }, [autoActive]);
+  }, [autoActive, lastSeriesSource, pipelineDone, addonQuorum]);
 
   const previousMatch: ScoredStream | null = useMemo(() => {
     if (!filteredPicker || !previousPlayback) return null;
@@ -699,7 +701,7 @@ export function PlayPicker({
     openPlayerGated,
   ]);
 
-  useAutoFire({
+  const { waitingForPreferredSource } = useAutoFire({
     autoActive,
     rememberedHandledFirst: rememberedHandledFirst && autoAttemptIdx === 0,
     attempt,
@@ -727,6 +729,12 @@ export function PlayPicker({
     setAutoCancelled,
     onPlay,
   });
+  const preferredAddonName = useMemo(() => {
+    if (!waitingForPreferredSource) return null;
+    const id = lastSeriesSource?.addonId;
+    if (!id) return null;
+    return addons?.find((a) => a.manifest.id === id)?.manifest.name ?? id;
+  }, [waitingForPreferredSource, lastSeriesSource, addons]);
 
   const allCount = filteredPicker?.all.length ?? 0;
   const rawCount = (result?.raw.addon.length ?? 0) + (result?.raw.library.length ?? 0);
@@ -916,6 +924,7 @@ export function PlayPicker({
         p2p={resolving?.p2p === true}
         attemptIdx={autoAttemptIdx}
         download={isDownload}
+        waitingFor={preferredAddonName}
         onCancel={() => {
           abortResolve();
           setResolving(null);

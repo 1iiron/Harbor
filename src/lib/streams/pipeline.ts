@@ -139,6 +139,7 @@ export async function runPipeline(
   let latestAddonStreams: Stream[] = [];
   const debridErrors: DebridError[] = [];
   let addonErrors: AddonFailure[] = [];
+  let latestAddonProgress: AddonProgress | null = null;
   const priorityActive = input.addonRanks != null;
 
   // Debrid verification runs alongside the addon fetch instead of after it, so
@@ -247,10 +248,12 @@ export async function runPipeline(
   const emitPartialNow = (): void => {
     if (!onProgress || signal.aborted || !acceptPartials) return;
     const revision = ++partialRevision;
+    const progress = latestAddonProgress;
     void buildPartial(latestAddonStreams)
       .then((result) => {
         if (signal.aborted || !acceptPartials || revision !== partialRevision) return;
         onProgress(result);
+        if (progress) onAddonProgress?.(progress);
       })
       .catch(() => {
         /* swallow */
@@ -292,7 +295,11 @@ export async function runPipeline(
   const handleAddonProgress = (progress: AddonProgress): void => {
     if (signal.aborted || !acceptPartials) return;
     addonErrors = progress.failures ?? [];
-    onAddonProgress?.(progress);
+    latestAddonProgress = progress;
+    // Pending requests are visible immediately. Settlement must travel with a
+    // processed candidate snapshot, never ahead of asynchronous parsing.
+    if (progress.settledAddonIds.length === 0) onAddonProgress?.(progress);
+    else emitPartialNow();
   };
 
   // Library listings do not depend on the addon responses, so start them with the
