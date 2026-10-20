@@ -84,6 +84,8 @@ mod dlna;
 #[cfg(desktop)]
 mod dvr;
 #[cfg(desktop)]
+mod external_player;
+#[cfg(desktop)]
 mod fullscreen;
 #[cfg(desktop)]
 mod games;
@@ -186,6 +188,8 @@ pub(crate) fn shutdown_services(app: &tauri::AppHandle) {
     cast_server::stop();
     torrent_engine::stop();
     discord_rp::shutdown(app);
+    #[cfg(desktop)]
+    external_player::shutdown();
     crash_report::mark_clean_exit();
 }
 
@@ -1152,10 +1156,42 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            use tauri::Manager;
+
+            #[cfg(target_os = "linux")]
+            if window.label() == pip_window::PIP_LABEL {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    // Keep GTK/Tauri from destroying the host before mpv is
+                    // retargeted back to the main window.
+                    api.prevent_close();
+
+                    let app = window.app_handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        let state = app.state::<pip_window::PipWindowState>();
+
+                        match pip_window::pip_window_exit(app.clone(), state).await {
+                            Ok(()) => {
+                                // Also handles an already-inactive but visible stale window.
+                                if let Some(pip) =
+                                    app.get_webview_window(pip_window::PIP_LABEL)
+                                {
+                                    let _ = pip.hide();
+                                }
+                            }
+                            Err(error) => {
+                                eprintln!(
+                                    "[harbor::pip] failed to restore video after PiP close: {error}"
+                                );
+                            }
+                        }
+                    });
+                }
+                return;
+            }
+
             if window.label() != "main" {
                 return;
             }
-            use tauri::Manager;
             #[cfg(windows)]
             if matches!(
                 event,
@@ -1657,6 +1693,9 @@ pub fn run() {
             cf_relay::cf_relay_status,
             mpv::mpv_probe,
             mpv::mpv_start,
+            external_player::external_player_start,
+            external_player::external_player_command,
+            external_player::external_player_stop,
             mpv::mpv_command,
             mpv::mpv_set_property,
             mpv::mpv_get_property,

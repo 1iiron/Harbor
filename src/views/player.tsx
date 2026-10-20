@@ -53,6 +53,7 @@ import { isWeb } from "@/lib/platform";
 import { usePauseOnInactive } from "./player/hooks/use-pause-on-inactive";
 import { spoilerMaskFor } from "@/lib/spoilers";
 import { usePlayerWatched } from "./player/hooks/use-player-watched";
+import { EXTERNAL_PLAYER_CLOSED_EVENT } from "@/lib/player/external-mpv";
 import { useRoomSync } from "./player/hooks/use-room-sync";
 import { useHostSource } from "./player/hooks/use-host-source";
 import { useLobbyGate } from "./player/hooks/use-lobby-gate";
@@ -630,6 +631,16 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     onClose: () => void closePlayer(),
   });
   const shrinkEndScreen = endScreen.open && endScreen.mode === "shrink";
+  // When the full end screen is up after mpv finished, it closes the player itself.
+  const endScreenFullRef = useRef(false);
+  endScreenFullRef.current = endScreen.open && endScreen.mode === "full";
+  useEffect(() => {
+    const onExternalClosed = () => {
+      if (!endScreenFullRef.current) closePlayerRef.current();
+    };
+    window.addEventListener(EXTERNAL_PLAYER_CLOSED_EVENT, onExternalClosed);
+    return () => window.removeEventListener(EXTERNAL_PLAYER_CLOSED_EVENT, onExternalClosed);
+  }, []);
   const backFromPlayer = useCallback(async () => {
     if (src.sportsDocked === false) {
       // Keep the mounted playback engine and current source; only change its surface.
@@ -762,6 +773,7 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
   const showHeaderWarning =
     src.notWebReady === true &&
     engine === "html5" &&
+    !settings.playerExternalMpv &&
     (snap.status === "error" || snap.status === "loading");
   const [noAudioDismissed, setNoAudioDismissed] = useState(false);
   useEffect(() => {

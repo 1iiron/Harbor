@@ -137,9 +137,11 @@ export function usePlayerBridge(params: {
     if (svpOn) void svpEnsureRunning().catch(() => {});
   }, [svpOn]);
   const isLiveLike = isLivePlaybackSrc(src);
+  const externalMpv =
+    settings.playerExternalMpv && (isWindowsDesktop() || isMacDesktop() || isLinuxDesktop());
   const chosenEngine =
     isLiveLike && !src.notWebReady ? "html5" : autoFallbackTried ? "mpv" : settings.playerEngine;
-  const bridgeKey = `${chosenEngine}|${anime4kOn}|${embedActive}|${anime4kOn ? settings.playerAnime4kShaders.join(",") : ""}|${generalShaderKey(settings)}|${svpOn}|${svpOn ? settings.svpVpyPath : ""}`;
+  const bridgeKey = `${chosenEngine}|${anime4kOn}|${embedActive}|${anime4kOn ? settings.playerAnime4kShaders.join(",") : ""}|${generalShaderKey(settings)}|${svpOn}|${svpOn ? settings.svpVpyPath : ""}|${externalMpv ? `ext:${settings.playerExternalMpvPath}:${settings.playerExternalMpvArgs}` : ""}`;
   const [bridgeReady, setBridgeReady] = useState(false);
   useEffect(() => {
     if (svpPending || anime4kPending) return;
@@ -179,6 +181,13 @@ export function usePlayerBridge(params: {
           .filter(Boolean)
           .join("\n"),
         getEmbedRect,
+        external: externalMpv
+          ? {
+              binary: settings.playerExternalMpvPath,
+              args: settings.playerExternalMpvArgs,
+              title: [src.title, src.subtitle].filter(Boolean).join(" - "),
+            }
+          : null,
       });
       if (cancelled) return;
       bridge = choose;

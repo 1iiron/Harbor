@@ -103,6 +103,8 @@ export type PlayerSource = {
   }[];
   notWebReady?: boolean;
   startAtSec?: number;
+  startPaused?: boolean;
+  title?: string;
   isLive?: boolean;
   headers?: Record<string, string>;
 };
@@ -172,6 +174,8 @@ export type PlayerBridge = {
 
 export type PlayerCapabilities = {
   engine: "html5" | "mpv";
+  /** Playback runs in the user's own external player window, outside Harbor. */
+  external?: boolean;
   pictureInPicture: boolean;
   airplay: boolean;
   chromecast: boolean;
