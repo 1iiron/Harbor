@@ -1,6 +1,12 @@
 name: tauri-build
 
 on:
+  workflow_call:
+    inputs:
+      intel-only:
+        description: Build only macOS Intel and treat its failure as fatal.
+        type: boolean
+        default: false
   workflow_dispatch:
   push:
     tags:
@@ -22,23 +28,14 @@ jobs:
     name: ${{ matrix.platform.name }} (${{ matrix.platform.target }})
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 120
-    continue-on-error: ${{ matrix.platform.target == 'x86_64-apple-darwin' }}
+    continue-on-error: ${{ !inputs.intel-only && matrix.platform.target == 'x86_64-apple-darwin' }}
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - name: Windows
-            runner: windows-latest
-            target: x86_64-pc-windows-msvc
-            bundle: msi
-          - name: macOS-AppleSilicon
-            runner: macos-15
-            target: aarch64-apple-darwin
-            bundle: dmg
-          - name: macOS-Intel
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            bundle: dmg
+        platform: >-
+          ${{ fromJSON(inputs.intel-only &&
+          '[{"name":"macOS-Intel","runner":"macos-15-intel","target":"x86_64-apple-darwin","bundle":"dmg"}]' ||
+          '[{"name":"Windows","runner":"windows-latest","target":"x86_64-pc-windows-msvc","bundle":"msi"},{"name":"macOS-AppleSilicon","runner":"macos-15","target":"aarch64-apple-darwin","bundle":"dmg"},{"name":"macOS-Intel","runner":"macos-15-intel","target":"x86_64-apple-darwin","bundle":"dmg"}]') }}
 
     steps:
       - uses: actions/checkout@v4
@@ -211,6 +208,7 @@ jobs:
           python3 tests/test_macos_signature.py
           python3 tests/test_macos_resign.py
           python3 tests/test_macos_startup.py
+          python3 tests/test_unrar_cpu_detection.py
           python3 scripts/macos-bundle-libmpv.py prepare \
             --frameworks "$FRAMEWORKS_DIR" \
             --config "$CONFIG_PATH" \
@@ -337,7 +335,7 @@ jobs:
   publish-windows:
     name: Publish the Windows installer
     needs: build
-    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ !inputs.intel-only && !cancelled() && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -376,7 +374,7 @@ jobs:
   publish-macos:
     name: Publish the Apple silicon installer
     needs: build
-    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ !inputs.intel-only && !cancelled() && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
