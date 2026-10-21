@@ -413,6 +413,9 @@ function parseStoredSettings(raw: string | null): { settings: Settings; cacheabl
     const settings: Settings = {
       ...DEFAULT,
       ...parsed,
+      spooktoberBanner: ["disabled", "small", "below-hero"].includes(parsed.spooktoberBanner ?? "")
+        ? parsed.spooktoberBanner
+        : undefined,
       togetherRelayUrl: migratePublicRelayUrl(
         typeof parsed.togetherRelayUrl === "string"
           ? parsed.togetherRelayUrl

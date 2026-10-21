@@ -31,6 +31,7 @@ import { previewScreensaver } from "@/lib/screensaver/media";
 import { PosterCardSection } from "./display/poster-card-section";
 import { ScreensaverMediaManager } from "./screensaver-media";
 import { SFX } from "@/lib/sfx";
+import { isSpooktoberSeason } from "@/lib/spooktober-season";
 
 export function AmbienceSection() {
   const t = useT();
@@ -198,6 +199,33 @@ export function DisplaySection() {
     : 25;
   return (
     <>
+      {isSpooktoberSeason() && (
+        <Section title="Spooktober" subtitle={t("Temporary seasonal settings for Spooktober.")}>
+          <SettingGroup>
+            <SettingRow
+              label={t("Spooktober banner")}
+              desc={t(
+                "Hide the banner, keep it small in the top-right corner of the hero, or show the full banner below the hero.",
+              )}
+              icon={<Moon size={18} />}
+            >
+              <Dropdown
+                value={settings.spooktoberBanner ?? "small"}
+                options={[
+                  { value: "disabled", label: t("Disabled") },
+                  { value: "small", label: t("Small - Top Right") },
+                  { value: "below-hero", label: t("Below hero") },
+                ]}
+                onChange={(value) =>
+                  update({
+                    spooktoberBanner: value as NonNullable<typeof settings.spooktoberBanner>,
+                  })
+                }
+              />
+            </SettingRow>
+          </SettingGroup>
+        </Section>
+      )}
       {libraryAvailable && (
         <Section title={t("music.library")}>
           <SettingGroup>

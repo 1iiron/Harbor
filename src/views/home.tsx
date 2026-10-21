@@ -132,10 +132,12 @@ export function Home({
   active = true,
   onReady,
   seasonalInvitation,
+  seasonalInvitationPlacement = "small",
 }: {
   active?: boolean;
   onReady?: () => void;
   seasonalInvitation?: ReactNode;
+  seasonalInvitationPlacement?: "small" | "below-hero";
 }) {
   const { authKey, user } = useAuth();
   const { activeProfile, profiles } = useProfiles();
@@ -1395,7 +1397,7 @@ export function Home({
                     />
                   </div>
                 )}
-                {seasonalInvitation && (
+                {seasonalInvitation && seasonalInvitationPlacement === "small" && (
                   <div
                     data-hero-overlay-slot="seasonal"
                     className="pointer-events-none absolute end-5 top-5 z-20 flex w-[min(360px,42%)] justify-end [&>*]:pointer-events-auto"
@@ -1424,7 +1426,8 @@ export function Home({
                 />
               </div>
             )}
-          {(settings.homeMode === "classic" ||
+          {(seasonalInvitationPlacement === "below-hero" ||
+            settings.homeMode === "classic" ||
             homeRowsCustom.hidden.includes("hero") ||
             !showHero) &&
             seasonalInvitation}

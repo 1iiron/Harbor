@@ -20,6 +20,7 @@ export const DEFAULT_SECONDARY_PRIVILEGES: SecondaryProfilePrivileges = {
 
 export const DEFAULT: Settings = {
   accountProvider: "stremio",
+  spooktoberBanner: undefined,
   soundTheme: "none",
   sfxVolume: 50,
   playerVolumeSfx: false,

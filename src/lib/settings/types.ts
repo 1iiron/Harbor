@@ -117,6 +117,7 @@ export type AccountProvider = "stremio" | "nuvio";
 
 export type Settings = {
   accountProvider: AccountProvider;
+  spooktoberBanner: "disabled" | "small" | "below-hero" | undefined;
   soundTheme: "none" | "glass" | "modern" | "retro" | "cinematic";
   sfxVolume: number;
   playerVolumeSfx: boolean;
