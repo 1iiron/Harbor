@@ -83,8 +83,8 @@ export function useRpdbAltId(
   type?: "movie" | "series",
 ): { altId: string | undefined; pending: boolean } {
   const { settings } = useSettings();
-  const wantImdb = needsImdbForPoster(rpdbKey, metaId);
-  const wantTmdb = needsTmdbForPoster(rpdbKey, metaId);
+  const wantImdb = needsImdbForPoster(rpdbKey, metaId, settings.posterBaseUrl);
+  const wantTmdb = needsTmdbForPoster(rpdbKey, metaId, settings.posterBaseUrl);
   const imdb = useTmdbImdbId(wantImdb ? metaId : undefined);
   const tmdb = useTmdbIdFromImdb(wantTmdb ? metaId : undefined);
   useEffect(() => {
@@ -148,6 +148,7 @@ export function usePosterChain(
   metaPoster?: string,
   type?: "movie" | "series",
 ) {
+  const { settings } = useSettings();
   const { altId, pending } = useRpdbAltId(rpdbKey, metaId, type);
   const { animeImdb, animeTvdb, animeTmdb } = useAnimeRpdbIds(rpdbKey, metaId);
   const { url: localized, localizing } = useLocalizedPoster(metaId);
@@ -162,9 +163,20 @@ export function usePosterChain(
     const fallbacks = localizing
       ? [pinned]
       : [
-          animeImdb ? rpdbPoster(rpdbKey, animeImdb, base, animeTmdb) : undefined,
-          animeTvdb ? rpdbPoster(rpdbKey, `tvdb:${animeTvdb}`, base) : undefined,
-          rpdbPoster(rpdbKey, metaId, base, altId),
+          animeImdb
+            ? rpdbPoster(rpdbKey, animeImdb, base, animeTmdb, settings.posterBaseUrl, type)
+            : undefined,
+          animeTvdb
+            ? rpdbPoster(
+                rpdbKey,
+                `tvdb:${animeTvdb}`,
+                base,
+                undefined,
+                settings.posterBaseUrl,
+                type,
+              )
+            : undefined,
+          rpdbPoster(rpdbKey, metaId, base, altId, settings.posterBaseUrl, type),
           localized,
           metaPoster,
         ];
@@ -177,6 +189,8 @@ export function usePosterChain(
     return out;
   }, [
     rpdbKey,
+    settings.posterBaseUrl,
+    type,
     metaId,
     altId,
     metaPoster,

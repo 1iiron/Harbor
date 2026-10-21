@@ -276,10 +276,10 @@ const PosterCard = memo(function PosterCard({
   const [imgIdx, setImgIdx] = useState(0);
   const [hydratedPoster, setHydratedPoster] = useState<string | undefined>();
   const { url: localizedPoster, localizing: posterLocalizing } = useLocalizedPoster(meta.id);
-  const wantTmdbPoster = needsTmdbForPoster(settings.rpdbKey, meta.id);
+  const wantTmdbPoster = needsTmdbForPoster(settings.rpdbKey, meta.id, settings.posterBaseUrl);
   const resolvedTmdb = useTmdbIdFromImdb(wantTmdbPoster ? meta.id : undefined);
   const animeTmdb = useTmdbIdFromImdb(animeImdb) ?? undefined;
-  const posterNeedsImdb = needsImdbForPoster(settings.rpdbKey, meta.id);
+  const posterNeedsImdb = needsImdbForPoster(settings.rpdbKey, meta.id, settings.posterBaseUrl);
   const posterAltId = posterNeedsImdb
     ? imdbId
     : wantTmdbPoster
@@ -298,9 +298,34 @@ const PosterCard = memo(function PosterCard({
     const out: string[] = [];
     for (const u of [
       pinnedPoster,
-      animeImdb ? rpdbPoster(settings.rpdbKey, animeImdb, base, animeTmdb) : undefined,
-      animeTvdb ? rpdbPoster(settings.rpdbKey, `tvdb:${animeTvdb}`, base) : undefined,
-      rpdbPoster(settings.rpdbKey, meta.id, base, posterAltId),
+      animeImdb
+        ? rpdbPoster(
+            settings.rpdbKey,
+            animeImdb,
+            base,
+            animeTmdb,
+            settings.posterBaseUrl,
+            meta.type === "series" ? "series" : "movie",
+          )
+        : undefined,
+      animeTvdb
+        ? rpdbPoster(
+            settings.rpdbKey,
+            `tvdb:${animeTvdb}`,
+            base,
+            undefined,
+            settings.posterBaseUrl,
+            "series",
+          )
+        : undefined,
+      rpdbPoster(
+        settings.rpdbKey,
+        meta.id,
+        base,
+        posterAltId,
+        settings.posterBaseUrl,
+        meta.type === "series" ? "series" : "movie",
+      ),
       localizedPoster,
       meta.poster,
       hydratedPoster,
@@ -312,6 +337,8 @@ const PosterCard = memo(function PosterCard({
     return out;
   }, [
     settings.rpdbKey,
+    settings.posterBaseUrl,
+    meta.type,
     meta.id,
     posterAltId,
     meta.poster,
