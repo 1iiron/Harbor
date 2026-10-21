@@ -7,6 +7,7 @@ import { cinemetaDetails } from "@/lib/providers/cinemeta-details";
 import { tmdbDetails, type TmdbDetail } from "@/lib/providers/tmdb/tmdb-details";
 import type { PlayerSrc } from "@/lib/view";
 import { effectiveTmdbLanguage } from "@/lib/providers/tmdb/tmdb-client";
+import { endScreenArt as hiRes } from "@/lib/player/end-screen-art";
 
 export type EndScreenMode = "full" | "shrink";
 
@@ -28,14 +29,6 @@ type Layout = {
 };
 
 const detailCache = new Map<string, TmdbDetail | null>();
-
-/** Catalog imagery is served at medium sizes; ask for the largest variant. */
-function hiRes(url?: string): string | undefined {
-  if (!url) return undefined;
-  return url
-    .replace(/\/(background|poster)\/(small|medium)\//, "/$1/large/")
-    .replace(/(\/t\/p\/)(?:w\d+|h\d+|original)(?:_and_h\d+)?(?:_bestv2)?\//, "$1original/");
-}
 
 function useFocusedDetail(meta: Meta | null, tmdbKey: string | null): TmdbDetail | null {
   const [detail, setDetail] = useState<TmdbDetail | null>(null);

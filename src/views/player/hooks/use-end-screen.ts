@@ -7,6 +7,7 @@ import { loadMoreLikeThis } from "@/lib/recommendations";
 import type { PlayerSrc } from "@/lib/view";
 import { isFinalSeriesEpisode } from "@/lib/player/series-finale";
 import { animeSeriesFromStreamId } from "@/lib/series-episodes";
+import { endScreenArt, warmEndScreenArt } from "@/lib/player/end-screen-art";
 
 /** Short stubs and clips should never get a recommendation screen. */
 const MIN_DURATION_SEC = 90;
@@ -43,6 +44,7 @@ export function useEndScreen(params: {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<EndScreenMode>("full");
   const [items, setItems] = useState<Meta[]>([]);
+  const [preparedUrl, setPreparedUrl] = useState<string | null>(null);
   const [focused, setFocused] = useState(0);
   const [countdown, setCountdown] = useState<number | null>(null);
   const firedEarlyRef = useRef<string | null>(null);
@@ -85,6 +87,7 @@ export function useEndScreen(params: {
     earlySinceRef.current = 0;
     setOpen(false);
     setItems([]);
+    setPreparedUrl(null);
     setFocused(0);
     setCountdown(null);
   }, [src.url]);
@@ -100,7 +103,7 @@ export function useEndScreen(params: {
   // The clock is watched through a plain subscription: this lives in the player
   // view, and subscribing React to the 100 ms clock would redraw the whole player.
   useEffect(() => {
-    if (!enabled || !eligible || open || isLive || leadSec === 0) return;
+    if (!enabled || !eligible || open || isLive || leadSec === 0 || preparedUrl !== src.url) return;
     if (snap.durationSec < MIN_DURATION_SEC) return;
 
     const evaluate = () => {
@@ -120,6 +123,10 @@ export function useEndScreen(params: {
       if (natural || ended) {
         if (firedEndRef.current === src.url) return;
         firedEndRef.current = src.url;
+        if (items.length === 0) {
+          latest.current.onClose();
+          return;
+        }
         setMode("full");
         setOpen(true);
         return;
@@ -127,6 +134,7 @@ export function useEndScreen(params: {
 
       // A lead longer than the film itself can never reach its mark.
       if (leadSec <= 0 || leadSec >= duration) return;
+      if (items.length === 0) return;
       const windowStart = duration - leadSec;
       if (position < windowStart) {
         earlySinceRef.current = 0;
@@ -144,7 +152,17 @@ export function useEndScreen(params: {
 
     evaluate();
     return subscribePlaybackClock(evaluate);
-  }, [eligible, enabled, isLive, leadSec, open, snap.durationSec, src.url]);
+  }, [
+    eligible,
+    enabled,
+    isLive,
+    leadSec,
+    open,
+    snap.durationSec,
+    src.url,
+    preparedUrl,
+    items.length,
+  ]);
 
   // The film can reach its end while the early screen is up; at that point the
   // mini player no longer has anything to show, so the card goes full-screen.
@@ -170,27 +188,42 @@ export function useEndScreen(params: {
     return subscribePlaybackClock(check);
   }, [open]);
 
-  // Load recommendations once the screen opens.
+  // Prepare cards while playback continues, before shrinking the player.
   useEffect(() => {
-    if (!open) return;
+    if (!enabled || !eligible || isLive || leadSec === 0 || snap.durationSec < MIN_DURATION_SEC)
+      return;
     let alive = true;
+    setPreparedUrl(null);
     const animeId = animeSeriesFromStreamId(src.episode?.kitsuStreamId);
     const recommendationMeta = animeId ? { ...src.meta, id: animeId } : src.meta;
-    void loadMoreLikeThis(recommendationMeta, tmdbKey).then((list) => {
-      if (!alive) return;
-      if (list.length === 0) {
-        const { mode: currentMode, onClose: close } = latest.current;
-        setOpen(false);
-        if (currentMode === "full") close();
-        return;
-      }
-      setItems(list);
-      setFocused(0);
-    });
+    void loadMoreLikeThis(recommendationMeta, tmdbKey)
+      .catch(() => [])
+      .then(async (list) => {
+        if (!alive) return;
+        await warmEndScreenArt([
+          endScreenArt(src.meta.background),
+          endScreenArt(src.meta.poster),
+          ...list.map((item) => endScreenArt(item.background ?? item.poster)),
+        ]);
+        if (!alive) return;
+        setItems(list);
+        setFocused(0);
+        setPreparedUrl(src.url);
+      });
     return () => {
       alive = false;
     };
-  }, [open, src.meta, src.episode?.kitsuStreamId, tmdbKey]);
+  }, [
+    enabled,
+    eligible,
+    isLive,
+    leadSec === 0,
+    snap.durationSec >= MIN_DURATION_SEC,
+    src.url,
+    src.meta,
+    src.episode?.kitsuStreamId,
+    tmdbKey,
+  ]);
 
   // Countdown. Any interaction cancels it for the rest of this screen.
   useEffect(() => {
