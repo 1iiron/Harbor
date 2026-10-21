@@ -135,6 +135,7 @@ export function EpisodeGridCard({
           <span className="text-[11.5px] text-ink-subtle">
             {g.seasonLabel ? `${g.seasonLabel} · E${g.number}` : `E${g.number}`}
             {g.runtime ? ` · ${t("{n} min", { n: g.runtime })}` : ""}
+            {formatAirDate(g.airDate) ? ` · ${formatAirDate(g.airDate)}` : ""}
           </span>
           {settings.showEpisodeDescription && g.overview && (
             <p
@@ -195,7 +196,7 @@ function StatusTag({
   return null;
 }
 
-function EpisodePreview({
+export function EpisodePreview({
   meta,
   g,
   still,
@@ -215,8 +216,9 @@ function EpisodePreview({
   t: T;
 }) {
   const { openEpisodeDetail } = useView();
+  const { settings } = useSettings();
   return (
-    <div className="animate-popover-in absolute -inset-x-2 -top-2 z-30 overflow-hidden rounded-2xl border border-edge bg-elevated shadow-[0_24px_60px_-18px_rgba(0,0,0,0.8)]">
+    <div className="group animate-popover-in absolute -inset-x-2 -top-2 z-30 overflow-hidden rounded-2xl border border-edge bg-elevated shadow-[0_24px_60px_-18px_rgba(0,0,0,0.8)]">
       <button
         onClick={() => g.play({ resume: !watched && ratio > 0.01 })}
         onContextMenu={onContext}
@@ -261,7 +263,7 @@ function EpisodePreview({
           )}
         </span>
         <EpisodeReleaseCountdown date={g.airDate} className="text-[11.5px]" />
-        {g.overview && (
+        {settings.showEpisodeDescription && g.overview && (
           <div className="max-h-28 overflow-y-auto pe-1 text-[12.5px] leading-relaxed text-ink-muted [scrollbar-width:thin]">
             {g.overview}
           </div>

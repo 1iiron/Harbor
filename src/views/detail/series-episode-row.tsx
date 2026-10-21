@@ -170,7 +170,7 @@ export function EpisodeRow({
             )}
           </p>
           <EpisodeReleaseCountdown date={ep.airDate} />
-          {ep.overview && (
+          {settings.showEpisodeDescription && ep.overview && (
             <p
               className={`line-clamp-2 text-[13.5px] leading-relaxed text-ink-muted ${
                 spoiler?.desc ? SPOILER_TEXT_CLASS : ""
