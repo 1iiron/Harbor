@@ -115,6 +115,21 @@ html[data-os="linux"][data-mpv-embed="1"] [data-harbor-player] * {
   backdrop-filter: none !important;
 }
 
+/* #31: avoid Library backdrop-filter layers on WebKitGTK. The captured
+   WebProcess stack waits on the compositor, which repeatedly traverses its
+   layer tree. Keep accelerated compositing enabled for the native player;
+   removing backdrop sampling here is a scoped mitigation pending Linux retest.
+   Include pseudo-elements used by themes and badges. */
+html[data-os="linux"] [data-harbor-library],
+html[data-os="linux"] [data-harbor-library] *,
+html[data-os="linux"] [data-harbor-library]::before,
+html[data-os="linux"] [data-harbor-library]::after,
+html[data-os="linux"] [data-harbor-library] *::before,
+html[data-os="linux"] [data-harbor-library] *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 body {
   user-select: none;
   cursor: default;
