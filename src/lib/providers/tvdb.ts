@@ -294,10 +294,13 @@ export async function tvdbSeasonTypes(
 export type TvdbSeasonInfo = {
   id: number | null;
   number: number;
+  seriesId?: number;
+  typeSlug?: string;
   /** Display name. The proxy already resolves this in English for /series/extended. */
   name: string;
   /** Overview from the same response; the proxy localizes it with overviewLang. */
   overview?: string;
+  overviewLanguage?: string;
   image?: string;
 };
 
@@ -323,7 +326,18 @@ export async function tvdbSeasons(
     const name = typeof s.name === "string" ? s.name.trim() : "";
     const overview = typeof s.overview === "string" ? s.overview.trim() || undefined : undefined;
     const id = typeof s.id === "number" ? s.id : null;
-    map.set(num, { id, number: num, name, overview, image: tvdbImg(s.image) });
+    // TVDB can pack several codes into one entry, e.g. ["eng,tur,fra"].
+    const overviewTranslations = Array.isArray(s.overviewTranslations)
+      ? s.overviewTranslations.flatMap((value: unknown) => typeof value === "string"
+        ? value.split(",").map((code) => code.trim()).filter(Boolean)
+        : [])
+      : undefined;
+    const overviewLanguage = !apiKey.trim() && lang
+      ? episodeTextLanguage(overview, lang, undefined, overviewTranslations)
+      : "und";
+    map.set(num, {
+      id, number: num, seriesId, typeSlug, name, overview, overviewLanguage, image: tvdbImg(s.image),
+    });
   }
   return map;
 }

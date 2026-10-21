@@ -84,6 +84,9 @@ export function useSeasonArcPicker({
             overview: tmdbSeasonNameFallback
               ? tmdbSeason?.overview || s.overview
               : s.overview,
+            overviewLanguage: tmdbSeasonNameFallback && tmdbSeason?.overview
+              ? tmdbSeason.overviewLanguage
+              : s.overviewLanguage,
             poster: tmdbSeasonNameFallback ? seasonPosters?.[s.seasonNumber] : undefined,
           };
         }),
@@ -105,6 +108,7 @@ export function useSeasonArcPicker({
         seasonNumber: s.seasonNumber,
         isGenericName: s.isGenericName,
         overview: s.overview,
+        overviewLanguage: s.overviewLanguage,
         poster: seasonPosters?.[s.seasonNumber],
       })),
       activeKey: String(active),

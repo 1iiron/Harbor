@@ -213,7 +213,7 @@ const SelectedSeasonPanel = memo(function SelectedSeasonPanel({
 }) {
   const t = useT();
   const activeKey = active.key;
-  const overview = detail?.overview || active.overview;
+  const overview = detail?.overview;
   const from = formatDate(active.from);
   const to = formatDate(active.to);
   const dates = from && to ? (from === to ? from : `${from} – ${to}`) : from || to || active.year;

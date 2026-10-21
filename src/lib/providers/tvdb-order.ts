@@ -278,6 +278,7 @@ async function build(
         nameLanguage: "en",
         isGenericName: joinedClean || rawAbsolute || isGenericTvdbSeasonName(name, n),
         overview: joinedClean || rawAbsolute ? "" : seasonInfos.get(n)?.overview ?? "",
+        overviewLanguage: joinedClean || rawAbsolute ? undefined : seasonInfos.get(n)?.overviewLanguage,
         // TVDB artwork uses absolute URLs, unlike TMDB poster paths.
         posterPath: joinedClean || rawAbsolute ? null : seasonInfos.get(n)?.image ?? null,
         episodeCount: bySeason.get(n)!.length,

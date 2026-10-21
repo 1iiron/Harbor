@@ -413,6 +413,7 @@ export function useAnimeTvdbPanel(
         name: s.name,
         nameLanguage: s.nameLanguage ?? "en",
         overview: s.overview,
+        overviewLanguage: s.overviewLanguage,
         count: eps.length,
         year: s.airDate?.slice(0, 4),
         from,

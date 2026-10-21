@@ -19,7 +19,7 @@ import { getEpisodeProgress, resumeDefaultSeason } from "@/lib/episode-progress"
 import { scrollToDataEp } from "@/lib/episode-scroll";
 import { getViewedSeason } from "@/lib/season-view-pref";
 import { tmdbSeasonEpisodes, type Episode, type Season } from "@/lib/providers/tmdb";
-import { tmdbLanguageIso } from "@/lib/providers/tmdb/tmdb-client";
+import { effectiveTmdbLanguage, tmdbLanguageIso } from "@/lib/providers/tmdb/tmdb-client";
 import type { OrderedEpisode } from "@/lib/providers/tvdb-order";
 import { pickPreferredEpisodeOverview, pickPreferredEpisodeTitle } from "@/lib/localized-text";
 import {
@@ -54,7 +54,6 @@ import { useSeriesTvdbStills } from "./series-episodes/use-series-tvdb-stills";
 import { TvdbOrderPanel } from "./series-episodes/tvdb-order-panel";
 import { SeasonExplorer } from "./season-explorer";
 import { useSeasonExplorerView } from "./use-season-explorer";
-import { tvdbLangFromIso1 } from "@/lib/providers/tvdb";
 
 export function SeriesEpisodes({
   meta,
@@ -537,7 +536,7 @@ export function SeriesEpisodes({
     seasonPosters,
     titlePoster: meta.poster,
     seasonType: explorerType === "aired" ? "official" : explorerType,
-    lang: tvdbLangFromIso1(tmdbLanguageIso()),
+    lang: effectiveTmdbLanguage(),
     items: picker.items,
     activeKey: picker.activeKey,
     enabled: showExplorer,

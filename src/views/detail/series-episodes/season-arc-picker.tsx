@@ -22,6 +22,7 @@ export type PickerItem = {
   /** TMDB fallback when no TVDB metadata is available. */
   fallbackName?: string;
   overview?: string;
+  overviewLanguage?: string;
   poster?: string;
 };
 

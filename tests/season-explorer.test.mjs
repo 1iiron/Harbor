@@ -51,7 +51,10 @@ function load(file, dependencies, globals = {}) {
   return module.exports;
 }
 
-function providerFixture({ fail = false, localizedOverview = " ", missingEnglish = false } = {}) {
+function providerFixture({
+  fail = false, localizedOverview = " ", missingEnglish = false, requestedLanguage = "fra",
+  proxyOverview, proxyLanguages = ["eng"], englishOverview = "English season synopsis",
+} = {}) {
   const calls = [];
   const requests = [];
   const tvdb = load("src/lib/providers/tvdb.ts", {
@@ -73,15 +76,20 @@ function providerFixture({ fail = false, localizedOverview = " ", missingEnglish
             status: 200,
             json: async () => ({
               data: {
-                seasons: [{ ...season, name: "Saga française", type: { type: "official" } }],
+                seasons: [{
+                  ...season, name: "Saga française", type: { type: "official" },
+                  overview: new URL(url).searchParams.get("overviewLang") === "eng"
+                    ? englishOverview : proxyOverview ?? season.overview,
+                  overviewTranslations: proxyLanguages,
+                }],
               },
             }),
           };
         if (missingEnglish && path.endsWith("/eng")) return { ok: false, status: 404 };
-        const data = path.endsWith("/fra")
+        const data = path.endsWith(`/${requestedLanguage}`)
           ? { name: "Saga française", overview: localizedOverview }
           : path.endsWith("/eng")
-            ? { name: "English Saga", overview: "English season synopsis" }
+            ? { name: "English Saga", overview: englishOverview }
             : {
                 image: "/default.jpg",
                 artwork: [
@@ -102,7 +110,10 @@ function providerFixture({ fail = false, localizedOverview = " ", missingEnglish
       },
     },
   });
-  const details = load("src/lib/providers/tvdb-season-details.ts", { "./tvdb": tvdb });
+  const details = load("src/lib/providers/tvdb-season-details.ts", {
+    "./tvdb": tvdb,
+    "@/lib/episode-text-language": episodeTextLanguage,
+  });
   return { ...tvdb, ...details, calls, requests };
 }
 
@@ -119,6 +130,7 @@ const season = {
   number: 1,
   name: "East Blue",
   overview: "East Blue synopsis",
+  overviewLanguage: "en",
   image: "https://artworks.thetvdb.com/base.jpg",
 };
 
@@ -252,7 +264,32 @@ function tmdbArtworkFixture(get = async () => null) {
   return { ...provider, calls };
 }
 
-function hookFixture({ catalog, detail, artwork, tmdbGet, react: suppliedReact } = {}) {
+function synopsisFixture(get = async () => null, globals = {}) {
+  const calls = [];
+  const provider = load("src/lib/providers/season-synopsis.ts", {
+    "@/lib/cache": { lruSet: (map, key, value, max) => {
+      map.set(key, value);
+      while (map.size > max) map.delete(map.keys().next().value);
+    } },
+    "@/lib/memory-profiler": { registerCache: () => {} },
+    "@/lib/episode-text-language": episodeTextLanguage,
+    "./tmdb/tmdb-client": { get: async (key, path, params) => {
+      calls.push({ key, path, params });
+      return get(key, path, params);
+    } },
+  }, globals);
+  return { ...provider, calls };
+}
+
+function seasonTranslations(...entries) {
+  return { translations: entries.map(([language, overview, region]) => ({
+    iso_639_1: language, iso_3166_1: region, data: { overview },
+  })) };
+}
+
+const tvdbLanguage = (lang) => ({ en: "eng", fr: "fra", tr: "tur", ar: "ara" })[episodeTextLanguage.episodeLanguageBase(lang)] ?? "eng";
+
+function hookFixture({ catalog, detail, artwork, tmdbGet, synopsisGet, react: suppliedReact } = {}) {
   const state = [],
     effects = [],
     cleanups = [],
@@ -260,10 +297,16 @@ function hookFixture({ catalog, detail, artwork, tmdbGet, react: suppliedReact }
   const calls = [];
   const artworkCalls = [];
   const tmdbArtwork = tmdbArtworkFixture(tmdbGet);
+  const synopsis = synopsisFixture(synopsisGet);
   let stateIndex = 0,
     effectIndex = 0;
   const react = suppliedReact ?? {
-    useMemo: (callback) => callback(),
+    useMemo: (callback, deps) => {
+      const memo = react.useRef();
+      if (!memo.current || !deps?.every((value, i) => Object.is(value, memo.current.deps?.[i])))
+        memo.current = { deps, value: callback() };
+      return memo.current.value;
+    },
     useCallback: (callback) => callback,
     useRef: (initial) => react.useState({ current: initial })[0],
     useState: (initial) => {
@@ -287,7 +330,9 @@ function hookFixture({ catalog, detail, artwork, tmdbGet, react: suppliedReact }
     },
   };
   const artworkProvider = load("src/lib/providers/tvdb-season-details.ts", {
+    "@/lib/episode-text-language": episodeTextLanguage,
     "./tvdb": {
+      tvdbLangFromIso1: tvdbLanguage,
       pickSeasonPoster: ({ extendedImage, baseImage }) => extendedImage ?? baseImage,
       tvdbSeasonExtended: async (_key, id) => {
         artworkCalls.push(id);
@@ -299,11 +344,14 @@ function hookFixture({ catalog, detail, artwork, tmdbGet, react: suppliedReact }
     react,
     "@/lib/providers/anime-mapping": { kitsuToTvdb: async (id) => id },
     "@/lib/providers/tmdb-season-artwork": tmdbArtwork,
+    "@/lib/episode-text-language": episodeTextLanguage,
+    "@/lib/providers/season-synopsis": synopsis,
     "@/lib/providers/kitsu": {
       parseKitsuId: (id) => Number(/^kitsu:(\d+)$/.exec(id)?.[1]) || null,
     },
     "@/lib/season-name": { isGenericSeasonName: (name, n) => name === `Season ${n}` },
     "@/lib/providers/tvdb": {
+      tvdbLangFromIso1: tvdbLanguage,
       isDisplayableName: (value) => !/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(value),
       tvdbSeasonNames: async () => new Map(),
       tvdbSeriesByRemote: async () => 81797,
@@ -319,7 +367,8 @@ function hookFixture({ catalog, detail, artwork, tmdbGet, react: suppliedReact }
       ...artworkProvider,
       fetchTvdbSeasonDetails: async (_key, info, lang) => {
         calls.push({ id: info.id, number: info.number, lang });
-        return detail ? detail(info) : { overview: `Season ${info.number} synopsis` };
+        const result = await (detail ? detail(info, lang) : { overview: `Season ${info.number} synopsis` });
+        return result ? { overviewLanguage: "en", ...result } : result;
       },
     },
   });
@@ -327,6 +376,7 @@ function hookFixture({ catalog, detail, artwork, tmdbGet, react: suppliedReact }
     calls,
     artworkCalls,
     tmdbCalls: tmdbArtwork.calls,
+    synopsisCalls: synopsis.calls,
     hook,
     englishSeasonItems: hook.englishSeasonItems,
     render: (props) => {
@@ -458,6 +508,280 @@ test("extras do not inherit a numbered season synopsis", async () => {
   await flush();
   assert.equal(f.calls.length, 0);
   f.unmount();
+});
+
+test("preferred Turkish and Arabic TMDB synopses beat TVDB English through the explorer", async () => {
+  for (const [lang, tvdbLang, code, synopsis] of [
+    ["tr-TR", "tur", "tr", "Yeni sezonun Türkçe özeti"],
+    ["ar-SA", "ara", "ar", "ملخص الموسم باللغة العربية"],
+  ]) {
+    const tvdb = providerFixture({ requestedLanguage: tvdbLang });
+    const f = hookFixture({
+      detail: (info, language) => tvdb.fetchTvdbSeasonDetails("test-key", info, language),
+      synopsisGet: async () => seasonTranslations(["en", "TMDB English"], [code, synopsis]),
+    });
+    const options = { ...props, lang, tmdbKey: "tmdb-key", tmdbTvId: 42 };
+    const data = await settleExplorer(f, options);
+    assert.equal(data.details.get(1).overview, synopsis);
+    assert.equal(data.details.get(1).overviewLanguage, code);
+    assert.equal(data.details.get(1).name, "English Saga");
+    assert.equal(f.synopsisCalls[0].path, "tv/42/season/1/translations");
+    assert.equal(f.synopsisCalls[0].params.language, lang);
+    assert.ok(tvdb.calls.some((path) => path.endsWith(`/translations/${tvdbLang}`)));
+    f.unmount();
+  }
+});
+
+test("preferred TVDB synopsis wins without requesting TMDB season text", async () => {
+  const tvdb = providerFixture({ requestedLanguage: "tur", localizedOverview: "TVDB Türkçe özet" });
+  const f = hookFixture({
+    detail: (info, lang) => tvdb.fetchTvdbSeasonDetails("test-key", info, lang),
+    synopsisGet: async () => seasonTranslations(["tr", "TMDB Türkçe özet"]),
+  });
+  const data = await settleExplorer(f, { ...props, lang: "tr-TR", tmdbKey: "tmdb-key", tmdbTvId: 42 });
+  assert.equal(data.details.get(1).overview, "TVDB Türkçe özet");
+  assert.equal(data.details.get(1).name, "English Saga");
+  assert.equal(f.synopsisCalls.length, 0);
+  f.unmount();
+});
+
+test("season synopsis fallback prefers TVDB English then TMDB English and rejects blanks", async () => {
+  for (const [englishOverview, tmdbOverview, expected] of [
+    ["TVDB English", "TMDB English", "TVDB English"],
+    ["  ", "TMDB English", "TMDB English"],
+    ["  ", " \n ", undefined],
+  ]) {
+    const tvdb = providerFixture({ requestedLanguage: "tur", englishOverview });
+    const f = hookFixture({
+      detail: (info, lang) => tvdb.fetchTvdbSeasonDetails("test-key", info, lang),
+      synopsisGet: async () => seasonTranslations(["tr", " \n "], ["en", tmdbOverview]),
+    });
+    const data = await settleExplorer(f, { ...props, lang: "tr", tmdbKey: "key", tmdbTvId: 42 });
+    assert.equal(data.details.get(1).overview, expected);
+    if (expected) assert.equal(data.details.get(1).overviewLanguage, "en");
+    f.unmount();
+  }
+});
+
+test("the anime proxy uses verified requested text or its English series variant without season routes", async () => {
+  for (const [proxyOverview, proxyLanguages, expected, language] of [
+    ["Türkçe sezon özeti", ["tur", "eng"], "Türkçe sezon özeti", "tr"],
+    ["ملخص باللغة العربية", ["ara", "eng"], "ملخص باللغة العربية", "ar"],
+    [" \n ", ["tur", "eng"], "English season synopsis", "en"],
+    ["Original Latin overview", ["eng"], "English season synopsis", "en"],
+  ]) {
+    const f = providerFixture({ proxyOverview, proxyLanguages });
+    const lang = proxyLanguages.includes("ara") ? "ara" : "tur";
+    const infos = await f.tvdbSeasons("", 81797, "official", lang);
+    const result = await f.fetchTvdbSeasonDetails("", infos.get(1), lang);
+    assert.equal(result.overview, expected);
+    assert.equal(result.overviewLanguage, language);
+    assert.equal(f.requests.some(({ url }) => url.includes("/seasons/")), false);
+    assert.equal(f.requests.some(({ url }) => url.includes("overviewLang=eng")), language === "en");
+  }
+});
+
+test("the anime proxy recognizes production packed language arrays for Turkish and Arabic synopses", async () => {
+  for (const [lang, proxyLanguages, proxyOverview] of [
+    ["tur", ["deu,eng,spa,fra,ita,tur,ind"], "Türkçe sezon özeti"],
+    ["ara", ["eng,ara,tur"], "ملخص الموسم باللغة العربية"],
+    ["tur", ["eng", " fra, tur, "], "Türkçe sezon özeti"],
+  ]) {
+    const tvdb = providerFixture({ proxyOverview, proxyLanguages });
+    const infos = await tvdb.tvdbSeasons("", 81797, "official", lang);
+    const result = await tvdb.fetchTvdbSeasonDetails("", infos.get(1), lang);
+    assert.equal(result.overview, proxyOverview);
+    assert.equal(result.overviewLanguage, episodeTextLanguage.episodeLanguageBase(lang));
+    assert.equal(tvdb.requests.length, 1, "the available translation needs no English fallback request");
+    const f = hookFixture({
+      catalog: async () => infos,
+      detail: (info, language) => tvdb.fetchTvdbSeasonDetails("", info, language),
+      synopsisGet: async () => seasonTranslations(["en", "TMDB English"]),
+    });
+    const data = await settleExplorer(f, {
+      ...props, tvdbKey: "", allowProxy: true, lang, tmdbKey: "tmdb-key", tmdbTvId: 42,
+    });
+    assert.equal(data.details.get(1).overview, proxyOverview);
+    assert.equal(f.synopsisCalls.length, 0, "preferred proxy text wins over TMDB English");
+    f.unmount();
+  }
+});
+
+test("TMDB-only synopsis loading supports missing TVDB seasons and Specials without bulk requests", async () => {
+  for (const tvdbKey of ["", "test-key"]) {
+    const f = hookFixture({
+      catalog: async () => new Map(),
+      synopsisGet: async (_key, path) => seasonTranslations(["tr", `Türkçe ${path}`]),
+    });
+    const options = { ...props, lang: "tr", tvdbKey, tmdbKey: "key", tmdbTvId: 42 };
+    for (const activeSeason of [1, 2, 0, 1]) {
+      const data = await settleExplorer(f, { ...options, activeSeason });
+      assert.equal(data.details.get(activeSeason).overview, `Türkçe tv/42/season/${activeSeason}/translations`);
+    }
+    assert.deepEqual(f.synopsisCalls.map(({ path }) => path), [
+      "tv/42/season/1/translations", "tv/42/season/2/translations", "tv/42/season/0/translations",
+    ]);
+    assert.equal(f.calls.length, 0);
+    f.unmount();
+  }
+});
+
+test("alternate orders keep their own TVDB synopsis and never borrow TMDB text", async () => {
+  const tvdb = providerFixture({ requestedLanguage: "tur" });
+  const f = hookFixture({
+    detail: (info, lang) => tvdb.fetchTvdbSeasonDetails("test-key", info, lang),
+    synopsisGet: async () => seasonTranslations(["tr", "Wrong order synopsis"]),
+  });
+  const data = await settleExplorer(f, { ...props, lang: "tr", seasonType: "dvd", tmdbKey: "key", tmdbTvId: 42 });
+  assert.equal(data.details.get(1).overview, "English season synopsis");
+  assert.equal(f.synopsisCalls.length, 0);
+  f.unmount();
+});
+
+test("TMDB retains languages unsupported by TVDB and picks the exact metadata region", async () => {
+  const tvdb = providerFixture();
+  const f = hookFixture({
+    detail: (info, lang) => tvdb.fetchTvdbSeasonDetails("test-key", info, lang),
+    synopsisGet: async () => seasonTranslations(["sw", "Muhtasari wa msimu"], ["en", "English"]),
+  });
+  const data = await settleExplorer(f, { ...props, lang: "sw-KE", tmdbKey: "key", tmdbTvId: 42 });
+  assert.equal(data.details.get(1).overview, "Muhtasari wa msimu");
+  assert.equal(f.synopsisCalls[0].params.language, "sw-KE");
+  assert.equal(tvdb.calls.some((path) => path.endsWith("/translations/eng")), true);
+  f.unmount();
+  const regional = synopsisFixture(async () => seasonTranslations(
+    ["pt", "Resumo português", "PT"], ["pt", "Resumo brasileiro", "BR"], ["en", "English"],
+  ));
+  assert.equal((await regional.fetchTmdbSeasonSynopsis("key", 42, 1, "pt-BR")).overview, "Resumo brasileiro");
+});
+
+test("season synopsis language evidence rejects unknown and original-language candidates", async () => {
+  const f = synopsisFixture(async () => seasonTranslations(["ja", "日本語の概要"], ["en", "English fallback"]));
+  assert.equal((await f.fetchTmdbSeasonSynopsis("key", 42, 1, "tr")).overview, "English fallback");
+  assert.deepEqual({ ...f.selectSeasonSynopsis("tr", { overview: "Different Latin original", overviewLanguage: "und" }) }, {});
+  assert.equal(f.selectSeasonSynopsis("tr", { overview: "English", overviewLanguage: "en" },
+    { overview: "Türkçe", overviewLanguage: "tr" }).overview, "Türkçe");
+  const malformed = synopsisFixture(async () => ({ translations: [
+    null, { iso_639_1: "tr", data: { overview: 123 } }, ...seasonTranslations(["en", "English"]).translations,
+  ] }));
+  assert.equal((await malformed.fetchTmdbSeasonSynopsis("key", 42, 1, "tr")).overview, "English");
+});
+
+test("explicit English and Turkish season translations retain mixed-script proper names", async () => {
+  for (const [lang, tvdbLang, synopsis] of [
+    ["en", "eng", "The students travel to 東京 to investigate a mystery."],
+    ["tr", "tur", "Öğrenciler gizemi araştırmak için 東京 şehrine gider."],
+  ]) {
+    const tmdb = synopsisFixture(async () => seasonTranslations([lang, synopsis], ["ja", "日本語の概要"]));
+    const result = await tmdb.fetchTmdbSeasonSynopsis("key", 42, 1, lang);
+    assert.equal(result.overview, synopsis);
+    assert.equal(result.overviewLanguage, lang);
+    const tvdb = providerFixture({
+      requestedLanguage: tvdbLang,
+      localizedOverview: synopsis,
+      englishOverview: lang === "en" ? synopsis : "English fallback",
+    });
+    const detail = await tvdb.fetchTvdbSeasonDetails("test-key", season, lang);
+    assert.equal(detail.overview, synopsis);
+    assert.equal(detail.overviewLanguage, lang);
+    const f = hookFixture({
+      detail: () => ({ overview: "English fallback", overviewLanguage: "en" }),
+      synopsisGet: async () => seasonTranslations([lang, synopsis]),
+    });
+    const data = await settleExplorer(f, {
+      ...props, tvdbKey: "", tmdbKey: "key", tmdbTvId: 42, lang,
+    });
+    assert.equal(data.details.get(1).overview, synopsis);
+    f.unmount();
+  }
+});
+
+test("season synopsis cache deduplicates in-flight work and scopes credentials, season, language and expiry", async () => {
+  let now = 0;
+  const pending = deferred();
+  const f = synopsisFixture(async () => pending.promise, { Date: class extends Date { static now() { return now; } } });
+  const first = f.fetchTmdbSeasonSynopsis("key", 42, 1, "tr");
+  const second = f.fetchTmdbSeasonSynopsis("key", 42, 1, "tr");
+  assert.equal(f.calls.length, 1);
+  pending.resolve(seasonTranslations(["tr", "Türkçe özet"], ["en", "English"]));
+  await Promise.all([first, second]);
+  await f.fetchTmdbSeasonSynopsis("key", 42, 1, "tr");
+  assert.equal(f.calls.length, 1);
+  await f.fetchTmdbSeasonSynopsis("other-key", 42, 1, "tr");
+  await f.fetchTmdbSeasonSynopsis("key", 42, 2, "tr");
+  await f.fetchTmdbSeasonSynopsis("key", 42, 1, "en");
+  assert.equal(f.calls.length, 4);
+  now = 10 * 60_000 + 1;
+  await f.fetchTmdbSeasonSynopsis("key", 42, 1, "tr");
+  assert.equal(f.calls.length, 5);
+  await f.fetchTmdbSeasonSynopsis("", 42, 1, "tr");
+  await f.fetchTmdbSeasonSynopsis("key", 0, 1, "tr");
+  await f.fetchTmdbSeasonSynopsis("key", 42, -1, "tr");
+  assert.equal(f.calls.length, 5);
+});
+
+test("failed TMDB synopsis requests retry after one minute while successful empty translations stay cached", async () => {
+  let now = 0, attempts = 0;
+  const globals = { Date: class extends Date { static now() { return now; } } };
+  const f = synopsisFixture(async () => ++attempts === 1 ? null : seasonTranslations(["en", "Recovered"]), globals);
+  assert.equal(await f.fetchTmdbSeasonSynopsis("key", 42, 1, "tr"), null);
+  assert.equal(await f.fetchTmdbSeasonSynopsis("key", 42, 1, "tr"), null);
+  assert.equal(attempts, 1);
+  now = 60_001;
+  assert.equal((await f.fetchTmdbSeasonSynopsis("key", 42, 1, "tr")).overview, "Recovered");
+  const empty = synopsisFixture(async () => seasonTranslations(["tr", " "], ["en", " "]), globals);
+  await empty.fetchTmdbSeasonSynopsis("key", 42, 1, "tr");
+  now += 60_001;
+  assert.equal((await empty.fetchTmdbSeasonSynopsis("key", 42, 1, "tr")).overview, undefined);
+  assert.equal(empty.calls.length, 1);
+});
+
+test("late TMDB synopses cannot overwrite changed language, credentials, identity, order or selection", async () => {
+  for (const change of [
+    { lang: "ar-SA" }, { tmdbKey: "new-key" }, { tmdbTvId: 43 }, { metaId: "tmdb:tv:43", tmdbTvId: null },
+    { seasonType: "dvd" }, { activeSeason: 2 }, { enabled: false },
+  ]) {
+    const pending = deferred();
+    let attempts = 0;
+    const f = hookFixture({
+      catalog: async () => new Map(),
+      synopsisGet: async () => ++attempts === 1 ? pending.promise
+        : seasonTranslations(["tr", "Yeni özet"], ["ar", "ملخص جديد"]),
+    });
+    const options = { ...props, tvdbKey: "", tmdbKey: "key", tmdbTvId: 42, lang: "tr" };
+    await settleExplorer(f, options);
+    const changed = { ...options, ...change };
+    await settleExplorer(f, changed);
+    pending.resolve(seasonTranslations(["tr", "Eski özet"]));
+    const data = await settleExplorer(f, changed);
+    assert.equal([...data.details.values()].some((detail) => detail.overview === "Eski özet"), false, JSON.stringify(change));
+    if (change.enabled === false || change.seasonType === "dvd") assert.equal(f.synopsisCalls.length, 1);
+    f.unmount();
+  }
+});
+
+test("hidden explorers and Extras make no synopsis requests even with a TMDB key", async () => {
+  for (const change of [{ enabled: false }, { activeSeason: undefined }]) {
+    const f = hookFixture({ synopsisGet: async () => seasonTranslations(["en", "Should not load"]) });
+    await settleExplorer(f, { ...props, tmdbKey: "key", tmdbTvId: 42, ...change });
+    assert.equal(f.synopsisCalls.length, 0);
+    assert.equal(f.calls.length, 0);
+    f.unmount();
+  }
+});
+
+test("unresolved raw item overviews cannot bypass the synopsis language resolver", () => {
+  const SeasonExplorer = seasonExplorerComponent();
+  const html = renderToStaticMarkup(React.createElement(SeasonExplorer, {
+    activeKey: "1", onSelect: () => {},
+    data: {
+      items: [{ key: "1", seasonNumber: 1, name: "Season 1", count: 12, overview: "Unchecked original synopsis" }],
+      seasons: new Map(), names: new Map(), details: new Map(), artwork: new Map(),
+      loading: false, setVisibleSeasons: () => {},
+    },
+  }));
+  assert.doesNotMatch(html, /Unchecked original synopsis/);
+  assert.match(html, /No season synopsis available/);
 });
 
 test("season title stays English while the synopsis follows the metadata language", async () => {
@@ -1152,10 +1476,13 @@ test("current series hooks settle with two visible cards even when item arrays a
   });
   const { useSeasonExplorerView } = load("src/views/detail/use-season-explorer.ts", {
     react, "@/lib/providers/anime-mapping": {},
+    "@/lib/episode-text-language": episodeTextLanguage,
+    "@/lib/providers/season-synopsis": synopsisFixture(),
     "@/lib/providers/tmdb-season-artwork": {},
     "@/lib/providers/kitsu": { parseKitsuId: () => null },
     "@/lib/season-name": { isGenericSeasonName: () => true },
     "@/lib/providers/tvdb": {
+      tvdbLangFromIso1: tvdbLanguage,
       isDisplayableName: (value) => !/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(value),
       tvdbSeasons: async () => infos,
       tvdbSeasonNames: async () => new Map(),
@@ -1301,7 +1628,7 @@ async function settleExplorer(f, options) {
   return f.render(options);
 }
 
-test("season cards use TMDB posters and localized overviews when TVDB is unavailable", () => {
+test("season cards use TMDB posters and resolved overviews when TVDB is unavailable", () => {
   const SeasonExplorer = seasonExplorerComponent();
   const html = renderToStaticMarkup(
     React.createElement(SeasonExplorer, {
@@ -1323,7 +1650,7 @@ test("season cards use TMDB posters and localized overviews when TVDB is unavail
         artwork: new Map(),
         setVisibleSeasons: () => {},
         loading: false,
-        details: new Map(),
+        details: new Map([[4, { overview: "Résumé français", overviewLanguage: "fr" }]]),
       },
     }),
   );

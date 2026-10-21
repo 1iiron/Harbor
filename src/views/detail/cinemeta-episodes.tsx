@@ -24,8 +24,7 @@ import { EpisodeGridCard } from "./episode-grid-card";
 import type { GridEpisode, Progress } from "./episode-grid-types";
 import { SeasonExplorer } from "./season-explorer";
 import { useSeasonExplorerView } from "./use-season-explorer";
-import { tvdbLangFromIso1 } from "@/lib/providers/tvdb";
-import { tmdbLanguageIso } from "@/lib/providers/tmdb/tmdb-client";
+import { effectiveTmdbLanguage } from "@/lib/providers/tmdb/tmdb-client";
 import { seasonPill } from "@/lib/season-name";
 import { EpisodeLayoutToggle } from "./episode-layout-toggle";
 import { isUpcomingDate } from "./helpers";
@@ -160,6 +159,7 @@ export function CinemetaEpisodes({
         nameLanguage: tmdb?.nameLanguage,
         isGenericName: tmdb?.isGenericName,
         overview: tmdb?.overview,
+        overviewLanguage: tmdb?.overviewLanguage,
         poster: seasonPosters?.[group.seasonNumber],
         count: group.episodes.length,
         year: group.episodes[0]?.released?.slice(0, 4),
@@ -254,7 +254,7 @@ export function CinemetaEpisodes({
     seasonPosters,
     titlePoster: meta.poster,
     seasonType: "official",
-    lang: tvdbLangFromIso1(tmdbLanguageIso()),
+    lang: effectiveTmdbLanguage(),
     items: explorerItems,
     activeKey: String(active),
     enabled: showExplorer,

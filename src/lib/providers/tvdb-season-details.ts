@@ -1,8 +1,10 @@
-import { pickSeasonPoster, tvdbSeasonExtended, tvdbSeasonText, type TvdbSeasonInfo } from "./tvdb";
+import { episodeLanguageBase, episodeTextLanguage } from "@/lib/episode-text-language";
+import { pickSeasonPoster, tvdbLangFromIso1, tvdbSeasons, tvdbSeasonExtended, tvdbSeasonText, type TvdbSeasonInfo } from "./tvdb";
 
 export type TvdbSeasonDetails = {
   name?: string;
   overview?: string;
+  overviewLanguage?: string;
 };
 
 export type TvdbSeasonArtwork = {
@@ -16,20 +18,42 @@ export async function fetchTvdbSeasonDetails(
   season: TvdbSeasonInfo,
   lang: string,
 ): Promise<TvdbSeasonDetails | null> {
-  // The proxy blocks /seasons/*; its /series/extended response already carries
-  // the English names and localized overviews.
-  if (!apiKey.trim()) return { name: season.name, overview: season.overview };
+  const language = episodeLanguageBase(lang);
+  // The proxy blocks /seasons/*; use only its series-level overviewLang route.
+  if (!apiKey.trim()) {
+    if (season.overview?.trim() && season.overviewLanguage === language)
+      return { name: season.name, overview: season.overview.trim(), overviewLanguage: language };
+    const english = language === "en" || season.overviewLanguage === "en"
+      ? season
+      : season.seriesId && season.typeSlug
+        ? (await tvdbSeasons("", season.seriesId, season.typeSlug, "eng").catch(() => null))?.get(season.number)
+        : undefined;
+    const overview = english?.overview;
+    return {
+      name: season.name,
+      overview: episodeTextLanguage(overview, "en") === "en" ? overview?.trim() : undefined,
+      overviewLanguage: overview?.trim() && episodeTextLanguage(overview, "en") === "en" ? "en" : undefined,
+    };
+  }
   if (season.id == null) return {};
+  const tvdbLang = tvdbLangFromIso1(language);
   const englishRequest = tvdbSeasonText(apiKey, season.id, "eng").catch(() => null);
   const [requested, english] = await Promise.all([
-    lang === "eng" ? englishRequest : tvdbSeasonText(apiKey, season.id, lang).catch(() => null),
+    tvdbLang === "eng" ? englishRequest : tvdbSeasonText(apiKey, season.id, tvdbLang).catch(() => null),
     englishRequest,
   ]);
   if (!requested && !english) return null;
+  const requestedOverview = requested?.overview?.trim();
+  const englishOverview = english?.overview?.trim();
+  // Translation endpoints establish language even when the text quotes foreign names.
+  const localized = !!requestedOverview && episodeLanguageBase(tvdbLang) === language &&
+    (language === "en" || requestedOverview !== englishOverview);
+  const overview = localized ? requestedOverview : englishOverview;
   return {
     // Original-language names are not a safe fallback for an English title.
     name: english?.name,
-    overview: requested?.overview || english?.overview,
+    overview,
+    overviewLanguage: overview ? (localized ? language : "en") : undefined,
   };
 }
 
@@ -54,7 +78,7 @@ export async function fetchTvdbSeasonArtwork(
       artwork: extended?.artwork,
       extendedImage: extended?.image,
       baseImage: season.image,
-      lang,
+      lang: tvdbLangFromIso1(episodeLanguageBase(lang)),
     }),
     background:
       typeof background === "string"

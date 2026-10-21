@@ -54,7 +54,7 @@ import {
   isPlaceholderEpisodeText,
 } from "@/lib/providers/episode-placeholder";
 import type { Season } from "@/lib/providers/tmdb";
-import { tmdbLanguageIso } from "@/lib/providers/tmdb/tmdb-client";
+import { effectiveTmdbLanguage, tmdbLanguageIso } from "@/lib/providers/tmdb/tmdb-client";
 import {
   episodeArtworkFor,
   unairedIndexes,
@@ -63,7 +63,6 @@ import {
 import { TvdbOrderPanel } from "./series-episodes/tvdb-order-panel";
 import { SeasonExplorer } from "./season-explorer";
 import { useSeasonExplorerView } from "./use-season-explorer";
-import { tvdbLangFromIso1 } from "@/lib/providers/tvdb";
 import { parseKitsuId } from "@/lib/providers/kitsu";
 import { aiIsGroq, aiKey, providerForModel } from "@/lib/ai-models";
 
@@ -679,6 +678,7 @@ export function AnimeEpisodes({
           fallbackName:
             tmdb.nameLanguage === "en" || !tmdb.nameLanguage ? tmdb.name : undefined,
           overview: item.overview || tmdb.overview,
+          overviewLanguage: item.overview ? item.overviewLanguage : tmdb.overviewLanguage,
           poster: item.poster || seasonPosters?.[seasonNumber],
         };
       }),
@@ -699,7 +699,7 @@ export function AnimeEpisodes({
     seasonPosters,
     titlePoster: meta.poster,
     seasonType: explorerType === "aired" ? "official" : explorerType,
-    lang: tvdbLangFromIso1(tmdbLanguageIso()),
+    lang: effectiveTmdbLanguage(),
     items: explorerItems,
     activeKey: tvdbPanel.panel?.activeKey ?? franchiseActiveKey ?? explorerPicker?.activeKey ?? "",
     enabled: showExplorer,

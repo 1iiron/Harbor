@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { kitsuToTvdb } from "@/lib/providers/anime-mapping";
 import { parseKitsuId } from "@/lib/providers/kitsu";
 import { isGenericSeasonName } from "@/lib/season-name";
+import { episodeLanguageBase } from "@/lib/episode-text-language";
+import { fetchTmdbSeasonSynopsis, selectSeasonSynopsis, type SeasonSynopsis } from "@/lib/providers/season-synopsis";
 import { fetchTmdbSeasonPoster, resolveSeasonArtworkTmdbId } from "@/lib/providers/tmdb-season-artwork";
 import type { PickerItem } from "./series-episodes/season-arc-picker";
 import {
@@ -9,6 +11,7 @@ import {
   tvdbSeasonNames,
   tvdbSeasons,
   tvdbSeriesByRemote,
+  tvdbLangFromIso1,
   type TvdbSeasonInfo,
 } from "@/lib/providers/tvdb";
 import {
@@ -35,6 +38,7 @@ export type SeasonExplorerOptions = {
   seasonType: string;
   lang: string;
   activeSeason?: number;
+  fallbackSynopsis?: SeasonSynopsis;
   enabled?: boolean;
   /** Harbor's proxy is only allowed for anime. Regular titles need their own key. */
   allowProxy?: boolean;
@@ -45,6 +49,7 @@ export type SeasonExplorerArtworkConfig = SeasonExplorerOptions & {
   seasons: Map<number, TvdbSeasonInfo>;
   catalogReady: boolean;
   catalogAllowed: boolean;
+  resolveTmdbId: () => Promise<number | null>;
 };
 
 export function useSeasonExplorer({
@@ -58,13 +63,32 @@ export function useSeasonExplorer({
   seasonType,
   lang,
   activeSeason,
+  fallbackSynopsis,
   enabled = true,
   allowProxy = false,
 }: SeasonExplorerOptions) {
   const scope = JSON.stringify([metaId, imdbId, tvdbKey, seasonType, lang, enabled, allowProxy]);
+  const textScope = JSON.stringify([scope, tmdbKey, tmdbTvId]);
+  const fallbackKey = JSON.stringify([fallbackSynopsis?.overview, fallbackSynopsis?.overviewLanguage]);
+  const tvdbLang = tvdbLangFromIso1(episodeLanguageBase(lang));
+  const resolveTmdbId = useMemo(() => {
+    let request: Promise<number | null> | undefined;
+    let expires = 0;
+    return () => {
+      if (!request || expires <= Date.now()) {
+        expires = Date.now() + 60_000;
+        request = resolveSeasonArtworkTmdbId(tmdbKey, metaId, imdbId, tmdbTvId).catch(() => null)
+          .then((id) => {
+            expires = Date.now() + (id == null ? 60_000 : 10 * 60_000);
+            return id;
+          });
+      }
+      return request;
+    };
+  }, [tmdbKey, metaId, imdbId, tmdbTvId]);
   // TVDB catalogs and season text may use the proxy only where allowed. TMDB
-  // artwork is independent: a personal TMDB key can fill posters even when no
-  // TVDB key is configured.
+  // artwork and synopses are independent: a personal TMDB key can supply them
+  // even when no TVDB key is configured.
   const catalogAllowed = enabled && (!!tvdbKey.trim() || allowProxy);
   const [catalog, setCatalog] = useState<{
     scope: string;
@@ -74,11 +98,13 @@ export function useSeasonExplorer({
   const [enriched, setEnriched] = useState<{
     scope: string;
     details: Map<number, TvdbSeasonDetails>;
+    expires: Map<number, number>;
+    inputs: Map<number, string>;
   }>();
   const [pending, setPending] = useState<{ scope: string; season: number } | null>(null);
   const seasons = catalog?.scope === scope ? catalog.seasons : EMPTY_SEASONS;
   const names = catalog?.scope === scope ? catalog.names : EMPTY_NAMES;
-  const details = enriched?.scope === scope ? enriched.details : EMPTY_DETAILS;
+  const details = enriched?.scope === textScope ? enriched.details : EMPTY_DETAILS;
   const catalogReady = catalog?.scope === scope;
 
   useEffect(() => {
@@ -100,56 +126,81 @@ export function useSeasonExplorer({
       const infos =
         seriesId == null
           ? EMPTY_SEASONS
-          : await tvdbSeasons(tvdbKey, seriesId, seasonType, lang).catch(() => EMPTY_SEASONS);
+          : await tvdbSeasons(tvdbKey, seriesId, seasonType, tvdbLang).catch(() => EMPTY_SEASONS);
       if (cancelled) return;
       setCatalog({ scope, seasons: infos, names: EMPTY_NAMES });
       const englishNames =
         seriesId == null
           ? EMPTY_NAMES
-          : await tvdbSeasonNames(tvdbKey, seriesId, seasonType, lang).catch(() => EMPTY_NAMES);
+          : await tvdbSeasonNames(tvdbKey, seriesId, seasonType, tvdbLang).catch(() => EMPTY_NAMES);
       if (!cancelled) setCatalog({ scope, seasons: infos, names: englishNames });
     })();
     return () => {
       cancelled = true;
     };
-  }, [scope, metaId, imdbId, tvdbKey, seasonType, catalogAllowed]);
+  }, [scope, metaId, imdbId, tvdbKey, seasonType, tvdbLang, catalogAllowed]);
 
   useEffect(() => {
     const season = activeSeason == null ? undefined : seasons.get(activeSeason);
-    if (!catalogAllowed || !season || details.has(season.number)) return;
+    if (!enabled || activeSeason == null || activeSeason < 0 || (catalogAllowed && !catalogReady)) return;
+    if (details.has(activeSeason) && enriched?.inputs.get(activeSeason) === fallbackKey &&
+      (enriched.expires.get(activeSeason) ?? 0) > Date.now()) return;
     let cancelled = false;
-    setPending({ scope, season: season.number });
-    void fetchTvdbSeasonDetails(tvdbKey, season, lang)
-      .catch(() => null)
-      .then((detail) => {
+    const number = activeSeason;
+    const tmdbAllowed = !!tmdbKey.trim() && (seasonType === "official" || seasonType === "aired");
+    if (!season && !tmdbAllowed && !fallbackSynopsis?.overview) return;
+    setPending({ scope: textScope, season: number });
+    void (async () => {
+      const tvdb = season && catalogAllowed
+        ? await fetchTvdbSeasonDetails(tvdbKey, season, lang).catch(() => null)
+        : undefined;
+      if (cancelled) return;
+      let tmdb: SeasonSynopsis | null | undefined;
+      if (tmdbAllowed && !(tvdb?.overview && tvdb.overviewLanguage === episodeLanguageBase(lang))) {
+        const id = await resolveTmdbId();
         if (cancelled) return;
-        if (detail) {
-          setEnriched((previous) => {
-            const next = new Map(previous?.scope === scope ? previous.details : EMPTY_DETAILS);
-            next.set(season.number, detail);
-            return { scope, details: next };
-          });
-        }
-        setPending(null);
-      });
+        tmdb = id == null ? null : await fetchTmdbSeasonSynopsis(tmdbKey, id, number, lang);
+      }
+      const synopsis = selectSeasonSynopsis(lang, tvdb, tmdb, fallbackSynopsis);
+      const failed = tvdb === null || tmdb === null;
+      const detail = failed && !synopsis.overview && !tvdb?.name
+        ? null : { name: tvdb?.name, ...synopsis };
+      return { detail, failed };
+    })().catch(() => ({ detail: null, failed: true })).then((result) => {
+      if (cancelled || !result) return;
+      const { detail, failed } = result;
+      if (detail) {
+        setEnriched((previous) => {
+          const next = new Map(previous?.scope === textScope ? previous.details : EMPTY_DETAILS);
+          const expires = new Map(previous?.scope === textScope ? previous.expires : []);
+          const inputs = new Map(previous?.scope === textScope ? previous.inputs : []);
+          next.set(number, detail);
+          inputs.set(number, fallbackKey);
+          expires.set(number, Date.now() + (failed ? 60_000 : 10 * 60_000));
+          return { scope: textScope, details: next, expires, inputs };
+        });
+      }
+      setPending(null);
+    });
     return () => {
       cancelled = true;
     };
-  }, [scope, seasons, activeSeason, tvdbKey, lang, catalogAllowed, details]);
+  }, [textScope, seasons, activeSeason, tvdbKey, tmdbKey, tmdbTvId, metaId, imdbId, seasonType, lang,
+    enabled, catalogAllowed, catalogReady, details, enriched, resolveTmdbId, fallbackKey]);
 
   const artworkConfig = useMemo<SeasonExplorerArtworkConfig>(() => ({
     scope, seasons, catalogReady, catalogAllowed, metaId, imdbId, tvdbKey,
-    tmdbKey, tmdbTvId, seasonPosters, titlePoster, seasonType, lang, activeSeason, enabled,
+    tmdbKey, tmdbTvId, seasonPosters, titlePoster, seasonType, lang, activeSeason, enabled, resolveTmdbId,
   }), [
     scope, seasons, catalogReady, catalogAllowed, metaId, imdbId, tvdbKey,
-    tmdbKey, tmdbTvId, seasonPosters, titlePoster, seasonType, lang, activeSeason, enabled,
+    tmdbKey, tmdbTvId, seasonPosters, titlePoster, seasonType, lang, activeSeason, enabled, resolveTmdbId,
   ]);
   return {
     seasons,
     names,
     details,
     artworkConfig,
-    loading: pending?.scope === scope && pending.season === activeSeason,
+    loading: pending?.scope === textScope && pending.season === activeSeason,
   };
 }
 
@@ -161,6 +212,7 @@ export function useSeasonExplorerArtwork({ artworkConfig }: {
     scope, seasons, catalogReady, catalogAllowed, metaId, imdbId, tvdbKey,
     tmdbKey = "", tmdbTvId, seasonPosters, titlePoster, seasonType, lang,
     activeSeason, enabled = true,
+    resolveTmdbId,
   } = artworkConfig;
   const artworkAllowed = enabled && (catalogAllowed || !!tmdbKey.trim());
   // Without a catalog source there is nothing to wait for; TMDB numbers are
@@ -223,7 +275,7 @@ export function useSeasonExplorerArtwork({ artworkConfig }: {
         const cached = posters[number];
         if (cached && !rejected.has(cached)) return cached;
         if (!tmdbKey) return undefined;
-        tmdbIdRequest ??= resolveSeasonArtworkTmdbId(tmdbKey, metaId, imdbId, tmdbTvId);
+        tmdbIdRequest ??= resolveTmdbId();
         const id = await tmdbIdRequest;
         if (signal.aborted) return undefined;
         return id == null ? undefined : fetchTmdbSeasonPoster(tmdbKey, id, number, lang, rejected);
@@ -236,7 +288,7 @@ export function useSeasonExplorerArtwork({ artworkConfig }: {
     };
   }, [
     artworkScope, seasons, tvdbKey, tmdbKey, tmdbTvId, posterKey, titlePoster,
-    metaId, imdbId, seasonType, lang, artworkAllowed,
+    metaId, imdbId, seasonType, lang, artworkAllowed, resolveTmdbId,
   ]);
 
   useEffect(() => {
@@ -307,6 +359,7 @@ export function useSeasonExplorerView({
   const data = useSeasonExplorer({
     ...options,
     activeSeason: items.find((item) => item.key === activeKey)?.seasonNumber,
+    fallbackSynopsis: items.find((item) => item.key === activeKey),
   });
   const displayItems = useMemo(
     () => (options.enabled === false ? items : englishSeasonItems(items, data.names, data.details)),
