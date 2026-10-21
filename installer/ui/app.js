@@ -332,18 +332,15 @@ isUninstallMode().then(function (yes) {
 const winMin = document.getElementById("hb-min");
 const winMax = document.getElementById("hb-max");
 const stage = document.getElementById("hb-window");
-const BASE_W = 1028;
-const BASE_H = 632;
-
 function fitStage(maxed) {
   if (!stage) return;
   document.body.classList.toggle("is-maximized", !!maxed);
-  if (!maxed) {
-    stage.style.transform = "";
-    return;
-  }
-  const k = Math.min(window.innerWidth / BASE_W, window.innerHeight / BASE_H);
-  stage.style.transform = k > 1.001 ? "scale(" + k.toFixed(4) + ")" : "";
+  const available = Math.min(
+    window.innerWidth / stage.offsetWidth,
+    window.innerHeight / stage.offsetHeight,
+  );
+  const scale = maxed ? available : Math.min(1, available);
+  stage.style.transform = "scale(" + scale + ")";
 }
 
 async function syncWindowState() {
