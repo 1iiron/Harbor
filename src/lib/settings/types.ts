@@ -187,6 +187,7 @@ export type Settings = {
   awardTabs: boolean;
   awardTabPosition: "above" | "below" | "top";
   rowTitleScale: number;
+  cardTitleScale: number;
   playerTitleScale: number;
   playerTitleSeriesFirst: boolean;
   uiScale: number;

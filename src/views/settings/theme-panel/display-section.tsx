@@ -256,7 +256,7 @@ export function DisplaySection() {
       <Section
         title={t("Title text")}
         subtitle={t(
-          "Resize the row titles on Home and the title shown in the player, without scaling the rest of the interface. You can also lead the player title with the series name instead of the episode.",
+          "Resize row headings, titles under poster cards, and the player title independently. You can also lead the player title with the series name instead of the episode.",
         )}
       >
         <SettingGroup>
@@ -267,6 +267,23 @@ export function DisplaySection() {
             value={settings.rowTitleScale}
             onChange={(v) => update({ rowTitleScale: v })}
           />
+          <SizeSlider
+            label={t("Card title size")}
+            desc={t("Movie and TV show titles beneath poster cards.")}
+            icon={<Type size={18} strokeWidth={2} />}
+            value={settings.cardTitleScale}
+            onChange={(v) => update({ cardTitleScale: v })}
+          />
+          <div className="px-5 pb-4" aria-label={t("Card title preview")}>
+            <div className="max-w-[180px] rounded-lg border border-edge bg-canvas p-3">
+              <p
+                className="line-clamp-2 font-medium leading-snug text-ink"
+                style={{ fontSize: `${13 * settings.cardTitleScale}px` }}
+              >
+                {t("The Lord of the Rings: The Fellowship of the Ring")}
+              </p>
+            </div>
+          </div>
           <SizeSlider
             label={t("Player title")}
             desc={t("The title shown at the top of the player.")}

@@ -830,6 +830,7 @@ const PosterCard = memo(function PosterCard({
       {!settings.hidePosterTitles && (
         <div className="min-h-9">
           <p
+            style={{ fontSize: `${(kids ? 15 : 13) * settings.cardTitleScale}px` }}
             className={
               kids
                 ? "line-clamp-2 text-[15px] font-bold leading-snug text-[#0e3a43]"

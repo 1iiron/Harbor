@@ -102,6 +102,7 @@ export const DEFAULT: Settings = {
   awardTabs: false,
   awardTabPosition: "above",
   rowTitleScale: 1,
+  cardTitleScale: 1,
   playerTitleScale: 1,
   playerTitleSeriesFirst: false,
   uiScale: 1,
