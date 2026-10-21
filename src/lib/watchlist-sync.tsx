@@ -9,6 +9,7 @@ import { fetchWatchlist as fetchSimklWatchlist } from "@/lib/simkl/watchlist";
 import { useSimkl } from "@/lib/simkl/provider";
 import { setWatchlistAggregate } from "@/lib/watchlist";
 import { isNuvioProviderActive, resolveNuvioProfileIndex } from "@/lib/nuvio/nuvio-sync";
+import { getNuvioAccountId } from "@/lib/nuvio/nuvio-client";
 import {
   readCachedNuvioLibrary,
   pullNuvioLibrarySnapshot,
@@ -201,13 +202,23 @@ export function WatchlistSync() {
       pushAggregate();
       return;
     }
+    let cancelled = false;
+    let requestSeq = 0;
     const updateNuvio = (pullRemote = false) => {
+      const seq = ++requestSeq;
+      const accountId = getNuvioAccountId();
       const slot = resolveNuvioProfileIndex();
       const items = readCachedNuvioLibrary(slot);
       STORE.nuvio = items.map((i) => i.content_id).filter(Boolean);
       pushAggregate();
       if (pullRemote) {
         void pullNuvioLibrarySnapshot(slot).then((fresh) => {
+          if (
+            cancelled ||
+            seq !== requestSeq ||
+            getNuvioAccountId() !== accountId ||
+            resolveNuvioProfileIndex() !== slot
+          ) return;
           STORE.nuvio = fresh.map((i) => i.content_id).filter(Boolean);
           pushAggregate();
         });
@@ -231,6 +242,7 @@ export function WatchlistSync() {
     }, 8000);
 
     return () => {
+      cancelled = true;
       clearInterval(interval);
       window.removeEventListener("harbor:nuvio-profile-changed", onProfileOrState);
       window.removeEventListener("harbor:nuvio-state-changed", onProfileOrState);

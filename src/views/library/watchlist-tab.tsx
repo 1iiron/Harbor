@@ -22,6 +22,7 @@ import {
 } from "@/lib/watchlist";
 import { setStremioAggregate, setNuvioAggregate, refreshWatchlistAggregates } from "@/lib/watchlist-sync";
 import { resolveNuvioProfileIndex } from "@/lib/nuvio/nuvio-sync";
+import { getNuvioAccountId } from "@/lib/nuvio/nuvio-client";
 import {
   readCachedNuvioLibrary,
   pullNuvioLibrarySnapshot,
@@ -84,9 +85,12 @@ export function WatchlistTab({
   useEffect(() => {
     let cancelled = false;
     if (isNuvio) {
+      let requestSeq = 0;
       const loadNuvio = () => {
         if (cancelled || pendingRemovals.current > 0) return;
+        const seq = ++requestSeq;
         const mySeq = guardSeq.current;
+        const accountId = getNuvioAccountId();
         const slot = resolveNuvioProfileIndex();
         const cached = readCachedNuvioLibrary(slot);
         setRawCount(cached.length);
@@ -95,7 +99,12 @@ export function WatchlistTab({
 
         pullNuvioLibrarySnapshot(slot)
           .then((fresh) => {
-            if (cancelled) return;
+            if (
+              cancelled ||
+              seq !== requestSeq ||
+              getNuvioAccountId() !== accountId ||
+              resolveNuvioProfileIndex() !== slot
+            ) return;
             if (guardSeq.current !== mySeq) {
               loadNuvio();
               return;
