@@ -6,6 +6,7 @@ import ts from "typescript";
 import * as episodeTextLanguage from "../src/lib/episode-text-language.ts";
 import * as episodePlaceholder from "../src/lib/providers/episode-placeholder.ts";
 import * as dates from "../src/lib/dates.ts";
+import * as localizedText from "../src/lib/localized-text.ts";
 
 function deferred() {
   let resolve;
@@ -18,6 +19,7 @@ function fixture({
   blockNames = false,
   seasonName = "シーズン",
   englishName = "English Arc",
+  episodeRows,
 } = {}) {
   const calls = [];
   const names = deferred();
@@ -27,7 +29,7 @@ function fixture({
     type: { type: "official" }, image: "/base.jpg",
   }));
   seasons.push({ id: 99, number: 0, name: "Bonus Stories", type: { type: "official" } });
-  const episodes = seasons.map((s) => ({
+  const episodes = episodeRows ?? seasons.map((s) => ({
     id: s.id, number: 1, seasonNumber: s.number, name: "Episode",
   }));
   const localStorage = {
@@ -294,6 +296,78 @@ test("reading a completed persisted order preserves its expiry", async () => {
   const restarted = fixture({ storage: f.storage });
   await restarted.fetchTvdbOrderBySeriesId("test-key", 1, "aired", "eng");
   assert.equal(JSON.parse(f.storage.get(key)).t, saved.t);
+});
+
+function specialPanelRows(f, ordering) {
+  const states = [1, ordering, [], "aired", "0", true, "has", null];
+  let index = 0;
+  const { useAnimeTvdbPanel } = f.load("src/views/detail/anime-episodes/use-anime-tvdb-panel.ts", {
+    react: {
+      useState: () => [states[index++], () => {}],
+      useEffect: () => {},
+      useMemo: (compute) => compute(),
+      useCallback: (callback) => callback,
+    },
+    "@/lib/i18n": { useT: () => (key) => key },
+    "@/lib/providers/anime-mapping": {},
+    "@/lib/providers/anime-detail": {},
+    "@/lib/providers/anime-episode-build": { isForeignScriptTitle: episodeTextLanguage.isForeignScriptTitle },
+    "@/lib/dates": dates,
+    "@/lib/providers/tvdb": f.tvdb,
+    "@/lib/providers/tmdb/tmdb-client": { tmdbLanguageIso: () => "en" },
+    "@/lib/localized-text": localizedText,
+    "@/lib/providers/harbor-imdb": {},
+    "@/lib/providers/tvdb-order": f,
+    "@/lib/streams/anime-identity": {},
+    "./anime-slot-match": f.load("src/views/detail/anime-episodes/anime-slot-match.ts", {}),
+  });
+  const { panel } = useAnimeTvdbPanel(1, null, [], "aired", "", true);
+  assert.ok(panel);
+  return panel.visibleEpisodes;
+}
+
+test("fresh and cached proxy orders do not give missing special stills another special's image", async () => {
+  const episodeRows = [
+    { id: 101, seasonNumber: 1, number: 1, absoluteNumber: 1, name: "Pilot", image: "/pilot.jpg" },
+    { id: 1, seasonNumber: 0, number: 1, absoluteNumber: 0, name: "First special", image: "/first.jpg" },
+    { id: 2, seasonNumber: 0, number: 2, absoluteNumber: 0, name: "Second special", image: "/second.jpg" },
+    { id: 11, seasonNumber: 0, number: 11, absoluteNumber: 0, name: "No still", image: null },
+    { id: 26, seasonNumber: 0, number: 26, absoluteNumber: 0, name: "Last special", image: "/last.jpg" },
+    ...[-1, 1.5, NaN, Infinity].map((absoluteNumber, i) => ({
+      id: 200 + i, seasonNumber: 1, number: 2 + i, absoluteNumber, name: "Invalid absolute", image: "/invalid.jpg",
+    })),
+  ];
+  const fresh = fixture({ episodeRows });
+  const ordering = await fresh.fetchTvdbOrderBySeriesId("", 1, "aired", "eng");
+  await fresh.waitForTvdbSeasonNames(ordering);
+  assert.deepEqual(Array.from(ordering.imageByAbs.keys()), [1]);
+  assert.equal(ordering.absByEpId.get(11), 0, "playback mappings remain unchanged");
+
+  const [key, value] = [...fresh.storage.entries()].find(([k]) => k.startsWith("harbor.tvdbo."));
+  const saved = JSON.parse(value);
+  saved.imageByAbs.push([0, "https://wrong/last-special.jpg"], [-1, "https://wrong/negative.jpg"], [1.5, "https://wrong/fraction.jpg"]);
+  saved.t = Date.now() - 10000;
+  fresh.storage.set(key, JSON.stringify(saved));
+  const restarted = fixture({ storage: fresh.storage, episodeRows });
+  const cached = await restarted.fetchTvdbOrderBySeriesId("", 1, "aired", "eng");
+  assert.equal(restarted.calls.filter((p) => p.includes("/episodes/")).length, 0);
+  assert.equal(JSON.parse(fresh.storage.get(key)).t, saved.t, "reading keeps the original cache expiry");
+
+  for (const [runtime, order] of [[fresh, ordering], [restarted, cached]]) {
+    assert.deepEqual(Array.from(order.imageByAbs.keys()), [1]);
+    assert.equal(order.absByEpId.get(11), 0);
+    const rows = specialPanelRows(runtime, order);
+    assert.deepEqual(Array.from(rows, (ep) => ep.number), [1, 2, 11, 26]);
+    assert.deepEqual(Array.from(rows, (ep) => ep.thumbnail), [
+      "https://artworks.thetvdb.com/first.jpg",
+      "https://artworks.thetvdb.com/second.jpg",
+      null,
+      "https://artworks.thetvdb.com/last.jpg",
+    ]);
+    assert.equal(rows[2].imdbSeason, 0);
+    assert.equal(rows[2].imdbEpisode, 11);
+    assert.equal(rows[2].tvdbEpisodeId, 11);
+  }
 });
 
 test("anime falls back to an available order if the requested order is empty", async () => {

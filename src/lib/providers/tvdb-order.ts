@@ -259,7 +259,9 @@ async function build(
   for (const e of altEps) {
     if (e.absoluteNumber != null) {
       absByEpId.set(e.id, e.absoluteNumber);
-      if (e.image) imageByAbs.set(e.absoluteNumber, e.image);
+      if (e.image && Number.isInteger(e.absoluteNumber) && e.absoluteNumber > 0) {
+        imageByAbs.set(e.absoluteNumber, e.image);
+      }
     }
   }
 

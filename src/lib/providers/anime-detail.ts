@@ -327,6 +327,7 @@ const SHORT_SUBTYPES = new Set(["ona", "ova", "special", "music", "one_shot"]);
 export function isFranchiseExtra(f: FranchiseEntry): boolean {
   if (f.meta.type === "movie") return true;
   const sub = (f.subtype ?? "").toLowerCase();
+  if (sub === "ona" && f.meta.type === "series" && (f.episodeCount ?? 0) > 1) return false;
   if (SHORT_SUBTYPES.has(sub)) return true;
   const airingSeason = f.meta.type === "series" && (f.isCurrent || f.isUpcoming);
   return (f.episodeCount ?? 0) === 1 && !airingSeason;

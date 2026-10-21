@@ -71,6 +71,11 @@ export function pickTvdbImage(
     imdbEpisode?: number;
   },
 ): string | null {
+  // TVDB specials share absolute-number placeholders, so only their exact
+  // season/episode pair can identify artwork.
+  if ((ep.imdbSeason ?? ep.seasonNumber) === 0) {
+    return map[`s0e${ep.imdbEpisode ?? ep.number}`] ?? null;
+  }
   const abs = ep.absoluteNumber ?? ep.number;
   // A sequel cour's entry-local numbers restart at 1 while its IMDb identity
   // points at a later season (Kitsu labels every cour "season 1"), so the
@@ -80,7 +85,7 @@ export function pickTvdbImage(
     (ep.imdbSeason == null || ep.imdbSeason === ep.seasonNumber) &&
     (ep.imdbEpisode == null || ep.imdbEpisode === ep.number);
   return (
-    map[`abs${abs}`] ??
+    (Number.isInteger(abs) && abs > 0 ? map[`abs${abs}`] : undefined) ??
     (ep.imdbSeason != null && ep.imdbEpisode != null
       ? map[`s${ep.imdbSeason}e${ep.imdbEpisode}`]
       : undefined) ??
