@@ -718,15 +718,40 @@ pub async fn run_install(
     dest: String,
     desktop_shortcut: bool,
     disabled_features: Option<Vec<String>>,
+    clean_install: Option<bool>,
 ) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || install_blocking(app, dest, desktop_shortcut, disabled_features))
+    tauri::async_runtime::spawn_blocking(move || install_blocking(app, dest, desktop_shortcut, disabled_features, clean_install.unwrap_or(false)))
         .await
         .map_err(|e| e.to_string())?
 }
 
 #[cfg(feature = "payload")]
-fn install_blocking(app: AppHandle, dest: String, desktop_shortcut: bool, disabled_features: Option<Vec<String>>) -> Result<(), String> {
+fn install_blocking(app: AppHandle, dest: String, desktop_shortcut: bool, disabled_features: Option<Vec<String>>, clean_install: bool) -> Result<(), String> {
     let dest = PathBuf::from(dest);
+    if clean_install {
+        use crate::clean_install::{data_paths, remove_owned_tree, validate_install_dir};
+        validate_install_dir(&dest)?;
+        let previous = scan_uninstall_roots().map(|found| PathBuf::from(found.path));
+        if let Some(path) = &previous {
+            validate_install_dir(path)?;
+        }
+        let data = data_paths()?;
+        // Validate the payload before removing the existing installation or its data.
+        open_payload()?;
+        emit(&app, 1.0, "Closing Harbor for a clean install");
+        stop_harbor();
+        emit(&app, 2.0, "Removing old Harbor settings and data");
+        for path in data {
+            remove_owned_tree(&path)?;
+        }
+        emit(&app, 3.0, "Removing the old application files");
+        remove_owned_tree(&dest)?;
+        if let Some(path) = previous {
+            remove_owned_tree(&path)?;
+        }
+        remove_shortcuts();
+        remove_registry();
+    }
     install_core(&dest, desktop_shortcut, disabled_features, &mut |pct, step| emit(&app, pct, step))
 }
 
