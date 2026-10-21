@@ -181,9 +181,9 @@ function toRelated(relationType: string | null, node: RawRelationNode): AnilistR
   return {
     anilistId: node.id,
     title,
-    relation: relationType ? RELATION_LABELS[relationType] ?? "Related" : "Related",
+    relation: relationType ? (RELATION_LABELS[relationType] ?? "Related") : "Related",
     mediaType: node.type === "MANGA" ? "manga" : "anime",
-    format: node.format ? FORMAT_LABELS[node.format] ?? node.format : undefined,
+    format: node.format ? (FORMAT_LABELS[node.format] ?? node.format) : undefined,
     poster: node.coverImage?.large ?? undefined,
     year: node.seasonYear ?? node.startDate?.year ?? undefined,
     rating:
@@ -235,8 +235,9 @@ function shape(raw: NonNullable<RawResponse["Media"]>): AnilistMediaDetails {
     romajiTitle: raw.title.romaji ?? undefined,
     englishTitle: raw.title.english ?? undefined,
     synonyms: (raw.synonyms ?? []).map((s) => s.trim()).filter(Boolean),
-    source: raw.source ? SOURCE_LABELS[raw.source] ?? undefined : undefined,
-    favourites: typeof raw.favourites === "number" && raw.favourites > 0 ? raw.favourites : undefined,
+    source: raw.source ? (SOURCE_LABELS[raw.source] ?? undefined) : undefined,
+    favourites:
+      typeof raw.favourites === "number" && raw.favourites > 0 ? raw.favourites : undefined,
     episodes: typeof raw.episodes === "number" && raw.episodes > 0 ? raw.episodes : undefined,
     nextAiring: raw.nextAiringEpisode
       ? { airingAt: raw.nextAiringEpisode.airingAt, episode: raw.nextAiringEpisode.episode }

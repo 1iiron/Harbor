@@ -102,35 +102,38 @@ export async function fetchTvdbOrderBySeriesId(
     const persisted = readOrderCache(seriesId, typeKey);
     const result =
       persisted ??
-      await build(apiKey, seriesId, seasonType, lang, allowProxyNames).catch(() => null);
+      (await build(apiKey, seriesId, seasonType, lang, allowProxyNames).catch(() => null));
     if (!result) return null;
     orderCache.set(cacheKey, { t: Date.now(), order: result });
     if (!persisted) writeOrderCache(seriesId, typeKey, result);
     if (!result.seasonNamesResolved && (mode === "direct" || allowProxyNames)) {
-      const nameType = seasonType === "aired" || seasonType === "official" ? "official" : seasonType;
-      const enrichment = tvdbSeasonNames(apiKey, seriesId, nameType, lang).then((names) => {
-        const enriched: TvdbOrder = {
-          ...result,
-          seasonNamesResolved: true,
-          seasons: result.seasons.map((season) => {
-            const translated = names.get(season.seasonNumber);
-            // A generic English fallback must not hide a real season title.
-            const name =
-              translated && !isGenericTvdbSeasonName(translated, season.seasonNumber)
-                ? translated
-                : season.name;
-            return {
-              ...season,
-              name,
-              nameLanguage: "en",
-              isGenericName: isGenericTvdbSeasonName(name, season.seasonNumber),
-            };
-          }),
-        };
-        orderCache.set(cacheKey, { t: Date.now(), order: enriched });
-        writeOrderCache(seriesId, typeKey, enriched);
-        return enriched;
-      }).catch(() => result);
+      const nameType =
+        seasonType === "aired" || seasonType === "official" ? "official" : seasonType;
+      const enrichment = tvdbSeasonNames(apiKey, seriesId, nameType, lang)
+        .then((names) => {
+          const enriched: TvdbOrder = {
+            ...result,
+            seasonNamesResolved: true,
+            seasons: result.seasons.map((season) => {
+              const translated = names.get(season.seasonNumber);
+              // A generic English fallback must not hide a real season title.
+              const name =
+                translated && !isGenericTvdbSeasonName(translated, season.seasonNumber)
+                  ? translated
+                  : season.name;
+              return {
+                ...season,
+                name,
+                nameLanguage: "en",
+                isGenericName: isGenericTvdbSeasonName(name, season.seasonNumber),
+              };
+            }),
+          };
+          orderCache.set(cacheKey, { t: Date.now(), order: enriched });
+          writeOrderCache(seriesId, typeKey, enriched);
+          return enriched;
+        })
+        .catch(() => result);
       nameInflight.set(result, enrichment);
     }
     return result;
@@ -155,7 +158,9 @@ async function build(
   const slug =
     seasonType === "aired" || seasonType === "official" || joinedClean
       ? "default"
-      : rawAbsolute ? "absolute" : seasonType;
+      : rawAbsolute
+        ? "absolute"
+        : seasonType;
   const nameTypeSlug =
     seasonType === "aired" || joinedClean || rawAbsolute ? "official" : seasonType;
   const [defaultEps, seasonInfos] = await Promise.all([
@@ -175,7 +180,9 @@ async function build(
   // as nameEn/overviewEn for consumers that need an English fallback when no localized text exists.
   const requestedLang = lang && lang !== "eng" ? lang : undefined;
   const [transAlt, transEn] = await Promise.all([
-    requestedLang ? tvdbEpisodesByType(apiKey, seriesId, slug, requestedLang).catch(() => []) : Promise.resolve<TvdbEpisode[]>([]),
+    requestedLang
+      ? tvdbEpisodesByType(apiKey, seriesId, slug, requestedLang).catch(() => [])
+      : Promise.resolve<TvdbEpisode[]>([]),
     tvdbEpisodesByType(apiKey, seriesId, slug, "eng").catch(() => []),
   ]);
   const transById = new Map(transAlt.map((e) => [e.id, e] as const));
@@ -208,9 +215,15 @@ async function build(
     const fieldLanguage = (value: string | undefined, field: "name" | "overview") => {
       const languageField = field === "name" ? "nameLanguage" : "overviewLanguage";
       if (value && value === tr?.[field]) {
-        return episodeTextLanguage(value, lang, trEn?.[languageField] === "und" ? undefined : trEn?.[field], tr?.[languageField] ? [tr[languageField]] : undefined);
+        return episodeTextLanguage(
+          value,
+          lang,
+          trEn?.[languageField] === "und" ? undefined : trEn?.[field],
+          tr?.[languageField] ? [tr[languageField]] : undefined,
+        );
       }
-      if (value && value === trEn?.[field]) return trEn?.[languageField] ?? episodeTextLanguage(value, "en");
+      if (value && value === trEn?.[field])
+        return trEn?.[languageField] ?? episodeTextLanguage(value, "en");
       return e[languageField] ?? "und";
     };
     // A localized "TBA" must not shadow a real name in another list: an aired
@@ -227,8 +240,14 @@ async function build(
       overviewEn,
       nameLanguage: fieldLanguage(name, "name"),
       overviewLanguage: fieldLanguage(overview, "overview"),
-      nameEnLanguage: nameEn === trEn?.name ? trEn?.nameLanguage ?? episodeTextLanguage(nameEn, "en") : e.nameLanguage ?? "und",
-      overviewEnLanguage: overviewEn === trEn?.overview ? trEn?.overviewLanguage ?? episodeTextLanguage(overviewEn, "en") : e.overviewLanguage ?? "und",
+      nameEnLanguage:
+        nameEn === trEn?.name
+          ? (trEn?.nameLanguage ?? episodeTextLanguage(nameEn, "en"))
+          : (e.nameLanguage ?? "und"),
+      overviewEnLanguage:
+        overviewEn === trEn?.overview
+          ? (trEn?.overviewLanguage ?? episodeTextLanguage(overviewEn, "en"))
+          : (e.overviewLanguage ?? "und"),
       stillPath: null,
       stillUrl: e.image ?? undefined,
       airDate: e.aired ?? null,
@@ -251,7 +270,9 @@ async function build(
   }
   if (bySeason.size === 0) return null;
   if (joinedClean) {
-    bySeason.get(1)?.sort((x, y) => x.seasonNumber - y.seasonNumber || x.episodeNumber - y.episodeNumber);
+    bySeason
+      .get(1)
+      ?.sort((x, y) => x.seasonNumber - y.seasonNumber || x.episodeNumber - y.episodeNumber);
   }
 
   const absByEpId = new Map<number, number>();
@@ -268,19 +289,21 @@ async function build(
   const seasons: Season[] = [...bySeason.keys()]
     .sort((a, b) => (a <= 0 ? 1 : b <= 0 ? -1 : a - b))
     .map((n) => {
-      const name = joinedClean || rawAbsolute
-        ? "All Episodes"
-        : names.get(n) || (n === 0 ? "Specials" : `Season ${n}`);
+      const name =
+        joinedClean || rawAbsolute
+          ? "All Episodes"
+          : names.get(n) || (n === 0 ? "Specials" : `Season ${n}`);
       return {
         id: n,
         seasonNumber: n,
         name,
         nameLanguage: "en",
         isGenericName: joinedClean || rawAbsolute || isGenericTvdbSeasonName(name, n),
-        overview: joinedClean || rawAbsolute ? "" : seasonInfos.get(n)?.overview ?? "",
-        overviewLanguage: joinedClean || rawAbsolute ? undefined : seasonInfos.get(n)?.overviewLanguage,
+        overview: joinedClean || rawAbsolute ? "" : (seasonInfos.get(n)?.overview ?? ""),
+        overviewLanguage:
+          joinedClean || rawAbsolute ? undefined : seasonInfos.get(n)?.overviewLanguage,
         // TVDB artwork uses absolute URLs, unlike TMDB poster paths.
-        posterPath: joinedClean || rawAbsolute ? null : seasonInfos.get(n)?.image ?? null,
+        posterPath: joinedClean || rawAbsolute ? null : (seasonInfos.get(n)?.image ?? null),
         episodeCount: bySeason.get(n)!.length,
         airDate: bySeason.get(n)![0]?.airDate ?? null,
       };

@@ -148,6 +148,7 @@ function seriesModule() {
         imdbSeason?: number;
         imdbEpisode?: number;
         episodeEndOffset?: number;
+        skip?: (season: number, episode: number, metaId?: string) => boolean;
       },
     ) => Promise<{
       prev: { episode: number } | null;
@@ -279,6 +280,23 @@ test("a cour without a Sequel link keeps Next disabled", async () => {
     { tmdbKey: "", kitsuStreamId: "kitsu:46873:12", imdbSeason: 2, imdbEpisode: 12 },
   );
   assert.equal(result.next, null);
+});
+
+test("hidden episodes are checked against the sequel entry during a cour handoff", async () => {
+  const { fetchAdjacentEpisodes } = seriesModule();
+  const query = { tmdbKey: "", kitsuStreamId: "kitsu:45398:12" };
+  const result = await fetchAdjacentEpisodes(
+    meta("kitsu:45398"),
+    { season: 1, episode: 12 },
+    { ...query, skip: (s, e, id = "kitsu:45398") => id === "kitsu:45398" && s === 1 && e === 1 },
+  );
+  assert.equal(result.next?.kitsuStreamId, "kitsu:45619:1");
+  const hiddenSequel = await fetchAdjacentEpisodes(
+    meta("kitsu:45398"),
+    { season: 1, episode: 12 },
+    { ...query, skip: (s, e, id = "kitsu:45398") => id === "kitsu:45619" && s === 1 && e === 1 },
+  );
+  assert.equal(hiddenSequel.next?.kitsuStreamId, "kitsu:45619:2");
 });
 
 test("player navigation switches to the next entry's meta", () => {

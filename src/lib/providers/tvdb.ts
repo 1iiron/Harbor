@@ -179,7 +179,8 @@ async function getJson<T>(apiKey: string, path: string): Promise<T | null> {
           if (!res.ok) return null;
           const j = (await res.json()) as { data?: T };
           const data = (j?.data ?? null) as T | null;
-          if (data !== null) lruSet(responseCache, key, { t: Date.now(), v: data }, RESPONSE_CACHE_MAX);
+          if (data !== null)
+            lruSet(responseCache, key, { t: Date.now(), v: data }, RESPONSE_CACHE_MAX);
           return data;
         } catch {
           if (attempt === 0) {
@@ -312,12 +313,8 @@ export async function tvdbSeasons(
 ): Promise<Map<number, TvdbSeasonInfo>> {
   const map = new Map<number, TvdbSeasonInfo>();
   if (!seriesId) return map;
-  const overviewLang =
-    !apiKey.trim() && lang ? `&overviewLang=${encodeURIComponent(lang)}` : "";
-  const data = await getJson<any>(
-    apiKey,
-    `/series/${seriesId}/extended?short=true${overviewLang}`,
-  );
+  const overviewLang = !apiKey.trim() && lang ? `&overviewLang=${encodeURIComponent(lang)}` : "";
+  const data = await getJson<any>(apiKey, `/series/${seriesId}/extended?short=true${overviewLang}`);
   const seasons = (data?.seasons ?? []) as any[];
   for (const s of seasons) {
     if (s?.type?.type !== typeSlug) continue;
@@ -328,15 +325,28 @@ export async function tvdbSeasons(
     const id = typeof s.id === "number" ? s.id : null;
     // TVDB can pack several codes into one entry, e.g. ["eng,tur,fra"].
     const overviewTranslations = Array.isArray(s.overviewTranslations)
-      ? s.overviewTranslations.flatMap((value: unknown) => typeof value === "string"
-        ? value.split(",").map((code) => code.trim()).filter(Boolean)
-        : [])
+      ? s.overviewTranslations.flatMap((value: unknown) =>
+          typeof value === "string"
+            ? value
+                .split(",")
+                .map((code) => code.trim())
+                .filter(Boolean)
+            : [],
+        )
       : undefined;
-    const overviewLanguage = !apiKey.trim() && lang
-      ? episodeTextLanguage(overview, lang, undefined, overviewTranslations)
-      : "und";
+    const overviewLanguage =
+      !apiKey.trim() && lang
+        ? episodeTextLanguage(overview, lang, undefined, overviewTranslations)
+        : "und";
     map.set(num, {
-      id, number: num, seriesId, typeSlug, name, overview, overviewLanguage, image: tvdbImg(s.image),
+      id,
+      number: num,
+      seriesId,
+      typeSlug,
+      name,
+      overview,
+      overviewLanguage,
+      image: tvdbImg(s.image),
     });
   }
   return map;
@@ -463,9 +473,9 @@ export function pickSeasonPoster(opts: {
   // Prefer true season posters. Type 2 is a series poster, so it should only
   // stand in when TVDB has no season artwork at all.
   const seasonPosters = candidates.filter((a) => Number(a.type) === 7);
-  const posters = (seasonPosters.length > 0
-    ? seasonPosters
-    : candidates.filter((a) => Number(a.type) === 2))
+  const posters = (
+    seasonPosters.length > 0 ? seasonPosters : candidates.filter((a) => Number(a.type) === 2)
+  )
     .slice()
     .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
   const byLang = (code: string) => posters.find((a) => normArtLang(a.language) === code);
@@ -504,7 +514,9 @@ export async function tvdbEpisodes(
       name: e.name,
       overview: e.overview,
       nameLanguage: lang ? episodeTextLanguage(e.name, lang, undefined, e.nameTranslations) : "und",
-      overviewLanguage: lang ? episodeTextLanguage(e.overview, lang, undefined, e.overviewTranslations) : "und",
+      overviewLanguage: lang
+        ? episodeTextLanguage(e.overview, lang, undefined, e.overviewTranslations)
+        : "und",
       aired: e.aired,
       runtime: e.runtime,
       image: tvdbImg(e.image),
@@ -573,8 +585,12 @@ export async function tvdbEpisodesByType(
         absoluteNumber: typeof e.absoluteNumber === "number" ? e.absoluteNumber : undefined,
         name: e.name,
         overview: e.overview,
-        nameLanguage: lang ? episodeTextLanguage(e.name, lang, undefined, e.nameTranslations) : "und",
-        overviewLanguage: lang ? episodeTextLanguage(e.overview, lang, undefined, e.overviewTranslations) : "und",
+        nameLanguage: lang
+          ? episodeTextLanguage(e.name, lang, undefined, e.nameTranslations)
+          : "und",
+        overviewLanguage: lang
+          ? episodeTextLanguage(e.overview, lang, undefined, e.overviewTranslations)
+          : "und",
         aired: e.aired,
         runtime: e.runtime,
         image: tvdbImg(e.image),
@@ -611,7 +627,10 @@ export async function tvdbEpisodesAbsolute(
   const out: TvdbEpisode[] = [];
   const langSeg = lang ? `/${lang}` : "";
   for (let page = 0; page < 12; page++) {
-    const data = await getJson<any>(apiKey, `/series/${seriesId}/episodes/absolute${langSeg}?page=${page}`);
+    const data = await getJson<any>(
+      apiKey,
+      `/series/${seriesId}/episodes/absolute${langSeg}?page=${page}`,
+    );
     const arr = (data?.episodes ?? []) as any[];
     if (arr.length === 0) break;
     for (const e of arr) {

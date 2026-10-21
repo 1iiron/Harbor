@@ -1,7 +1,11 @@
 import { useMemo } from "react";
 import type { Season } from "@/lib/providers/tmdb";
 import { setViewedSeason } from "@/lib/season-view-pref";
-import { isGenericTvdbSeasonName, seasonDateRange, type TvdbOrder } from "@/lib/providers/tvdb-order";
+import {
+  isGenericTvdbSeasonName,
+  seasonDateRange,
+  type TvdbOrder,
+} from "@/lib/providers/tvdb-order";
 import { isNewSeason } from "../helpers";
 import { isGenericSeasonName } from "@/lib/season-name";
 import type { ArcGroupsState } from "./use-arc-groups";
@@ -81,12 +85,11 @@ export function useSeasonArcPicker({
             isGenericName: name === s.name ? s.isGenericName : false,
             // TMDB numbers other order types differently; only aired-style
             // views may use its name, poster, and synopsis for this season.
-            overview: tmdbSeasonNameFallback
-              ? tmdbSeason?.overview || s.overview
-              : s.overview,
-            overviewLanguage: tmdbSeasonNameFallback && tmdbSeason?.overview
-              ? tmdbSeason.overviewLanguage
-              : s.overviewLanguage,
+            overview: tmdbSeasonNameFallback ? tmdbSeason?.overview || s.overview : s.overview,
+            overviewLanguage:
+              tmdbSeasonNameFallback && tmdbSeason?.overview
+                ? tmdbSeason.overviewLanguage
+                : s.overviewLanguage,
             poster: tmdbSeasonNameFallback ? seasonPosters?.[s.seasonNumber] : undefined,
           };
         }),

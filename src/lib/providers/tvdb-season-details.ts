@@ -1,5 +1,12 @@
 import { episodeLanguageBase, episodeTextLanguage } from "@/lib/episode-text-language";
-import { pickSeasonPoster, tvdbLangFromIso1, tvdbSeasons, tvdbSeasonExtended, tvdbSeasonText, type TvdbSeasonInfo } from "./tvdb";
+import {
+  pickSeasonPoster,
+  tvdbLangFromIso1,
+  tvdbSeasons,
+  tvdbSeasonExtended,
+  tvdbSeasonText,
+  type TvdbSeasonInfo,
+} from "./tvdb";
 
 export type TvdbSeasonDetails = {
   name?: string;
@@ -23,30 +30,38 @@ export async function fetchTvdbSeasonDetails(
   if (!apiKey.trim()) {
     if (season.overview?.trim() && season.overviewLanguage === language)
       return { name: season.name, overview: season.overview.trim(), overviewLanguage: language };
-    const english = language === "en" || season.overviewLanguage === "en"
-      ? season
-      : season.seriesId && season.typeSlug
-        ? (await tvdbSeasons("", season.seriesId, season.typeSlug, "eng").catch(() => null))?.get(season.number)
-        : undefined;
+    const english =
+      language === "en" || season.overviewLanguage === "en"
+        ? season
+        : season.seriesId && season.typeSlug
+          ? (await tvdbSeasons("", season.seriesId, season.typeSlug, "eng").catch(() => null))?.get(
+              season.number,
+            )
+          : undefined;
     const overview = english?.overview;
     return {
       name: season.name,
       overview: episodeTextLanguage(overview, "en") === "en" ? overview?.trim() : undefined,
-      overviewLanguage: overview?.trim() && episodeTextLanguage(overview, "en") === "en" ? "en" : undefined,
+      overviewLanguage:
+        overview?.trim() && episodeTextLanguage(overview, "en") === "en" ? "en" : undefined,
     };
   }
   if (season.id == null) return {};
   const tvdbLang = tvdbLangFromIso1(language);
   const englishRequest = tvdbSeasonText(apiKey, season.id, "eng").catch(() => null);
   const [requested, english] = await Promise.all([
-    tvdbLang === "eng" ? englishRequest : tvdbSeasonText(apiKey, season.id, tvdbLang).catch(() => null),
+    tvdbLang === "eng"
+      ? englishRequest
+      : tvdbSeasonText(apiKey, season.id, tvdbLang).catch(() => null),
     englishRequest,
   ]);
   if (!requested && !english) return null;
   const requestedOverview = requested?.overview?.trim();
   const englishOverview = english?.overview?.trim();
   // Translation endpoints establish language even when the text quotes foreign names.
-  const localized = !!requestedOverview && episodeLanguageBase(tvdbLang) === language &&
+  const localized =
+    !!requestedOverview &&
+    episodeLanguageBase(tvdbLang) === language &&
     (language === "en" || requestedOverview !== englishOverview);
   const overview = localized ? requestedOverview : englishOverview;
   return {
@@ -97,7 +112,9 @@ export function createSeasonArtworkLoader(
   options: {
     titlePoster?: string;
     loadFallback?: (
-      season: number, rejected: ReadonlySet<string>, signal: AbortSignal,
+      season: number,
+      rejected: ReadonlySet<string>,
+      signal: AbortSignal,
     ) => Promise<string | undefined>;
   } = {},
 ) {
@@ -114,33 +131,40 @@ export function createSeasonArtworkLoader(
   const resolve = async (season: TvdbSeasonInfo): Promise<TvdbSeasonArtwork> => {
     let artwork = originals.get(season.number);
     if (!artwork) {
-      artwork = await fetchTvdbSeasonArtwork(apiKey, season, lang)
-        .catch(() => ({ poster: season.image }));
+      artwork = await fetchTvdbSeasonArtwork(apiKey, season, lang).catch(() => ({
+        poster: season.image,
+      }));
       originals.set(season.number, artwork);
     }
     const failed = rejected.get(season.number) ?? new Set<string>();
     let poster = [artwork.poster, season.image].find((url) => url && !failed.has(url));
     if (!poster && !stopped)
-      poster = await options.loadFallback?.(season.number, failed, controller.signal).catch(() => undefined);
+      poster = await options
+        .loadFallback?.(season.number, failed, controller.signal)
+        .catch(() => undefined);
     if (!poster || failed.has(poster))
-      poster = options.titlePoster && !failed.has(options.titlePoster) ? options.titlePoster : undefined;
+      poster =
+        options.titlePoster && !failed.has(options.titlePoster) ? options.titlePoster : undefined;
     return { ...artwork, poster };
   };
   const pump = () => {
     while (!stopped && running < 3 && queued.size > 0) {
       const season =
-        (activeSeason == null ? undefined : queued.get(activeSeason)) ?? queued.values().next().value!;
+        (activeSeason == null ? undefined : queued.get(activeSeason)) ??
+        queued.values().next().value!;
       queued.delete(season.number);
       requested.add(season.number);
       running++;
-      void resolve(season).then((artwork) => {
-        if (stopped) return;
-        resolved.set(season.number, artwork);
-        onLoaded(season.number, artwork);
-      }).finally(() => {
-        running--;
-        pump();
-      });
+      void resolve(season)
+        .then((artwork) => {
+          if (stopped) return;
+          resolved.set(season.number, artwork);
+          onLoaded(season.number, artwork);
+        })
+        .finally(() => {
+          running--;
+          pump();
+        });
     }
   };
   return {

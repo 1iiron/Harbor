@@ -68,7 +68,9 @@ export function readOrderCache(seriesId: number, seasonType: string): TvdbOrder 
       seasonNamesResolved: s.seasonNamesResolved,
       bySeason: new Map(s.bySeason),
       absByEpId: new Map(s.absByEpId),
-      imageByAbs: new Map(s.imageByAbs.filter(([absolute]) => Number.isInteger(absolute) && absolute > 0)),
+      imageByAbs: new Map(
+        s.imageByAbs.filter(([absolute]) => Number.isInteger(absolute) && absolute > 0),
+      ),
     };
   } catch {
     return null;

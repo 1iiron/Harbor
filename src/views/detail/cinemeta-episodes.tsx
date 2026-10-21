@@ -530,7 +530,11 @@ function SeasonDropdown({
         className="flex h-10 items-center gap-2 rounded-full bg-white/[0.06] ps-4 pe-3 text-[13.5px] font-medium text-ink transition-colors hover:bg-white/[0.10]"
       >
         <span className="max-w-[220px] truncate">{activeItem?.name ?? seasonLabel(t, active)}</span>
-        {activePill && <span className="shrink-0 rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">{activePill}</span>}
+        {activePill && (
+          <span className="shrink-0 rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">
+            {activePill}
+          </span>
+        )}
         <ChevronDown
           size={15}
           className={`text-ink-muted transition-transform ${open ? "rotate-180" : ""}`}
@@ -564,7 +568,11 @@ function SeasonDropdown({
                   >
                     <span className="flex min-w-0 flex-col gap-1">
                       <span className="truncate">{item?.name ?? seasonLabel(t, s)}</span>
-                      {pill && <span className="w-fit rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">{pill}</span>}
+                      {pill && (
+                        <span className="w-fit rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted">
+                          {pill}
+                        </span>
+                      )}
                     </span>
                   </button>
                 );

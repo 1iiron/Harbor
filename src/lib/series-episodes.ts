@@ -224,7 +224,7 @@ export async function fetchAdjacentEpisodes(
     imdbSeason?: number;
     imdbEpisode?: number;
     episodeEndOffset?: number;
-    skip?: (season: number, episode: number) => boolean;
+    skip?: (season: number, episode: number, metaId?: string) => boolean;
   },
 ): Promise<Adjacent> {
   const animeSeries = animeSeriesFromStreamId(opts.kitsuStreamId);
@@ -541,7 +541,7 @@ async function animeAdjacent(
     imdbSeason?: number;
     imdbEpisode?: number;
     episodeEndOffset?: number;
-    skip?: (season: number, episode: number) => boolean;
+    skip?: (season: number, episode: number, metaId?: string) => boolean;
   },
 ): Promise<Adjacent> {
   const offset = opts.episodeEndOffset ?? 0;
@@ -566,7 +566,7 @@ async function animeAdjacent(
   const sequel = await nextAnimeEntry(entryId);
   if (!sequel || sequel.id === entryId) return result;
   const nextEps = await getAnimeEpisodes(sequel.id);
-  const first = nextEps?.find((ep) => !opts.skip?.(ep.season, ep.episode));
+  const first = nextEps?.find((ep) => !opts.skip?.(ep.season, ep.episode, sequel.id));
   if (!first) return result;
   return {
     ...result,

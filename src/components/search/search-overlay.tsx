@@ -78,9 +78,10 @@ export function SearchOverlay() {
   const { activeProfile } = useProfiles();
   const { settings, update } = useSettings();
   const gamesEnabled = useInstallFeatures().games;
-  const storeQuery = activeProfile?.kid || !gamesEnabled
-    ? null
-    : steamStoreQuery(query, settings.steamSearchShortcut);
+  const storeQuery =
+    activeProfile?.kid || !gamesEnabled
+      ? null
+      : steamStoreQuery(query, settings.steamSearchShortcut);
   useEffect(() => {
     setMediaFilter("all");
   }, [query]);

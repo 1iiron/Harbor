@@ -60,9 +60,15 @@ function seriesModule(overrides: Record<string, unknown> = {}) {
     "@/lib/providers/kitsu": kitsu,
   });
   const deps: Record<string, unknown> = {
-    "@/lib/cache": { lruSet: (map: Map<unknown, unknown>, key: unknown, value: unknown) => map.set(key, value) },
+    "@/lib/cache": {
+      lruSet: (map: Map<unknown, unknown>, key: unknown, value: unknown) => map.set(key, value),
+    },
     "@/lib/memory-profiler": { registerCache() {} },
-    "@/lib/safe-fetch": { safeFetch: async () => { throw new Error("unexpected live request"); } },
+    "@/lib/safe-fetch": {
+      safeFetch: async () => {
+        throw new Error("unexpected live request");
+      },
+    },
     "./meta-resource": {
       PREFERRED_TEXT_SCORE: 1000,
       preferCustomMeta: () => false,

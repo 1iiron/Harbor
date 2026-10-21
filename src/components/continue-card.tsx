@@ -45,7 +45,7 @@ import {
   providerMappedEpisode,
 } from "@/lib/cw-anime-episode";
 import { resolveCwAnimePlayEpisode } from "@/lib/cw-anime-play";
-import { resolveCwAnimeVideo } from "@/lib/cw-anime-video";
+import { matchCwAnimeVideo, resolveCwAnimeVideo } from "@/lib/cw-anime-video";
 import { isSplitFranchiseKitsu } from "@/lib/providers/anime-franchise-root";
 import { parseKitsuId } from "@/lib/providers/kitsu";
 import {
@@ -264,9 +264,10 @@ export const ContinueCard = memo(function ContinueCard({
             const bg = m.background || (item.background ? undefined : m.poster);
             if (bg) setMetaBg(bg);
             if (animeEp != null && Number.isFinite(animeEp)) {
-              const vid =
-                m.videos.find((v) => v.id === item.state?.video_id) ??
-                m.videos.find((v) => v.episode === animeEp);
+              const vid = matchCwAnimeVideo(m.videos, item.state?.video_id, {
+                season: ep?.season ?? 1,
+                episode: ep?.episode ?? animeEp,
+              });
               if (vid) setKitsuVideo(vid);
             }
             const key = aniZipLookupKey(item._id);
@@ -456,12 +457,10 @@ export const ContinueCard = memo(function ContinueCard({
     // instead of the row's base entry.
     // The card's own video is the exact episode; hand it over so a split cour
     // can never fall back to a sibling entry's season-1 episode.
-    const video =
-      kitsuVideo ?? (ep ? await resolveCwAnimeVideo(item, ep).catch(() => null) : null);
+    const video = kitsuVideo ?? (ep ? await resolveCwAnimeVideo(item, ep).catch(() => null) : null);
     const stateStreamId = item.state?.video_id;
     const directStreamId =
-      video?.id ??
-      (/^kitsu:\d+:\d+$/.test(stateStreamId ?? "") ? stateStreamId : undefined);
+      video?.id ?? (/^kitsu:\d+:\d+$/.test(stateStreamId ?? "") ? stateStreamId : undefined);
     const animePlay = await resolveCwAnimePlayEpisode({
       metaId: item._id,
       season: ep?.season,

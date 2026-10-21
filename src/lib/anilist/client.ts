@@ -63,10 +63,7 @@ export async function anilistRequest<T>(
       );
       throw new AnilistApiError(429, body);
     }
-    const waitMs = Math.min(
-      rateLimitWaitMs(res.headers.get("retry-after")),
-      AUTH_RETRY_MAX_MS,
-    );
+    const waitMs = Math.min(rateLimitWaitMs(res.headers.get("retry-after")), AUTH_RETRY_MAX_MS);
     await new Promise((resolve) => setTimeout(resolve, waitMs));
     res = await doFetch(query, variables, token);
     if (res.status === 429) {

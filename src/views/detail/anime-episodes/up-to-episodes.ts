@@ -23,8 +23,7 @@ export function animeUpToEpisodeSlice(
       (ep.sourceMetaId ?? anchorMetaId) === sourceMetaId &&
       animeSeasonKey(ep) === target.season &&
       ep.number === target.episode &&
-      (target.absoluteNumber == null ||
-        (ep.absoluteNumber ?? ep.number) === target.absoluteNumber),
+      (target.absoluteNumber == null || (ep.absoluteNumber ?? ep.number) === target.absoluteNumber),
   );
   return index < 0 ? [] : episodes.slice(0, index + 1);
 }

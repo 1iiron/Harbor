@@ -50,7 +50,15 @@ type KitsuCharacterAttrs = {
   description?: string;
 };
 
-type Resource<T> = { id: string; type: string; attributes: T; relationships?: Record<string, { data?: { id: string; type: string } | Array<{ id: string; type: string }> }> };
+type Resource<T> = {
+  id: string;
+  type: string;
+  attributes: T;
+  relationships?: Record<
+    string,
+    { data?: { id: string; type: string } | Array<{ id: string; type: string }> }
+  >;
+};
 type Doc<D, I = unknown> = { data: D; included?: Resource<I>[] };
 
 const cache = new Map<string, { v: unknown; t: number }>();
@@ -470,9 +478,9 @@ const mainTvCache = new Map<number, number | null>();
 
 export async function kitsuMainTvSeries(id: number): Promise<number | null> {
   if (mainTvCache.has(id)) return mainTvCache.get(id)!;
-  const j = await get<Doc<Resource<{ role?: string }>[], { subtype?: string; episodeCount?: number }>>(
-    `/anime/${id}/media-relationships?include=destination&page[limit]=20`,
-  );
+  const j = await get<
+    Doc<Resource<{ role?: string }>[], { subtype?: string; episodeCount?: number }>
+  >(`/anime/${id}/media-relationships?include=destination&page[limit]=20`);
   let best: number | null = null;
   let bestEps = -1;
   const animeById = new Map<string, { subtype?: string; episodeCount?: number }>();

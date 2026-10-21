@@ -476,11 +476,19 @@ export function DetailView({
   const addonNative = liveContext || isAddonNativeMeta(meta);
   const capstanMeta = useCapstanDetail(meta);
   const capstanCanonicalId = capstanMeta?.canonicalId ?? null;
-  const trailerCandidates = useMemo(() => Array.from(new Set([
-    ...(detail?.trailerCandidates ?? []),
-    ...(meta.trailerStreams?.map((trailer) => trailer.ytId) ?? []),
-    ...(meta.trailers?.map((trailer) => trailer.source) ?? []),
-  ].filter((id): id is string => !!id))), [detail?.trailerCandidates, meta.trailerStreams, meta.trailers]);
+  const trailerCandidates = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            ...(detail?.trailerCandidates ?? []),
+            ...(meta.trailerStreams?.map((trailer) => trailer.ytId) ?? []),
+            ...(meta.trailers?.map((trailer) => trailer.source) ?? []),
+          ].filter((id): id is string => !!id),
+        ),
+      ),
+    [detail?.trailerCandidates, meta.trailerStreams, meta.trailers],
+  );
   const trailerCandidate = trailerCandidates[0] ?? null;
 
   useScrollUpTrailer(
@@ -580,7 +588,9 @@ export function DetailView({
     void fetchCinemetaMeta(capstanMeta.kind === "series" ? "series" : "movie", id)
       .then((full) => {
         if (cancelled || !full?.videos?.length) return;
-        setCinemetaFull((prev) => (prev && prev.id === meta.id ? { ...prev, videos: full.videos } : full));
+        setCinemetaFull((prev) =>
+          prev && prev.id === meta.id ? { ...prev, videos: full.videos } : full,
+        );
       })
       .catch(() => {});
     return () => {
@@ -650,9 +660,8 @@ export function DetailView({
       if (k != null) k = await resolveDetailAnimeEntry(k, meta, detail);
       if (cancelled) return;
       if (k != null && k !== failedKitsu.current) {
-        const verdict = k === recordedKitsu
-          ? "ok"
-          : await kitsuYearVerdict(k, meta.releaseInfo, detail?.year);
+        const verdict =
+          k === recordedKitsu ? "ok" : await kitsuYearVerdict(k, meta.releaseInfo, detail?.year);
         if (cancelled) return;
         if (verdict === "ok") setDetectedKitsu(k);
         else if (verdict === "reject") {

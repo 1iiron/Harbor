@@ -113,7 +113,9 @@ export function useEpisodeNavigation(params: {
       imdbSeason: src.episode.imdbSeason,
       imdbEpisode: src.episode.imdbEpisode,
       episodeEndOffset: Math.max(0, (src.episodeEnd ?? src.episode.episode) - src.episode.episode),
-      skip: settings.episodeHiding ? (s, e) => isEpisodeHidden(src.meta.id, s, e) : undefined,
+      skip: settings.episodeHiding
+        ? (s, e, metaId) => isEpisodeHidden(metaId ?? src.meta.id, s, e)
+        : undefined,
     }).then((r) => {
       if (cancelled) return;
       if (localShowKey) {

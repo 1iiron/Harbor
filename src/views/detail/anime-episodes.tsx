@@ -675,20 +675,13 @@ export function AnimeEpisodes({
         if (!tmdb) return item;
         return {
           ...item,
-          fallbackName:
-            tmdb.nameLanguage === "en" || !tmdb.nameLanguage ? tmdb.name : undefined,
+          fallbackName: tmdb.nameLanguage === "en" || !tmdb.nameLanguage ? tmdb.name : undefined,
           overview: item.overview || tmdb.overview,
           overviewLanguage: item.overview ? item.overviewLanguage : tmdb.overviewLanguage,
           poster: item.poster || seasonPosters?.[seasonNumber],
         };
       }),
-    [
-      tvdbPanel.panel?.items,
-      pickerItems,
-      tmdbSeasonByNumber,
-      tmdbSeasonFallback,
-      seasonPosters,
-    ],
+    [tvdbPanel.panel?.items, pickerItems, tmdbSeasonByNumber, tmdbSeasonFallback, seasonPosters],
   );
   const explorer = useSeasonExplorerView({
     metaId: meta.id,

@@ -371,7 +371,13 @@ export function BpCwCardPill({
     <span data-bp-cw-pill className={PILL}>
       {external ? (
         <img
-          src={external === "trakt" ? traktLogo : external === "publicmetadb" ? publicmetadbLogo : simklLogo}
+          src={
+            external === "trakt"
+              ? traktLogo
+              : external === "publicmetadb"
+                ? publicmetadbLogo
+                : simklLogo
+          }
           alt=""
           className="h-[1.15em] w-[1.15em] shrink-0 rounded-[3px]"
         />

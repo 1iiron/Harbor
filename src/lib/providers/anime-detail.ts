@@ -17,10 +17,7 @@ import {
   externalToKitsu,
   kitsuToAnilist,
 } from "@/lib/providers/anime-mapping";
-import {
-  applyMalEpisodeTitles,
-  episodesMissingTitle,
-} from "@/lib/providers/episode-placeholder";
+import { applyMalEpisodeTitles, episodesMissingTitle } from "@/lib/providers/episode-placeholder";
 import { malEpisodeTitles } from "@/lib/providers/mal-episodes";
 import { anilistFranchise, type AnilistFranchiseNode } from "@/lib/anilist/relations";
 import { anilistArtById, anilistRecommendations } from "@/lib/anilist/browse";
@@ -395,9 +392,7 @@ export async function animeDetails(
     }
   }
   const addonMeta =
-    directMeta &&
-    parseKitsuId(directMeta.id) === kitsuId &&
-    directMeta.videos.length > 0
+    directMeta && parseKitsuId(directMeta.id) === kitsuId && directMeta.videos.length > 0
       ? directMeta
       : await animeKitsuMeta(`kitsu:${kitsuId}`).catch(() => null);
   if (!anime) return null;
@@ -427,41 +422,34 @@ export async function animeDetails(
     .then((aid) => (aid ? anilistRecommendations(aid) : []))
     .catch(() => [] as Meta[]);
 
-  const [
-    kitsuRawEpisodes,
-    characters,
-    related,
-    studios,
-    streamers,
-    aniZip,
-    tvdbEpsRaw,
-  ] = await Promise.all([
-    kitsuEpisodes(kitsuId, 100),
-    kitsuCharacters(kitsuId, 30),
-    kitsuRelated(kitsuId),
-    kitsuStudios(kitsuId),
-    kitsuStreamingLinks(kitsuId),
-    aniZipByKitsu(kitsuId).catch(() => null),
-    kitsuToTvdb(kitsuId)
-      .then((tid) => {
-        if (!tid) return null;
-        const lang = tvdbLangFromIso1(settings.tmdbLanguage || settings.uiLanguage);
-        const fetchAll = (l: string) =>
-          Promise.all([
-            tvdbEpisodesByType(settings.tvdbKey ?? "", tid, "default", l),
-            tvdbEpisodesAbsolute(settings.tvdbKey ?? "", tid, l),
-          ]).then(([def, abs]) => {
-            const all = [...def, ...abs];
-            const unique = new Map(all.map((e) => [e.id, e]));
-            return Array.from(unique.values());
-          });
-        return Promise.all([
-          fetchAll(lang),
-          lang !== "eng" ? fetchAll("eng").catch(() => null) : Promise.resolve(null),
-        ]).then(([loc, en]) => ({ loc, en }));
-      })
-      .catch(() => null),
-  ]);
+  const [kitsuRawEpisodes, characters, related, studios, streamers, aniZip, tvdbEpsRaw] =
+    await Promise.all([
+      kitsuEpisodes(kitsuId, 100),
+      kitsuCharacters(kitsuId, 30),
+      kitsuRelated(kitsuId),
+      kitsuStudios(kitsuId),
+      kitsuStreamingLinks(kitsuId),
+      aniZipByKitsu(kitsuId).catch(() => null),
+      kitsuToTvdb(kitsuId)
+        .then((tid) => {
+          if (!tid) return null;
+          const lang = tvdbLangFromIso1(settings.tmdbLanguage || settings.uiLanguage);
+          const fetchAll = (l: string) =>
+            Promise.all([
+              tvdbEpisodesByType(settings.tvdbKey ?? "", tid, "default", l),
+              tvdbEpisodesAbsolute(settings.tvdbKey ?? "", tid, l),
+            ]).then(([def, abs]) => {
+              const all = [...def, ...abs];
+              const unique = new Map(all.map((e) => [e.id, e]));
+              return Array.from(unique.values());
+            });
+          return Promise.all([
+            fetchAll(lang),
+            lang !== "eng" ? fetchAll("eng").catch(() => null) : Promise.resolve(null),
+          ]).then(([loc, en]) => ({ loc, en }));
+        })
+        .catch(() => null),
+    ]);
 
   const episodes = buildKitsuEpisodes(addonMeta, kitsuRawEpisodes);
   let tmdbEpsRaw: TmdbEpisode[] | null = null;
@@ -507,12 +495,17 @@ export async function animeDetails(
     targetLang: iso1,
     englishEpisodes: tvdbEpsRaw?.en,
   });
-  mergeTmdbEpisodes(episodes, tmdbEpsRaw, { lang: localized ? iso1 : undefined, targetLang: iso1, englishEpisodes: tmdbEnRaw });
+  mergeTmdbEpisodes(episodes, tmdbEpsRaw, {
+    lang: localized ? iso1 : undefined,
+    targetLang: iso1,
+    englishEpisodes: tmdbEnRaw,
+  });
   // Fall back to English titles/overviews when the localized translation is missing (providers
   // otherwise fall back to the original, e.g. Japanese for anime). `targetLang` keeps this pass
   // from overwriting a title the user already has in their own language.
   if (localized) {
-    if (tvdbEpsRaw?.en) mergeTvdbEpisodes(episodes, tvdbEpsRaw.en, { targetLang: iso1, fallbackOnly: true });
+    if (tvdbEpsRaw?.en)
+      mergeTvdbEpisodes(episodes, tvdbEpsRaw.en, { targetLang: iso1, fallbackOnly: true });
     if (tmdbEnRaw) mergeTmdbEpisodes(episodes, tmdbEnRaw, { targetLang: iso1 });
   }
   // Last resort: MAL names episodes the other providers leave unnamed (it

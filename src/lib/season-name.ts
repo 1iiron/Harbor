@@ -1,11 +1,13 @@
-const GENERIC_SEASON = /^(?:season|sezon|saison|staffel|temporada|stagione|musim|mùa|сезон|الموسم|موسم|सीज़न|シーズン|시즌)\s*(\d+)$/iu;
+const GENERIC_SEASON =
+  /^(?:season|sezon|saison|staffel|temporada|stagione|musim|mùa|сезон|الموسم|موسم|सीज़न|シーズン|시즌)\s*(\d+)$/iu;
 
 /** Recognize provider defaults before passing names to a differently localized UI. */
 export function isGenericSeasonName(name: string, seasonNumber: number): boolean {
   const text = name.trim();
-  const match = GENERIC_SEASON.exec(text)
-    ?? /^第\s*(\d+)\s*季$/u.exec(text)
-    ?? /^(\d+)\.\s*sezon$/iu.exec(text);
+  const match =
+    GENERIC_SEASON.exec(text) ??
+    /^第\s*(\d+)\s*季$/u.exec(text) ??
+    /^(\d+)\.\s*sezon$/iu.exec(text);
   return !!match && Number(match[1]) === seasonNumber;
 }
 

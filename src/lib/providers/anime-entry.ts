@@ -54,9 +54,7 @@ export async function nextAnimeEntry(
 ): Promise<NextAnimeEntry | null> {
   const meta = await lookup(id).catch(() => null);
   const sequel = meta?.links?.find(
-    (link) =>
-      link.category?.toLowerCase() === "franchise" &&
-      /^sequel\b/i.test(link.name ?? ""),
+    (link) => link.category?.toLowerCase() === "franchise" && /^sequel\b/i.test(link.name ?? ""),
   );
   const match = sequel ? /\/detail\/series\/([^/?#]+)/.exec(sequel.url ?? "") : null;
   if (!match) return null;

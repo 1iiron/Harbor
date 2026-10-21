@@ -45,10 +45,7 @@ export function providerMappedEpisode(
   const episode = video.imdbEpisode;
   if (typeof season !== "number" || !Number.isInteger(season) || season < 1) return null;
   if (typeof episode !== "number" || !Number.isInteger(episode) || episode < 1) return null;
-  if (
-    stored &&
-    (season < stored.season || (season === stored.season && episode < stored.episode))
-  )
+  if (stored && (season < stored.season || (season === stored.season && episode < stored.episode)))
     return null;
   return { season, episode };
 }

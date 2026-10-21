@@ -161,7 +161,16 @@ export function useMobileCw(limit = 14): LibraryItem[] {
       if (out.length >= limit) break;
     }
     return out;
-  }, [items, externalCw, localVersion, dismissVersion, limit, hideAnime, hideSharedCw, activeProfile?.id]);
+  }, [
+    items,
+    externalCw,
+    localVersion,
+    dismissVersion,
+    limit,
+    hideAnime,
+    hideSharedCw,
+    activeProfile?.id,
+  ]);
 }
 
 function toMeta(item: LibraryItem): Meta {

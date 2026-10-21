@@ -87,10 +87,7 @@ test("an anonymous 429 opens a cooldown and never retries", async () => {
   });
   await assert.rejects(client.anilistRequest("query"), (error) => error.status === 429);
   assert.equal(calls.length, 1);
-  await assert.rejects(
-    client.anilistRequest("query"),
-    /anonymous rate limit cooldown/,
-  );
+  await assert.rejects(client.anilistRequest("query"), /anonymous rate limit cooldown/);
   assert.equal(calls.length, 1);
 });
 

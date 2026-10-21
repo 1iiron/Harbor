@@ -140,7 +140,13 @@ export function TvdbOrderPanel({
           <div
             ref={menuRef}
             onMouseDown={(e) => e.stopPropagation()}
-            style={{ left: menu.left, right: menu.right, top: menu.top, bottom: menu.bottom, maxHeight: menu.maxH }}
+            style={{
+              left: menu.left,
+              right: menu.right,
+              top: menu.top,
+              bottom: menu.bottom,
+              maxHeight: menu.maxH,
+            }}
             className="animate-fade-in fixed z-[200] flex w-[340px] flex-col overflow-hidden rounded-lg border border-edge bg-elevated shadow-[0_18px_44px_-12px_rgba(0,0,0,0.6)]"
           >
             {orderTypes.length > 1 && (
@@ -167,22 +173,24 @@ export function TvdbOrderPanel({
               <span>{t("Episodes")}</span>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto pb-1.5">
-              {items.filter((i) => !i.extra).map((item) => {
-                const ongoing = isOngoing(item.to);
-                return (
-                  <OrderRow
-                    key={item.key}
-                    name={item.name}
-                    pill={seasonPill(item, t)}
-                    sub={dateSub(item, ongoing, t("Current"))}
-                    count={item.count}
-                    active={item.key === activeKey}
-                    ongoing={ongoing}
-                    ongoingLabel={t("Ongoing")}
-                    onClick={() => pick(item.key)}
-                  />
-                );
-              })}
+              {items
+                .filter((i) => !i.extra)
+                .map((item) => {
+                  const ongoing = isOngoing(item.to);
+                  return (
+                    <OrderRow
+                      key={item.key}
+                      name={item.name}
+                      pill={seasonPill(item, t)}
+                      sub={dateSub(item, ongoing, t("Current"))}
+                      count={item.count}
+                      active={item.key === activeKey}
+                      ongoing={ongoing}
+                      ongoingLabel={t("Ongoing")}
+                      onClick={() => pick(item.key)}
+                    />
+                  );
+                })}
               {items.some((i) => i.extra) && (
                 <button
                   onClick={() => setShowExtras((v) => !v)}
@@ -196,23 +204,25 @@ export function TvdbOrderPanel({
                 </button>
               )}
               {showExtras &&
-                items.filter((i) => i.extra).map((item) => {
-                  const ongoing = isOngoing(item.to);
-                  return (
-                    <OrderRow
-                      key={item.key}
-                      name={item.name}
-                      pill={seasonPill(item, t)}
-                      sub={dateSub(item, ongoing, t("Current"))}
-                      count={item.count}
-                      active={item.key === activeKey}
-                      ongoing={ongoing}
-                      ongoingLabel={t("Ongoing")}
-                      badge={item.badge}
-                      onClick={() => pick(item.key)}
-                    />
-                  );
-                })}
+                items
+                  .filter((i) => i.extra)
+                  .map((item) => {
+                    const ongoing = isOngoing(item.to);
+                    return (
+                      <OrderRow
+                        key={item.key}
+                        name={item.name}
+                        pill={seasonPill(item, t)}
+                        sub={dateSub(item, ongoing, t("Current"))}
+                        count={item.count}
+                        active={item.key === activeKey}
+                        ongoing={ongoing}
+                        ongoingLabel={t("Ongoing")}
+                        badge={item.badge}
+                        onClick={() => pick(item.key)}
+                      />
+                    );
+                  })}
             </div>
           </div>,
           document.body,

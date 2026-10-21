@@ -22,7 +22,10 @@ function load(path: string, mocks: Record<string, unknown>) {
 const { pickTvdbImage } = load("src/lib/providers/tvdb-proxy.ts", {
   "@/lib/safe-fetch": { safeFetch: async () => ({ ok: false }) },
   "./anime-mapping": { kitsuToTvdb: async () => null },
-  "@/lib/config/endpoints": { HARBOR_TVDB_BASE: "https://fixture", HARBOR_API_BASE: "https://fixture" },
+  "@/lib/config/endpoints": {
+    HARBOR_TVDB_BASE: "https://fixture",
+    HARBOR_API_BASE: "https://fixture",
+  },
 });
 
 test("a sequel-cour row never falls back to the first season's episode still", () => {
@@ -57,8 +60,16 @@ test("specials sharing absolute zero keep their distinct season-zero images", ()
 });
 
 test("special artwork never falls through to a regular absolute episode", () => {
-  const map = { abs0: "last-special.jpg", abs1: "pilot.jpg", abs11: "regular-eleven.jpg", s0e1: "special.jpg" };
-  assert.equal(pickTvdbImage(map, { seasonNumber: 0, number: 1, absoluteNumber: 1 }), "special.jpg");
+  const map = {
+    abs0: "last-special.jpg",
+    abs1: "pilot.jpg",
+    abs11: "regular-eleven.jpg",
+    s0e1: "special.jpg",
+  };
+  assert.equal(
+    pickTvdbImage(map, { seasonNumber: 0, number: 1, absoluteNumber: 1 }),
+    "special.jpg",
+  );
   for (const absoluteNumber of [undefined, 0, 1, 11]) {
     assert.equal(pickTvdbImage(map, { seasonNumber: 0, number: 11, absoluteNumber }), null);
   }
@@ -73,6 +84,9 @@ test("mapped provider coordinates identify specials even with entry-local number
 test("invalid absolute numbers cannot override a regular episode's exact pair", () => {
   for (const absoluteNumber of [0, -1, 1.5, NaN, Infinity]) {
     const map = { [`abs${absoluteNumber}`]: "wrong.jpg", s2e3: "correct.jpg" };
-    assert.equal(pickTvdbImage(map, { number: 3, imdbSeason: 2, imdbEpisode: 3, absoluteNumber }), "correct.jpg");
+    assert.equal(
+      pickTvdbImage(map, { number: 3, imdbSeason: 2, imdbEpisode: 3, absoluteNumber }),
+      "correct.jpg",
+    );
   }
 });

@@ -50,21 +50,31 @@ export async function fetchTmdbSeasonPoster(
       request = get<{ posters?: Poster[] }>(key, `tv/${tvId}/season/${season}/images`, {
         language,
         include_image_language: languages.join(","),
-      }).catch(() => null).then((data) => {
-        const value = Array.isArray(data?.posters) ? data.posters : [];
-        lruSet(cache, cacheKey, {
-          expires: Date.now() + (data ? 10 * 60_000 : 60_000),
-          posters: value,
-        }, MAX_ENTRIES);
-        return value;
-      }).finally(() => inflight.delete(cacheKey));
+      })
+        .catch(() => null)
+        .then((data) => {
+          const value = Array.isArray(data?.posters) ? data.posters : [];
+          lruSet(
+            cache,
+            cacheKey,
+            {
+              expires: Date.now() + (data ? 10 * 60_000 : 60_000),
+              posters: value,
+            },
+            MAX_ENTRIES,
+          );
+          return value;
+        })
+        .finally(() => inflight.delete(cacheKey));
       inflight.set(cacheKey, request);
     }
     posters = await request;
   }
   const rank = (poster: Poster) => languages.indexOf(poster.iso_639_1 || "null");
-  const candidates = posters.filter((poster) => rank(poster) >= 0 && poster.file_path)
-    .slice().sort((a, b) => rank(a) - rank(b) || (b.vote_average ?? 0) - (a.vote_average ?? 0));
+  const candidates = posters
+    .filter((poster) => rank(poster) >= 0 && poster.file_path)
+    .slice()
+    .sort((a, b) => rank(a) - rank(b) || (b.vote_average ?? 0) - (a.vote_average ?? 0));
   for (const candidate of candidates) {
     const url = tmdbPosterUrl(candidate.file_path);
     if (url && !rejected.has(url)) return url;

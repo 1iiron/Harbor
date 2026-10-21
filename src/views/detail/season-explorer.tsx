@@ -19,7 +19,11 @@ const SEASON_LABEL_CLASS =
 type MeasureTitle = (element: Element, read: () => () => void) => () => void;
 type PosterError = (number: number, url: string) => void;
 
-const SeasonCardTitle = memo(function SeasonCardTitle({ text, enabled, measureTitle }: {
+const SeasonCardTitle = memo(function SeasonCardTitle({
+  text,
+  enabled,
+  measureTitle,
+}: {
   text: string;
   enabled: boolean;
   measureTitle: MeasureTitle;
@@ -74,7 +78,11 @@ const SeasonCardTitle = memo(function SeasonCardTitle({ text, enabled, measureTi
   );
 });
 
-function SeasonPoster({ src, name, onError }: {
+function SeasonPoster({
+  src,
+  name,
+  onError,
+}: {
   src?: string;
   name: string;
   onError: (src: string) => void;
@@ -139,7 +147,9 @@ function labelFor(item: PickerItem) {
 }
 
 function episodeCount(item: PickerItem, t: ReturnType<typeof useT>) {
-  return item.count === 1 ? t("{n} episode", { n: item.count }) : t("{n} episodes", { n: item.count });
+  return item.count === 1
+    ? t("{n} episode", { n: item.count })
+    : t("{n} episodes", { n: item.count });
 }
 
 function formatDate(value?: string) {
@@ -151,7 +161,14 @@ function formatDate(value?: string) {
 }
 
 const SeasonCard = memo(function SeasonCard({
-  item, poster, selected, nearby, panelId, onSelect, onPosterError, measureTitle,
+  item,
+  poster,
+  selected,
+  nearby,
+  panelId,
+  onSelect,
+  onPosterError,
+  measureTitle,
 }: {
   item: PickerItem;
   poster?: string;
@@ -168,9 +185,12 @@ const SeasonCard = memo(function SeasonCard({
   const label = labelFor(item);
   const count = episodeCount(item, t);
   const accessibleName = [label, title, count].filter(Boolean).join(" · ");
-  const rejectPoster = useCallback((url: string) => {
-    if (item.seasonNumber != null) onPosterError(item.seasonNumber, url);
-  }, [item.seasonNumber, onPosterError]);
+  const rejectPoster = useCallback(
+    (url: string) => {
+      if (item.seasonNumber != null) onPosterError(item.seasonNumber, url);
+    },
+    [item.seasonNumber, onPosterError],
+  );
   return (
     <button
       data-season-number={item.seasonNumber}
@@ -187,7 +207,11 @@ const SeasonCard = memo(function SeasonCard({
       <div className="aspect-[2/3] w-full shrink-0 overflow-hidden rounded-lg">
         <SeasonPoster src={poster} name={item.name} onError={rejectPoster} />
       </div>
-      <SeasonCardTitle text={title || label || item.name} enabled={nearby || focused} measureTitle={measureTitle} />
+      <SeasonCardTitle
+        text={title || label || item.name}
+        enabled={nearby || focused}
+        measureTitle={measureTitle}
+      />
       {title && label && (
         <div className="mt-1 flex h-4 items-center justify-center">
           <span className={SEASON_LABEL_CLASS}>{label}</span>
@@ -199,7 +223,15 @@ const SeasonCard = memo(function SeasonCard({
 });
 
 const SelectedSeasonPanel = memo(function SelectedSeasonPanel({
-  active, detail, artwork, poster, loading, background, panelId, direction, onPosterError,
+  active,
+  detail,
+  artwork,
+  poster,
+  loading,
+  background,
+  panelId,
+  direction,
+  onPosterError,
 }: {
   active: PickerItem;
   detail?: TvdbSeasonDetails;
@@ -218,9 +250,12 @@ const SelectedSeasonPanel = memo(function SelectedSeasonPanel({
   const to = formatDate(active.to);
   const dates = from && to ? (from === to ? from : `${from} – ${to}`) : from || to || active.year;
   const count = episodeCount(active, t);
-  const rejectPoster = useCallback((url: string) => {
-    if (active.seasonNumber != null) onPosterError(active.seasonNumber, url);
-  }, [active.seasonNumber, onPosterError]);
+  const rejectPoster = useCallback(
+    (url: string) => {
+      if (active.seasonNumber != null) onPosterError(active.seasonNumber, url);
+    },
+    [active.seasonNumber, onPosterError],
+  );
   return (
     <div
       id={panelId}
@@ -228,11 +263,7 @@ const SelectedSeasonPanel = memo(function SelectedSeasonPanel({
       aria-busy={loading}
       className="relative min-w-0 overflow-hidden rounded-2xl border border-edge bg-canvas shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]"
     >
-      <div
-        key={activeKey}
-        className="season-explorer-transition"
-        data-direction={direction}
-      >
+      <div key={activeKey} className="season-explorer-transition" data-direction={direction}>
         <SeasonBackdrop sources={[artwork?.background, background]} />
         <div className="relative flex min-h-[260px] items-start gap-4 p-5 sm:min-h-[316px] sm:gap-5 sm:p-6">
           <div className="aspect-[2/3] w-[104px] shrink-0 overflow-hidden rounded-xl shadow-lg sm:w-[164px]">
@@ -280,7 +311,12 @@ const SelectedSeasonPanel = memo(function SelectedSeasonPanel({
   );
 });
 
-export function SeasonExplorer({ data, activeKey, onSelect, background }: {
+export function SeasonExplorer({
+  data,
+  activeKey,
+  onSelect,
+  background,
+}: {
   data: ReturnType<typeof useSeasonExplorerView>;
   activeKey: string;
   onSelect: (key: string) => void;
@@ -293,7 +329,8 @@ export function SeasonExplorer({ data, activeKey, onSelect, background }: {
   const dragScroll = useDragScroll<HTMLDivElement>({ elementRef: railRef });
   const reducedMotion = useReducedMotion();
   const [edges, setEdges] = useState({ left: false, right: false });
-  const { artwork, visibleSeasons, setVisibleSeasons, onPosterError } = useSeasonExplorerArtwork(data);
+  const { artwork, visibleSeasons, setVisibleSeasons, onPosterError } =
+    useSeasonExplorerArtwork(data);
   const { items: pickerItems, details, loading } = data;
   const items = useMemo(
     () => pickerItems.filter((item) => item.seasonNumber != null && item.seasonNumber >= 0),
@@ -304,11 +341,22 @@ export function SeasonExplorer({ data, activeKey, onSelect, background }: {
     [items],
   );
   const visible = useMemo(() => new Set(visibleSeasons), [visibleSeasons]);
-  const activeIndex = useMemo(() => items.findIndex((item) => item.key === activeKey), [items, activeKey]);
+  const activeIndex = useMemo(
+    () => items.findIndex((item) => item.key === activeKey),
+    [items, activeKey],
+  );
   const active = items[activeIndex];
-  const [transition, setTransition] = useState({ key: activeKey, index: activeIndex, direction: 1 });
+  const [transition, setTransition] = useState({
+    key: activeKey,
+    index: activeIndex,
+    direction: 1,
+  });
   if (transition.key !== activeKey) {
-    setTransition({ key: activeKey, index: activeIndex, direction: activeIndex < transition.index ? -1 : 1 });
+    setTransition({
+      key: activeKey,
+      index: activeIndex,
+      direction: activeIndex < transition.index ? -1 : 1,
+    });
   }
 
   const geometry = useRef({ rtl: false, max: 0, width: 0 });
@@ -325,7 +373,9 @@ export function SeasonExplorer({ data, activeKey, onSelect, background }: {
       const end = position < max - 4;
       const left = rtl ? end : start;
       const right = rtl ? start : end;
-      setEdges((previous) => previous.left === left && previous.right === right ? previous : { left, right });
+      setEdges((previous) =>
+        previous.left === left && previous.right === right ? previous : { left, right },
+      );
     });
   }, []);
   const refreshGeometry = useCallback(() => {
@@ -356,7 +406,9 @@ export function SeasonExplorer({ data, activeKey, onSelect, background }: {
         writes.forEach((write) => write());
       });
     }
-    return () => { measurements.current.delete(element); };
+    return () => {
+      measurements.current.delete(element);
+    };
   }, []);
 
   useEffect(() => {
@@ -365,16 +417,22 @@ export function SeasonExplorer({ data, activeKey, onSelect, background }: {
     const nearby = new Set<number>();
     let frame = 0;
     const releases = [...rail.querySelectorAll<HTMLElement>("[data-season-number]")].map((card) =>
-      observeWithin(card, "0px 180px", (entry) => {
-        const number = Number(card.dataset.seasonNumber);
-        if (nearby.has(number) === entry.isIntersecting) return;
-        if (entry.isIntersecting) nearby.add(number);
-        else nearby.delete(number);
-        if (!frame) frame = requestAnimationFrame(() => {
-          frame = 0;
-          setVisibleSeasons([...nearby]);
-        });
-      }, rail),
+      observeWithin(
+        card,
+        "0px 180px",
+        (entry) => {
+          const number = Number(card.dataset.seasonNumber);
+          if (nearby.has(number) === entry.isIntersecting) return;
+          if (entry.isIntersecting) nearby.add(number);
+          else nearby.delete(number);
+          if (!frame)
+            frame = requestAnimationFrame(() => {
+              frame = 0;
+              setVisibleSeasons([...nearby]);
+            });
+        },
+        rail,
+      ),
     );
     return () => {
       cancelAnimationFrame(frame);
@@ -390,9 +448,12 @@ export function SeasonExplorer({ data, activeKey, onSelect, background }: {
       if (!button) return;
       const bounds = rail.getBoundingClientRect();
       const card = button.getBoundingClientRect();
-      const left = card.left < bounds.left
-        ? card.left - bounds.left - 4
-        : card.right > bounds.right ? card.right - bounds.right + 4 : 0;
+      const left =
+        card.left < bounds.left
+          ? card.left - bounds.left - 4
+          : card.right > bounds.right
+            ? card.right - bounds.right + 4
+            : 0;
       if (left) rail.scrollBy({ left, behavior: animate && !reducedMotion ? "smooth" : "auto" });
     };
     revealSelected(true);
@@ -424,15 +485,18 @@ export function SeasonExplorer({ data, activeKey, onSelect, background }: {
     };
   }, [activeKey, cardMembership, reducedMotion, refreshGeometry]);
 
-  useEffect(() => () => {
-    cancelAnimationFrame(titleFrame.current);
-    titleFrame.current = 0;
-    measurements.current.clear();
-  }, [setVisibleSeasons]);
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(titleFrame.current);
+      titleFrame.current = 0;
+      measurements.current.clear();
+    },
+    [setVisibleSeasons],
+  );
 
   if (items.length === 0) return null;
-  const posterFor = (item: PickerItem) => item.seasonNumber == null
-    ? undefined : artwork.get(item.seasonNumber)?.poster || item.poster;
+  const posterFor = (item: PickerItem) =>
+    item.seasonNumber == null ? undefined : artwork.get(item.seasonNumber)?.poster || item.poster;
   return (
     <section aria-labelledby={titleId} className="flex min-w-0 flex-col gap-3">
       <h3 id={titleId} className="text-[22px] font-medium tracking-tight text-ink">

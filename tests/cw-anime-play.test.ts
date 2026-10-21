@@ -7,10 +7,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import { pickEpisodeTitle } from "../src/lib/providers/anizip.ts";
-import {
-  animeCoordPairs,
-  findAnimeEntryNumber,
-} from "../src/lib/streams/anime-identity-core.ts";
+import { animeCoordPairs, findAnimeEntryNumber } from "../src/lib/streams/anime-identity-core.ts";
 import { animeTrackerTarget } from "../src/lib/tracker-progress.ts";
 import { buildBody } from "../src/lib/simkl/scrobble-body.ts";
 

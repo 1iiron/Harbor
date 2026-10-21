@@ -10,7 +10,9 @@ import * as localizedText from "../src/lib/localized-text.ts";
 
 function deferred() {
   let resolve;
-  const promise = new Promise((r) => { resolve = r; });
+  const promise = new Promise((r) => {
+    resolve = r;
+  });
   return { promise, resolve };
 }
 
@@ -25,13 +27,21 @@ function fixture({
   const names = deferred();
   if (!blockNames) names.resolve();
   const seasons = Array.from({ length: 30 }, (_, i) => ({
-    id: i + 100, number: i + 1, name: seasonName,
-    type: { type: "official" }, image: "/base.jpg",
+    id: i + 100,
+    number: i + 1,
+    name: seasonName,
+    type: { type: "official" },
+    image: "/base.jpg",
   }));
   seasons.push({ id: 99, number: 0, name: "Bonus Stories", type: { type: "official" } });
-  const episodes = episodeRows ?? seasons.map((s) => ({
-    id: s.id, number: 1, seasonNumber: s.number, name: "Episode",
-  }));
+  const episodes =
+    episodeRows ??
+    seasons.map((s) => ({
+      id: s.id,
+      number: 1,
+      seasonNumber: s.number,
+      name: "Episode",
+    }));
   const localStorage = {
     getItem: (k) => storage.get(k) ?? null,
     setItem: (k, v) => storage.set(k, v),
@@ -57,7 +67,11 @@ function fixture({
     }).outputText;
     const module = { exports: {} };
     vm.runInNewContext(code, {
-      module, exports: module.exports, localStorage, setTimeout, clearTimeout,
+      module,
+      exports: module.exports,
+      localStorage,
+      setTimeout,
+      clearTimeout,
       require: (name) => {
         assert.ok(name in dependencies, "unmocked dependency " + name);
         return dependencies[name];
@@ -72,7 +86,9 @@ function fixture({
     "@/lib/safe-fetch": { safeFetch },
     "@/lib/config/endpoints": { HARBOR_TVDB_BASE: "https://mock.invalid" },
   });
-  const cache = load("src/lib/providers/tvdb-order-cache.ts", { "./episode-placeholder": episodePlaceholder });
+  const cache = load("src/lib/providers/tvdb-order-cache.ts", {
+    "./episode-placeholder": episodePlaceholder,
+  });
   const order = load("src/lib/providers/tvdb-order.ts", {
     "./tvdb": tvdb,
     "./tvdb-order-cache": cache,
@@ -87,9 +103,13 @@ async function promptly(promise) {
   try {
     return await Promise.race([
       promise,
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("episodes blocked by optional metadata")), 100); }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("episodes blocked by optional metadata")), 100);
+      }),
     ]);
-  } finally { clearTimeout(timer); }
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 test("cold order renders before translations and upgrades immutable season names", async () => {
@@ -104,7 +124,9 @@ test("cold order renders before translations and upgrades immutable season names
     assert.equal(enriched.bySeason, order.bySeason);
     assert.equal(order.seasons[0].name, "Season 1");
     assert.equal(enriched.seasons.find((s) => s.seasonNumber === 0).name, "Bonus Stories");
-  } finally { f.names.resolve(); }
+  } finally {
+    f.names.resolve();
+  }
 });
 
 test("episode ordering makes no unused season artwork requests", async () => {
@@ -138,13 +160,17 @@ test("adding a direct key refreshes proxy names, including after restarting", as
 test("concurrent cold loads share one order and name enrichment", async () => {
   const f = fixture({ blockNames: true });
   try {
-    const [a, b] = await promptly(Promise.all([
-      f.fetchTvdbOrderBySeriesId("test-key", 1, "aired", "eng"),
-      f.fetchTvdbOrderBySeriesId("test-key", 1, "aired", "eng"),
-    ]));
+    const [a, b] = await promptly(
+      Promise.all([
+        f.fetchTvdbOrderBySeriesId("test-key", 1, "aired", "eng"),
+        f.fetchTvdbOrderBySeriesId("test-key", 1, "aired", "eng"),
+      ]),
+    );
     assert.equal(a, b);
     assert.equal(f.waitForTvdbSeasonNames(a), f.waitForTvdbSeasonNames(b));
-  } finally { f.names.resolve(); }
+  } finally {
+    f.names.resolve();
+  }
 });
 
 test("a generic English translation never replaces a real TVDB season name", async () => {
@@ -189,7 +215,9 @@ test("translation work is bounded for large series", async () => {
     f.names.resolve();
     await f.waitForTvdbSeasonNames(order);
     assert.equal(f.calls.filter((p) => p.includes("/translations/")).length, 31);
-  } finally { f.names.resolve(); }
+  } finally {
+    f.names.resolve();
+  }
 });
 
 test("unfinished persisted name enrichment resumes after restarting", async () => {
@@ -202,11 +230,14 @@ test("unfinished persisted name enrichment resumes after restarting", async () =
     const named = await restarted.waitForTvdbSeasonNames(order);
     assert.equal(named.seasons[0].name, "English Arc");
     assert.equal(restarted.calls.filter((p) => p.includes("/episodes/")).length, 0);
-  } finally { first.names.resolve(); }
+  } finally {
+    first.names.resolve();
+  }
 });
 
 function panelFixture(f, availability, seasonType = "aired") {
-  const effects = [], updates = [];
+  const effects = [],
+    updates = [];
   let stateIndex = 0;
   const panel = f.load("src/views/detail/anime-episodes/use-anime-tvdb-panel.ts", {
     react: {
@@ -221,7 +252,9 @@ function panelFixture(f, availability, seasonType = "aired") {
     "@/lib/i18n": { useT: () => (key) => key },
     "@/lib/providers/anime-mapping": {},
     "@/lib/providers/anime-detail": {},
-    "@/lib/providers/anime-episode-build": { isForeignScriptTitle: episodeTextLanguage.isForeignScriptTitle },
+    "@/lib/providers/anime-episode-build": {
+      isForeignScriptTitle: episodeTextLanguage.isForeignScriptTitle,
+    },
     "@/lib/dates": dates,
     "@/lib/providers/tvdb": {
       ...f.tvdb,
@@ -240,23 +273,29 @@ function panelFixture(f, availability, seasonType = "aired") {
 }
 
 test("anime selected order renders before alternative-order discovery finishes", async () => {
-  const f = fixture({ blockNames: true }), availability = deferred();
+  const f = fixture({ blockNames: true }),
+    availability = deferred();
   const panel = panelFixture(f, availability);
   const cleanup = panel.run();
   try {
-    await promptly((async () => {
-      for (let attempt = 0; attempt < 80; attempt++) {
-        if (panel.updates.some((u) => u.index === 1 && u.value)) return;
-        await new Promise((r) => setTimeout(r, 1));
-      }
-      throw new Error("selected order did not render");
-    })());
+    await promptly(
+      (async () => {
+        for (let attempt = 0; attempt < 80; attempt++) {
+          if (panel.updates.some((u) => u.index === 1 && u.value)) return;
+          await new Promise((r) => setTimeout(r, 1));
+        }
+        throw new Error("selected order did not render");
+      })(),
+    );
     const initial = panel.updates.find((u) => u.index === 1).value;
     assert.equal(initial.seasons[0].name, "Season 1");
     f.names.resolve();
     await f.waitForTvdbSeasonNames(initial);
     await new Promise((r) => setImmediate(r));
-    assert.equal(panel.updates.filter((u) => u.index === 1).at(-1).value.seasons[0].name, "English Arc");
+    assert.equal(
+      panel.updates.filter((u) => u.index === 1).at(-1).value.seasons[0].name,
+      "English Arc",
+    );
   } finally {
     cleanup();
     availability.resolve([{ value: "aired", label: "Aired Order" }]);
@@ -265,8 +304,10 @@ test("anime selected order renders before alternative-order discovery finishes",
 });
 
 test("leaving an anime page prevents late names and tabs from updating it", async () => {
-  const f = fixture({ blockNames: true }), availability = deferred();
-  const panel = panelFixture(f, availability), cleanup = panel.run();
+  const f = fixture({ blockNames: true }),
+    availability = deferred();
+  const panel = panelFixture(f, availability),
+    cleanup = panel.run();
   cleanup();
   f.names.resolve();
   availability.resolve([{ value: "aired", label: "Aired Order" }]);
@@ -279,8 +320,14 @@ test("season pills respect generic metadata names even with a different UI langu
   const t = (_key, { n }) => "Season " + n;
   for (const name of ["Season 1", "Sezon 1", "Temporada 1", "シーズン1", "第 1 季"])
     assert.equal(seasonPill({ name, seasonNumber: 1 }, t), null);
-  assert.equal(seasonPill({ name: "Unknown default", seasonNumber: 1, isGenericName: true }, t), null);
-  assert.equal(seasonPill({ name: "East Blue", seasonNumber: 1, isGenericName: false }, t), "Season 1");
+  assert.equal(
+    seasonPill({ name: "Unknown default", seasonNumber: 1, isGenericName: true }, t),
+    null,
+  );
+  assert.equal(
+    seasonPill({ name: "East Blue", seasonNumber: 1, isGenericName: false }, t),
+    "Season 1",
+  );
   assert.equal(seasonPill({ name: "All Episodes", seasonNumber: 1 }, t), null);
   assert.equal(seasonPill({ name: "Bonus Stories", seasonNumber: 0 }, t), null);
 });
@@ -311,7 +358,9 @@ function specialPanelRows(f, ordering) {
     "@/lib/i18n": { useT: () => (key) => key },
     "@/lib/providers/anime-mapping": {},
     "@/lib/providers/anime-detail": {},
-    "@/lib/providers/anime-episode-build": { isForeignScriptTitle: episodeTextLanguage.isForeignScriptTitle },
+    "@/lib/providers/anime-episode-build": {
+      isForeignScriptTitle: episodeTextLanguage.isForeignScriptTitle,
+    },
     "@/lib/dates": dates,
     "@/lib/providers/tvdb": f.tvdb,
     "@/lib/providers/tmdb/tmdb-client": { tmdbLanguageIso: () => "en" },
@@ -329,12 +378,38 @@ function specialPanelRows(f, ordering) {
 test("fresh and cached proxy orders do not give missing special stills another special's image", async () => {
   const episodeRows = [
     { id: 101, seasonNumber: 1, number: 1, absoluteNumber: 1, name: "Pilot", image: "/pilot.jpg" },
-    { id: 1, seasonNumber: 0, number: 1, absoluteNumber: 0, name: "First special", image: "/first.jpg" },
-    { id: 2, seasonNumber: 0, number: 2, absoluteNumber: 0, name: "Second special", image: "/second.jpg" },
+    {
+      id: 1,
+      seasonNumber: 0,
+      number: 1,
+      absoluteNumber: 0,
+      name: "First special",
+      image: "/first.jpg",
+    },
+    {
+      id: 2,
+      seasonNumber: 0,
+      number: 2,
+      absoluteNumber: 0,
+      name: "Second special",
+      image: "/second.jpg",
+    },
     { id: 11, seasonNumber: 0, number: 11, absoluteNumber: 0, name: "No still", image: null },
-    { id: 26, seasonNumber: 0, number: 26, absoluteNumber: 0, name: "Last special", image: "/last.jpg" },
+    {
+      id: 26,
+      seasonNumber: 0,
+      number: 26,
+      absoluteNumber: 0,
+      name: "Last special",
+      image: "/last.jpg",
+    },
     ...[-1, 1.5, NaN, Infinity].map((absoluteNumber, i) => ({
-      id: 200 + i, seasonNumber: 1, number: 2 + i, absoluteNumber, name: "Invalid absolute", image: "/invalid.jpg",
+      id: 200 + i,
+      seasonNumber: 1,
+      number: 2 + i,
+      absoluteNumber,
+      name: "Invalid absolute",
+      image: "/invalid.jpg",
     })),
   ];
   const fresh = fixture({ episodeRows });
@@ -345,25 +420,42 @@ test("fresh and cached proxy orders do not give missing special stills another s
 
   const [key, value] = [...fresh.storage.entries()].find(([k]) => k.startsWith("harbor.tvdbo."));
   const saved = JSON.parse(value);
-  saved.imageByAbs.push([0, "https://wrong/last-special.jpg"], [-1, "https://wrong/negative.jpg"], [1.5, "https://wrong/fraction.jpg"]);
+  saved.imageByAbs.push(
+    [0, "https://wrong/last-special.jpg"],
+    [-1, "https://wrong/negative.jpg"],
+    [1.5, "https://wrong/fraction.jpg"],
+  );
   saved.t = Date.now() - 10000;
   fresh.storage.set(key, JSON.stringify(saved));
   const restarted = fixture({ storage: fresh.storage, episodeRows });
   const cached = await restarted.fetchTvdbOrderBySeriesId("", 1, "aired", "eng");
   assert.equal(restarted.calls.filter((p) => p.includes("/episodes/")).length, 0);
-  assert.equal(JSON.parse(fresh.storage.get(key)).t, saved.t, "reading keeps the original cache expiry");
+  assert.equal(
+    JSON.parse(fresh.storage.get(key)).t,
+    saved.t,
+    "reading keeps the original cache expiry",
+  );
 
-  for (const [runtime, order] of [[fresh, ordering], [restarted, cached]]) {
+  for (const [runtime, order] of [
+    [fresh, ordering],
+    [restarted, cached],
+  ]) {
     assert.deepEqual(Array.from(order.imageByAbs.keys()), [1]);
     assert.equal(order.absByEpId.get(11), 0);
     const rows = specialPanelRows(runtime, order);
-    assert.deepEqual(Array.from(rows, (ep) => ep.number), [1, 2, 11, 26]);
-    assert.deepEqual(Array.from(rows, (ep) => ep.thumbnail), [
-      "https://artworks.thetvdb.com/first.jpg",
-      "https://artworks.thetvdb.com/second.jpg",
-      null,
-      "https://artworks.thetvdb.com/last.jpg",
-    ]);
+    assert.deepEqual(
+      Array.from(rows, (ep) => ep.number),
+      [1, 2, 11, 26],
+    );
+    assert.deepEqual(
+      Array.from(rows, (ep) => ep.thumbnail),
+      [
+        "https://artworks.thetvdb.com/first.jpg",
+        "https://artworks.thetvdb.com/second.jpg",
+        null,
+        "https://artworks.thetvdb.com/last.jpg",
+      ],
+    );
     assert.equal(rows[2].imdbSeason, 0);
     assert.equal(rows[2].imdbEpisode, 11);
     assert.equal(rows[2].tvdbEpisodeId, 11);
@@ -383,20 +475,26 @@ test("anime falls back to an available order if the requested order is empty", a
     await new Promise((r) => setTimeout(r, 20));
     assert.equal(panel.updates.find((u) => u.index === 3).value, "aired");
     assert.ok(panel.updates.find((u) => u.index === 1).value.bySeason.size > 0);
-  } finally { cleanup(); }
+  } finally {
+    cleanup();
+  }
 });
 
 test("anime retries a requested order confirmed available after a transient failure", async () => {
-  const f = fixture(), loadOrder = f.fetchTvdbOrderBySeriesId;
+  const f = fixture(),
+    loadOrder = f.fetchTvdbOrderBySeriesId;
   let attempts = 0;
   f.fetchTvdbOrderBySeriesId = (...args) =>
     ++attempts === 1 ? Promise.resolve(null) : loadOrder(...args);
   const availability = deferred();
   availability.resolve([{ value: "aired", label: "Aired Order" }]);
-  const panel = panelFixture(f, availability), cleanup = panel.run();
+  const panel = panelFixture(f, availability),
+    cleanup = panel.run();
   try {
     await new Promise((r) => setTimeout(r, 20));
     assert.equal(attempts, 2);
     assert.ok(panel.updates.some((u) => u.index === 1 && u.value));
-  } finally { cleanup(); }
+  } finally {
+    cleanup();
+  }
 });

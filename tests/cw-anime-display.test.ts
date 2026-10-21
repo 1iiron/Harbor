@@ -85,7 +85,11 @@ test("specials and foreign split seasons keep their native coordinates", () => {
 });
 
 test("the resolver finds the Kitsu video for a native anime row", async () => {
-  const video = await resolveCwAnimeVideo(item("kitsu:45619", 1), { season: 1, episode: 1 }, lookup);
+  const video = await resolveCwAnimeVideo(
+    item("kitsu:45619", 1),
+    { season: 1, episode: 1 },
+    lookup,
+  );
   assert.equal(video?.title, "PROJECT APPLE");
   assert.deepEqual(providerMappedEpisode(video, { season: 1, episode: 1 }), {
     season: 1,
@@ -120,4 +124,21 @@ test("ordinary titles and missing native episodes never fetch anime metadata", a
   );
   assert.equal(await resolveCwAnimeVideo(item("kitsu:45619", 1), null, counting), null);
   assert.equal(calls, 0);
+});
+
+test("a provider S2E1 row never falls back to the base entry's S1E1", async () => {
+  const row = item("kitsu:45619", 1, "tt13706018:2:1");
+  row.state.season = 2;
+  assert.equal(await resolveCwAnimeVideo(row, { season: 2, episode: 1 }, lookup), null);
+});
+
+test("provider episode coordinates resolve the correct entry-relative video", async () => {
+  const row = item("kitsu:45619", 13, "tt13706018:1:13");
+  const video = await resolveCwAnimeVideo(row, { season: 1, episode: 13 }, lookup);
+  assert.equal(video?.id, PROJECT_APPLE.id);
+});
+
+test("an unmatched provider E1 cannot masquerade as a split cour's entry E1", async () => {
+  const row = item("kitsu:45619", 1, "tt13706018:1:1");
+  assert.equal(await resolveCwAnimeVideo(row, { season: 1, episode: 1 }, lookup), null);
 });

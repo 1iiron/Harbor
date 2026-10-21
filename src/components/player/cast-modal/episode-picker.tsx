@@ -53,7 +53,11 @@ function SeasonDropdown({
         className="flex items-center gap-2 rounded-full bg-white/[0.09] px-4 py-2 text-[14px] font-semibold text-white ring-1 ring-white/12 transition-colors hover:bg-white/15"
       >
         {activeLabel}
-        <ChevronDown size={16} strokeWidth={2.4} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown
+          size={16}
+          strokeWidth={2.4}
+          className={`transition-transform ${open ? "rotate-180" : ""}`}
+        />
       </button>
       {open && (
         <div className="absolute left-0 top-full z-30 mt-1.5 max-h-72 w-56 overflow-y-auto rounded-xl bg-neutral-900/95 p-1.5 ring-1 ring-white/12 shadow-[0_24px_60px_-16px_rgba(0,0,0,0.9)] backdrop-blur-xl [scrollbar-width:thin]">
@@ -66,7 +70,9 @@ function SeasonDropdown({
                 setOpen(false);
               }}
               className={`flex w-full items-center rounded-lg px-3 py-2 text-start text-[13.5px] transition-colors ${
-                o.key === activeKey ? "bg-white/15 font-semibold text-white" : "text-white/70 hover:bg-white/10"
+                o.key === activeKey
+                  ? "bg-white/15 font-semibold text-white"
+                  : "text-white/70 hover:bg-white/10"
               }`}
             >
               {o.label}
@@ -206,7 +212,8 @@ export function EpisodePicker({
   const toPlay = useCallback(
     (e: Episode | OrderedEpisode): PlayEpisode => {
       const match = flatByKey.get(`${e.seasonNumber}:${e.episodeNumber}`);
-      const still = e.stillUrl ?? (e.stillPath ? `https://image.tmdb.org/t/p/w300${e.stillPath}` : undefined);
+      const still =
+        e.stillUrl ?? (e.stillPath ? `https://image.tmdb.org/t/p/w300${e.stillPath}` : undefined);
       const lang = tmdbLanguageIso();
       const enName = "nameEn" in e ? e.nameEn : undefined;
       const enOverview = "overviewEn" in e ? e.overviewEn : undefined;
@@ -218,13 +225,17 @@ export function EpisodePicker({
           (pickLocalizedText(
             [{ text: e.name }, { text: enName ?? "" }, { text: match?.name ?? "" }],
             { forName: true, lang },
-          ) ?? e.name) || undefined,
+          ) ??
+            e.name) ||
+          undefined,
         still: match?.still ?? still,
         overview:
           (pickLocalizedText(
             [{ text: e.overview }, { text: enOverview ?? "" }, { text: match?.overview ?? "" }],
             { lang },
-          ) ?? e.overview) || undefined,
+          ) ??
+            e.overview) ||
+          undefined,
         rating: e.voteAverage && e.voteAverage > 0 ? e.voteAverage : match?.rating,
         airDate: e.airDate || match?.airDate || undefined,
         runtime: e.runtime && e.runtime > 0 ? e.runtime : match?.runtime,
@@ -235,7 +246,8 @@ export function EpisodePicker({
 
   const activeEpisodes = useMemo<PlayEpisode[]>(() => {
     if (mode === "arcs") return arc.episodes.map(toPlay);
-    if (mode === "order" && ordering) return (ordering.bySeason.get(orderSeasonEff) ?? []).map(toPlay);
+    if (mode === "order" && ordering)
+      return (ordering.bySeason.get(orderSeasonEff) ?? []).map(toPlay);
     return eps.filter((e) => e.season === flatActive).sort((a, b) => a.episode - b.episode);
   }, [mode, arc.episodes, ordering, orderSeasonEff, eps, flatActive, toPlay]);
 
@@ -244,11 +256,14 @@ export function EpisodePicker({
       ? arc.arcs.map((a) => ({ key: a.id, label: a.name }))
       : mode === "order" && ordering
         ? ordering.seasons.map((s) => ({ key: String(s.seasonNumber), label: s.name }))
-        : flatSeasons.map((s) => ({ key: String(s), label: s === 0 ? t("Specials") : t("Season {n}", { n: s }) }));
+        : flatSeasons.map((s) => ({
+            key: String(s),
+            label: s === 0 ? t("Specials") : t("Season {n}", { n: s }),
+          }));
 
   const activeKey =
     mode === "arcs"
-      ? arc.activeArcId ?? arc.arcs[0]?.id ?? ""
+      ? (arc.activeArcId ?? arc.arcs[0]?.id ?? "")
       : mode === "order"
         ? String(orderSeasonEff)
         : String(flatActive);
@@ -269,9 +284,22 @@ export function EpisodePicker({
   const thumbFor = (ep: PlayEpisode) =>
     ep.still ?? tvdbStills[`s${ep.season}e${ep.episode}`] ?? tvdbStills[`abs${ep.episode}`];
   const progressFor = (ep: PlayEpisode) =>
-    getEpisodeProgress(meta.id, ep.season, ep.episode, ep.runtime ?? null, imdbId ?? null, traktWatched, undefined, undefined, simklWatched);
+    getEpisodeProgress(
+      meta.id,
+      ep.season,
+      ep.episode,
+      ep.runtime ?? null,
+      imdbId ?? null,
+      traktWatched,
+      undefined,
+      undefined,
+      simklWatched,
+    );
   const queuedKeys = useMemo(
-    () => new Set(queue.map((i) => `${i.meta.id}:${i.episode?.season ?? ""}:${i.episode?.episode ?? ""}`)),
+    () =>
+      new Set(
+        queue.map((i) => `${i.meta.id}:${i.episode?.season ?? ""}:${i.episode?.episode ?? ""}`),
+      ),
     [queue],
   );
 
@@ -328,7 +356,10 @@ export function EpisodePicker({
               .filter(Boolean)
               .join(" · ");
             return (
-              <div key={`${ep.season}-${ep.episode}`} className="group relative flex flex-col gap-2">
+              <div
+                key={`${ep.season}-${ep.episode}`}
+                className="group relative flex flex-col gap-2"
+              >
                 <button
                   type="button"
                   onClick={() => onPlayEpisode(ep)}
@@ -362,12 +393,17 @@ export function EpisodePicker({
                     )}
                     {!prog.watched && prog.ratio > 0.02 && (
                       <div className="absolute inset-x-0 bottom-0 h-1 bg-black/50">
-                        <div className="h-full bg-accent" style={{ width: `${Math.min(100, prog.ratio * 100)}%` }} />
+                        <div
+                          className="h-full bg-accent"
+                          style={{ width: `${Math.min(100, prog.ratio * 100)}%` }}
+                        />
                       </div>
                     )}
                   </div>
                   <div className="flex flex-col gap-0.5 px-0.5">
-                    <span className={`line-clamp-1 text-[13px] font-semibold ${prog.watched ? "text-white/55" : "text-white/90"}`}>
+                    <span
+                      className={`line-clamp-1 text-[13px] font-semibold ${prog.watched ? "text-white/55" : "text-white/90"}`}
+                    >
                       {ep.name || t("Episode {n}", { n: ep.episode })}
                     </span>
                     {sub && <span className="text-[11.5px] text-white/45">{sub}</span>}
@@ -384,7 +420,11 @@ export function EpisodePicker({
                       : "bg-black/55 text-white opacity-0 ring-white/25 hover:bg-black/80 group-hover:opacity-100"
                   }`}
                 >
-                  {queued ? <Check size={16} strokeWidth={3} /> : <ListPlus size={16} strokeWidth={2.4} />}
+                  {queued ? (
+                    <Check size={16} strokeWidth={3} />
+                  ) : (
+                    <ListPlus size={16} strokeWidth={2.4} />
+                  )}
                 </button>
               </div>
             );

@@ -7,7 +7,13 @@ import {
   aniZipByTmdbTv,
   type AniZipMapping,
 } from "@/lib/providers/anizip";
-import { kitsuAnime, kitsuMainTvSeries, kitsuRelated, parseKitsuId, type KitsuEpisode } from "@/lib/providers/kitsu";
+import {
+  kitsuAnime,
+  kitsuMainTvSeries,
+  kitsuRelated,
+  parseKitsuId,
+  type KitsuEpisode,
+} from "@/lib/providers/kitsu";
 import { selectSiblingWindows, type AnimeListWindow } from "@/lib/streams/anime-identity-core";
 import { mappingStore } from "./mapping-store";
 
@@ -255,9 +261,7 @@ export async function applyAnidbSeasonWindow(
   if (!maps) return;
   const tvdbId = maps.tvdb[String(anidb)];
   const win =
-    tvdbId != null
-      ? maps.byTvdb?.[String(tvdbId)]?.find((w) => w.anidbId === anidb)
-      : undefined;
+    tvdbId != null ? maps.byTvdb?.[String(tvdbId)]?.find((w) => w.anidbId === anidb) : undefined;
   if (!win || typeof win.season !== "number") return;
   const imdbId = maps.imdb[String(anidb)] ?? null;
   for (const ep of episodes) {
@@ -404,11 +408,7 @@ export function sharedCourRedirectTarget(
   if (oImdb && rImdb && oImdb === rImdb) return rootKitsuId;
   const oTmdb = original?.themoviedb_id;
   const rTmdb = rootMappings?.themoviedb_id;
-  if (
-    oTmdb != null &&
-    String(oTmdb).trim() !== "" &&
-    String(oTmdb) === String(rTmdb ?? "")
-  ) {
+  if (oTmdb != null && String(oTmdb).trim() !== "" && String(oTmdb) === String(rTmdb ?? "")) {
     return rootKitsuId;
   }
   return null;

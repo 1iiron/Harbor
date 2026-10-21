@@ -14,10 +14,18 @@ const inflight = new Map<string, Promise<Translation[] | null>>();
 registerCache("tmdb:seasonSynopsis", () => cache.size);
 
 /** Provider order breaks ties only after the requested language and English. */
-export function selectSeasonSynopsis(lang: string, ...candidates: (SeasonSynopsis | null | undefined)[]): SeasonSynopsis {
+export function selectSeasonSynopsis(
+  lang: string,
+  ...candidates: (SeasonSynopsis | null | undefined)[]
+): SeasonSynopsis {
   for (const language of new Set([episodeLanguageBase(lang), "en"])) {
-    const candidate = candidates.find((value) => typeof value?.overview === "string" && value.overview.trim() &&
-      typeof value.overviewLanguage === "string" && episodeLanguageBase(value.overviewLanguage) === language);
+    const candidate = candidates.find(
+      (value) =>
+        typeof value?.overview === "string" &&
+        value.overview.trim() &&
+        typeof value.overviewLanguage === "string" &&
+        episodeLanguageBase(value.overviewLanguage) === language,
+    );
     if (candidate) return { overview: candidate.overview!.trim(), overviewLanguage: language };
   }
   return {};
@@ -41,32 +49,46 @@ export async function fetchTmdbSeasonSynopsis(
   } else {
     let request = inflight.get(cacheKey);
     if (!request) {
-      request = get<{ translations?: Translation[] }>(key, `tv/${tvId}/season/${season}/translations`, {
-        language: lang.includes("-") ? lang : language,
-      }).catch(() => null).then((data) => {
-        const value = data ? (Array.isArray(data.translations) ? data.translations : []) : null;
-        lruSet(cache, cacheKey, {
-          expires: Date.now() + (data ? 10 * 60_000 : 60_000),
-          translations: value,
-        }, 200);
-        return value;
-      }).finally(() => inflight.delete(cacheKey));
+      request = get<{ translations?: Translation[] }>(
+        key,
+        `tv/${tvId}/season/${season}/translations`,
+        {
+          language: lang.includes("-") ? lang : language,
+        },
+      )
+        .catch(() => null)
+        .then((data) => {
+          const value = data ? (Array.isArray(data.translations) ? data.translations : []) : null;
+          lruSet(
+            cache,
+            cacheKey,
+            {
+              expires: Date.now() + (data ? 10 * 60_000 : 60_000),
+              translations: value,
+            },
+            200,
+          );
+          return value;
+        })
+        .finally(() => inflight.delete(cacheKey));
       inflight.set(cacheKey, request);
     }
     translations = await request;
   }
   if (translations == null) return null;
   const region = lang.split("-")[1]?.toUpperCase();
-  const candidates = translations.slice().sort((a, b) =>
-    Number(b?.iso_3166_1 === region) - Number(a?.iso_3166_1 === region),
-  ).map((translation): SeasonSynopsis => {
-    const overview = typeof translation?.data?.overview === "string" ? translation.data.overview : undefined;
-    const code = typeof translation?.iso_639_1 === "string" ? translation.iso_639_1 : undefined;
-    return {
-      overview,
-      // The record identifies the translation; proper names can use other scripts.
-      overviewLanguage: code?.trim() ? episodeLanguageBase(code) : "und",
-    };
-  });
+  const candidates = translations
+    .slice()
+    .sort((a, b) => Number(b?.iso_3166_1 === region) - Number(a?.iso_3166_1 === region))
+    .map((translation): SeasonSynopsis => {
+      const overview =
+        typeof translation?.data?.overview === "string" ? translation.data.overview : undefined;
+      const code = typeof translation?.iso_639_1 === "string" ? translation.iso_639_1 : undefined;
+      return {
+        overview,
+        // The record identifies the translation; proper names can use other scripts.
+        overviewLanguage: code?.trim() ? episodeLanguageBase(code) : "und",
+      };
+    });
   return selectSeasonSynopsis(language, ...candidates);
 }

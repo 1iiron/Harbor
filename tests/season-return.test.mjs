@@ -63,7 +63,10 @@ test("Cinemeta episode grids restore the saved season after recreation", () => {
     "./episode-groups": { groupEpisodes, episodeNumber, episodeSeason },
     "./helpers": { isUpcomingDate: () => false },
     "./episode-grid": { EpisodeGrid },
-    "@/lib/providers/tmdb/tmdb-client": { tmdbLanguageIso: () => "en" },
+    "@/lib/providers/tmdb/tmdb-client": {
+      tmdbLanguageIso: () => "en",
+      effectiveTmdbLanguage: () => "en",
+    },
     "@/lib/providers/tvdb": { tvdbLangFromIso1: () => "eng" },
     "./use-season-explorer": {
       useSeasonExplorerView: (options) => {
@@ -154,7 +157,10 @@ test("TMDB season picker restores and persists selections across detail recreati
     "@/lib/providers/tmdb": { tmdbSeasonEpisodes: async () => [] },
     "@/lib/providers/tvdb": { tvdbLangFromIso1: () => "eng" },
     "./use-season-explorer": { useSeasonExplorerView: (options) => ({ items: options.items }) },
-    "@/lib/providers/tmdb/tmdb-client": { tmdbLanguageIso: () => "en" },
+    "@/lib/providers/tmdb/tmdb-client": {
+      tmdbLanguageIso: () => "en",
+      effectiveTmdbLanguage: () => "en",
+    },
     "@/lib/localized-text": {
       pickLocalizedText: () => null,
       pickPreferredEpisodeTitle: () => null,
@@ -172,7 +178,11 @@ test("TMDB season picker restores and persists selections across detail recreati
       },
     },
     "./series-episodes/use-episode-enrich": {
-      useEpisodeEnrich: () => ({ episodes: [], imdbRatings: new Map(), preferredVideos: new Map() }),
+      useEpisodeEnrich: () => ({
+        episodes: [],
+        imdbRatings: new Map(),
+        preferredVideos: new Map(),
+      }),
     },
     "./series-episodes/use-series-tvdb-stills": { useSeriesTvdbStills: () => ({}) },
     "./series-episodes/use-arc-groups": {

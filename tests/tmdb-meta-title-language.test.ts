@@ -41,8 +41,7 @@ function detailMapper(language: string, translateTitles = true) {
   const module = { exports: {} as any };
   const mocks: Record<string, unknown> = {
     "./tmdb-client": {
-      get: async (_key: string, path: string) =>
-        path === "movie/1" || path === "tv/1" ? raw : {},
+      get: async (_key: string, path: string) => (path === "movie/1" || path === "tv/1" ? raw : {}),
       IMG: "https://image.tmdb.org/t/p",
       effectiveTmdbLanguage: () => language,
     },
@@ -73,7 +72,11 @@ function detailMapper(language: string, translateTitles = true) {
   );
   return (value: Record<string, unknown>, type: "movie" | "series") => {
     raw = value;
-    return module.exports.tmdbDetails("key", { id: type === "movie" ? "tmdb:movie:1" : "tmdb:tv:1", type }, language);
+    return module.exports.tmdbDetails(
+      "key",
+      { id: type === "movie" ? "tmdb:movie:1" : "tmdb:tv:1", type },
+      language,
+    );
   };
 }
 
@@ -141,7 +144,9 @@ test("anime detail titles respect Japanese metadata and fall back for Arabic met
         : { name: original, original_name: original }),
       original_language: "ja",
       genres: [{ id: 16, name: "Animation" }],
-      translations: { translations: [{ iso_639_1: "en", data: { title: english, name: english } }] },
+      translations: {
+        translations: [{ iso_639_1: "en", data: { title: english, name: english } }],
+      },
     };
     assert.equal((await detailMapper("ja-JP")(raw, type)).title, original);
     assert.equal((await detailMapper("ar-SA")(raw, type)).title, english);
