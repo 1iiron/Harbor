@@ -70,6 +70,32 @@ test("a provider coordinate match retains the actual entry, IDs and episode meta
   assert.equal(target?.sourceMetaId, "kitsu:399");
 });
 
+test("a native split-cour resume exposes provider S1E13", () => {
+  const target = animePlayEpisode(
+    [
+      episode({
+        number: 1,
+        seasonNumber: 1,
+        imdbSeason: 1,
+        imdbEpisode: 13,
+        streamId: "kitsu:45619:1",
+        sourceMetaId: "kitsu:45619",
+      }),
+    ],
+    { season: 1, episode: 1 },
+    true,
+    "kitsu:45619",
+  );
+  assert.equal(target?.imdbSeason, 1);
+  assert.equal(target?.imdbEpisode, 13);
+  assert.equal(target?.kitsuStreamId, "kitsu:45619:1");
+});
+
+test("the hero resume label uses the mapped provider episode", () => {
+  assert.match(source, /animeResumeTarget\?\.imdbSeason/);
+  assert.match(source, /animeResumeTarget\?\.imdbEpisode/);
+});
+
 test("external IDs prefer provider numbering instead of a conflicting entry-local match", () => {
   const target = animePlayEpisode([episode()], { season: 1, episode: 4 }, false, "kitsu:399");
   assert.equal(target?.kitsuStreamId, undefined);

@@ -1611,13 +1611,20 @@ export function DetailView({
       episodeName,
     ],
   );
+  const animeResumeTarget =
+    isAnime && lastPlay
+      ? animePlayEpisode(animeEpisodes, lastPlay, idAnime, animeCanonicalId)
+      : undefined;
   const smartPlayLabel =
     inSession && !liveContext
       ? t("Play Together")
       : isSeries && lastPlay
         ? t("Resume S{s}:E{e}", {
-            s: (lastPlay as { displaySeason?: number }).displaySeason ?? lastPlay.season,
-            e: lastPlay.episode,
+            s:
+              (lastPlay as { displaySeason?: number }).displaySeason ??
+              animeResumeTarget?.imdbSeason ??
+              lastPlay.season,
+            e: animeResumeTarget?.imdbEpisode ?? lastPlay.episode,
           })
         : t("Play");
 

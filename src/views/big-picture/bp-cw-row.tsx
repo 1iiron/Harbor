@@ -43,15 +43,20 @@ export function cwMeta(item: LibraryItem, resolved?: string): Meta {
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
 
-function episodeLabel(i: LibraryItem, t: T): string {
+function episodeLabel(
+  i: LibraryItem,
+  t: T,
+  mapped: { season: number; episode: number } | null,
+): string {
   if (i.type === "movie") return "";
   const s = i.state?.season ?? 0;
   const e = i.state?.episode ?? 0;
   const parsed = e > 0 ? { season: s, episode: e } : episodeFromVideoId(i.state?.video_id ?? "");
   if (!parsed || !parsed.episode) return "";
-  return isAnimeCwItem(i)
-    ? t("Episode {n}", { n: parsed.episode })
-    : t("S{s} E{e}", { s: parsed.season, e: parsed.episode });
+  if (!isAnimeCwItem(i)) return t("S{s} E{e}", { s: parsed.season, e: parsed.episode });
+  if (mapped && (mapped.season !== parsed.season || mapped.episode !== parsed.episode))
+    return t("S{s} E{e}", { s: mapped.season, e: mapped.episode });
+  return t("Episode {n}", { n: parsed.episode });
 }
 
 function remainingLabel(i: LibraryItem, t: T): string {
@@ -124,9 +129,9 @@ export function BpCwCard({
   const meta = useMemo(() => cwMeta(item, art.url), [item, art.url]);
   const [loaded, setLoaded] = useState(false);
   const t = useBpT();
-  const ep = episodeLabel(item, t);
-  const left = remainingLabel(item, t);
   const card = useBpCwCardMeta(item, boxRef);
+  const ep = episodeLabel(item, t, card.mappedEpisode);
+  const left = remainingLabel(item, t);
   const [badLogo, setBadLogo] = useState<string | null>(null);
   // The clear logo takes the title line inside the scrim rather than floating
   // over the middle of the art: the scrim is the only part of the card with
