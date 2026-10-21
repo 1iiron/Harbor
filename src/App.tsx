@@ -317,46 +317,64 @@ function useViewPreloader(tmdbKey: string) {
     let cancelled = false;
     const win = window as Window & {
       requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
     };
-    const schedule = (cb: () => void) =>
-      typeof win.requestIdleCallback === "function"
-        ? win.requestIdleCallback(cb, { timeout: 2500 })
-        : window.setTimeout(cb, 1200);
-    schedule(() => {
-      if (cancelled) return;
-      void importDetail();
-      void importPlayPicker();
-      void importPlayer();
-      void importSettings();
-      void importAddons();
-      void importDiscover();
-      void importPerson();
-      void importPeople();
-      void importFilter();
-      void importCalendar();
-      void importMovies();
-      void importShows();
-      void importLive();
-      void importAnime();
-      void importQueue();
-      void importAward();
-      void importAnimeAward();
-      void importService();
-      void importOnboarding();
-      void importCatalogs();
-      void importPlugins();
-      void importLibrary();
-      void importCommunityCollections();
-      void importDownloads();
-      void importGrid();
-      void importWrapped();
-      void importKids();
-      if (keyRef.current) {
-        void import("@/lib/feed/pool").then((m) => m.getPool(keyRef.current)).catch(() => {});
-      }
-    });
+    let handle = 0;
+    const idle = typeof win.requestIdleCallback === "function";
+    const schedule = (cb: () => void) => {
+      handle = idle ? win.requestIdleCallback!(cb, { timeout: 2500 }) : window.setTimeout(cb, 1200);
+    };
+    const preloaders: Array<() => Promise<unknown>> = [
+      importDetail,
+      importPlayPicker,
+      importPlayer,
+      importSettings,
+      importDiscover,
+      importAddons,
+      importPerson,
+      importPeople,
+      importFilter,
+      importCalendar,
+      importMovies,
+      importShows,
+      importLive,
+      importAnime,
+      importQueue,
+      importAward,
+      importAnimeAward,
+      importService,
+      importOnboarding,
+      importCatalogs,
+      importPlugins,
+      importLibrary,
+      importCommunityCollections,
+      importDownloads,
+      importGrid,
+      importWrapped,
+      importKids,
+      async () => {
+        if (keyRef.current) {
+          const m = await import("@/lib/feed/pool");
+          if (!cancelled) await m.getPool(keyRef.current);
+        }
+      },
+    ];
+    let next = 0;
+    const warmNext = () => {
+      if (cancelled || next >= preloaders.length) return;
+      // One module per idle opportunity: warming every view at once evaluates
+      // unrelated feature modules and starts their storage/network work during Home boot.
+      void preloaders[next++]()
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) schedule(warmNext);
+        });
+    };
+    schedule(warmNext);
     return () => {
       cancelled = true;
+      if (idle) win.cancelIdleCallback?.(handle);
+      else window.clearTimeout(handle);
     };
   }, []);
 }
@@ -400,18 +418,23 @@ function useKeepAlive(active: boolean, requested: boolean, pin = false): boolean
  * round at mount; doing that inside the home feed's first commit put a ~630ms React work loop in
  * the boot frame. Two frames of delay lets the shell paint before that work lands.
  */
-function AfterFirstPaint({ children }: { children: ReactNode }) {
+function AfterFirstPaint({ children, delayMs = 0 }: { children: ReactNode; delayMs?: number }) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let second = 0;
+    let timer = 0;
     const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(() => setReady(true));
+      second = requestAnimationFrame(() => {
+        if (delayMs > 0) timer = window.setTimeout(() => setReady(true), delayMs);
+        else setReady(true);
+      });
     });
     return () => {
       cancelAnimationFrame(first);
       cancelAnimationFrame(second);
+      window.clearTimeout(timer);
     };
-  }, []);
+  }, [delayMs]);
   return ready ? <>{children}</> : null;
 }
 
@@ -467,7 +490,9 @@ export function App({ onReady }: { onReady?: () => void }) {
                                                       <MalAvatarSync />
                                                       <MiddleClickScroll />
                                                       <ThemeBackdrop />
-                                                      <WatchlistSync />
+                                                      <Profiled id="startup.watchlist-sync">
+                                                        <WatchlistSync />
+                                                      </Profiled>
                                                       {isMobileWeb() || isRemoteRoute() ? (
                                                         <>
                                                           <Suspense fallback={null}>
@@ -501,18 +526,22 @@ export function App({ onReady }: { onReady?: () => void }) {
                                                         <TogetherLocationPublisher />
                                                         <IdleAwayRunner />
                                                         <SessionRefreshRunner />
+                                                        <RemoteHostMount />
+                                                        <RemoteOpenBridge />
+                                                      </AfterFirstPaint>
+                                                      <AfterFirstPaint delayMs={1500}>
                                                         <StatsSyncRunner />
                                                         <FeaturedListsSyncRunner />
                                                         <RatingsSyncRunner />
                                                         <ActivitySyncRunner />
+                                                      </AfterFirstPaint>
+                                                      <AfterFirstPaint>
                                                         <MediaServerSyncRunner />
                                                         <AutoDownloadRunner />
                                                         <RemindersRunner />
                                                         <GameDownloadNotificationsRunner />
                                                         <GameSourceAlertsRunner />
                                                         <MangaTrackingRunner />
-                                                        <RemoteHostMount />
-                                                        <RemoteOpenBridge />
                                                       </AfterFirstPaint>
                                                       <PlayOnModal />
                                                       <GamepadRunner />
@@ -521,7 +550,9 @@ export function App({ onReady }: { onReady?: () => void }) {
                                                         <DiscordPresence />
                                                         <WatchPresenceRunner />
                                                       </AfterFirstPaint>
-                                                      <ContextMenu />
+                                                      <Profiled id="startup.context-menu">
+                                                        <ContextMenu />
+                                                      </Profiled>
                                                       <PageContextNavigationDialogs />
                                                       <AnnouncementGlobal />
                                                       <WatchLocalModal />
@@ -1835,7 +1866,9 @@ function Shell({ onReady }: { onReady?: () => void }) {
             {gamesAlive && (
               <div {...layerProps(gamesTop)}>
                 <Suspense fallback={<GameRouteLoading />}>
-                  <GameDockWelcome eligible={gamesTop && quickLibraryVisible && !gamesNavigationOpen} />
+                  <GameDockWelcome
+                    eligible={gamesTop && quickLibraryVisible && !gamesNavigationOpen}
+                  />
                   <GamesView
                     harborNavigationOpen={gamesNavigationOpen}
                     onHarborNavigationChange={setGamesNavigationOpen}

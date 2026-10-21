@@ -385,6 +385,17 @@ export function WatchlistTab({
   }, []);
   const counts = useMemo(() => countByType(merged), [merged]);
   const visible = useMemo(() => applyFilter(merged, type, query), [merged, type, query]);
+  const groups = useMemo(() => {
+    if (settings.librarySort !== "recent") return sortedGroups(visible, settings.librarySort);
+    if (flat)
+      return [
+        {
+          label: "Everything",
+          items: [...visible].sort((a, b) => (b.date ?? -Infinity) - (a.date ?? -Infinity)),
+        },
+      ];
+    return groupByDate(visible);
+  }, [visible, settings.librarySort, flat]);
   useReportFeatured(useMemo(() => visible.map((v) => v.meta), [visible]));
 
   const subtitle = (() => {
@@ -433,26 +444,21 @@ export function WatchlistTab({
         </p>
       ) : settings.librarySort !== "recent" ? (
         <GroupedGrid
-          groups={sortedGroups(visible, settings.librarySort)}
+          groups={groups}
           onRemove={handleRemove}
           onRemoveLocal={handleRemoveLocal}
           scrollRef={scrollRef}
         />
       ) : flat ? (
         <GroupedGrid
-          groups={[
-            {
-              label: "Everything",
-              items: [...visible].sort((a, b) => (b.date ?? -Infinity) - (a.date ?? -Infinity)),
-            },
-          ]}
+          groups={groups}
           onRemove={handleRemove}
           onRemoveLocal={handleRemoveLocal}
           scrollRef={scrollRef}
         />
       ) : (
         <GroupedGrid
-          groups={groupByDate(visible)}
+          groups={groups}
           onRemove={handleRemove}
           onRemoveLocal={handleRemoveLocal}
           scrollRef={scrollRef}

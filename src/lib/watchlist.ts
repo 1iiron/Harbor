@@ -65,6 +65,9 @@ export type WatchlistInput = {
 };
 
 let memoryFallback: Map<string, LocalEntry> | null = null;
+let cachedLocalKey: string | undefined;
+let cachedLocalRaw: string | null | undefined;
+let cachedLocalEntries = new Map<string, LocalEntry>();
 
 function activeProfileId(): string {
   try {
@@ -171,7 +174,7 @@ function toEntry(input: string | WatchlistInput): LocalEntry {
   };
 }
 
-function read(): Map<string, LocalEntry> {
+function readSnapshot(): Map<string, LocalEntry> {
   if (isNuvioProviderActive()) {
     const slot = resolveNuvioProfileIndex();
     const nuvio = readCachedNuvioLibrary(slot);
@@ -190,13 +193,14 @@ function read(): Map<string, LocalEntry> {
     }
     return map;
   }
-  if (memoryFallback) return new Map(memoryFallback);
+  if (memoryFallback) return memoryFallback;
   migrateLegacy();
   const map = new Map<string, LocalEntry>();
   try {
-    const raw = localStorage.getItem(storeKey());
-    if (!raw) return map;
-    const arr = JSON.parse(raw) as unknown;
+    const key = storeKey();
+    const raw = localStorage.getItem(key);
+    if (key === cachedLocalKey && raw === cachedLocalRaw) return cachedLocalEntries;
+    const arr = raw ? (JSON.parse(raw) as unknown) : [];
     if (!Array.isArray(arr)) return map;
     for (const el of arr) {
       if (typeof el === "string") {
@@ -224,10 +228,18 @@ function read(): Map<string, LocalEntry> {
         });
       }
     }
+    cachedLocalKey = key;
+    cachedLocalRaw = raw;
+    cachedLocalEntries = map;
   } catch {
     return new Map();
   }
   return map;
+}
+
+// Writers own a mutable copy; badge checks share the parsed snapshot across all cards.
+function read(): Map<string, LocalEntry> {
+  return new Map(readSnapshot());
 }
 
 function write(map: Map<string, LocalEntry>) {
@@ -327,7 +339,7 @@ export function watchlistHas(id: string): boolean {
     const slot = resolveNuvioProfileIndex();
     return isNuvioItemInLibrary(slot, id);
   }
-  return read().has(id) || aggregateIds.has(id);
+  return readSnapshot().has(id) || aggregateIds.has(id);
 }
 
 export function watchlistAllIds(): string[] {
@@ -612,7 +624,7 @@ export function useInWatchlist(
 
   const check = () => {
     if (candidates.length === 0) return false;
-    const local = read();
+    const local = readSnapshot();
     return candidates.some((c) => local.has(c) || aggregateIds.has(c));
   };
 

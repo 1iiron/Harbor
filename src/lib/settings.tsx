@@ -18,6 +18,7 @@ import { setMdblistBatchKey } from "@/lib/providers/mdblist-batch";
 import { setUiLanguage } from "@/lib/i18n";
 import { makeSafeTauriUnlisten } from "@/lib/tauri-unlisten";
 import { STORAGE_KEY } from "./settings/defaults";
+import { noteNotify } from "./render-cause";
 import { readSettingsFile, writeSettingsFile } from "./settings/file-store";
 import { torrentEngineSetEnabled } from "./torrent/local-engine";
 import { loadFontData, saveFontData } from "./font-storage";
@@ -613,6 +614,12 @@ export function SettingsProvider({
     },
     [switchProfile],
   );
+
+  const previousSettings = useRef(settings);
+  useEffect(() => {
+    if (previousSettings.current !== settings) noteNotify("context:settings");
+    previousSettings.current = settings;
+  }, [settings]);
 
   const value = useMemo(
     () => ({

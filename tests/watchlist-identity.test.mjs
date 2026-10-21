@@ -53,6 +53,55 @@ const trakt = (tmdb, imdb, year) => ({
   ids: { tmdb, imdb },
 });
 
+test("card watchlist checks reuse parsed entries and observe writes and profile switches", () => {
+  const values = new Map([
+    [
+      "harbor.profiles.v1",
+      JSON.stringify({ activeId: "one", profiles: [{ id: "one" }, { id: "two" }] }),
+    ],
+    ["harbor.watchlist.v1.one", JSON.stringify([local("tt1")])],
+    ["harbor.watchlist.v1.two", JSON.stringify([local("tt2")])],
+  ]);
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  const watchlist = load(
+    "src/lib/watchlist.ts",
+    {
+      "@/lib/storage-recovery": {
+        setItemWithRecovery: (key, value) => {
+          storage.setItem(key, value);
+          return true;
+        },
+      },
+      "@/lib/cinemeta": { persistableAddonOrigin: (v) => v, persistableVideos: (v) => v },
+    },
+    storage,
+  );
+  const originalParse = JSON.parse;
+  let entryParses = 0;
+  JSON.parse = (raw, ...args) => {
+    if (raw === values.get("harbor.watchlist.v1.one")) entryParses++;
+    return originalParse(raw, ...args);
+  };
+  try {
+    for (let i = 0; i < 200; i++) assert.equal(watchlist.watchlistHas("tt1"), true);
+    assert.equal(entryParses, 1);
+  } finally {
+    JSON.parse = originalParse;
+  }
+  watchlist.addToWatchlist({ id: "tt3", name: "Added", type: "movie" });
+  assert.equal(watchlist.watchlistHas("tt3"), true);
+  assert.equal(watchlist.watchlistHas("tt1"), true);
+  values.set("harbor.watchlist.v1.one", "[]");
+  assert.equal(watchlist.watchlistHas("tt1"), false);
+  values.set("harbor.profiles.v1", JSON.stringify({ activeId: "two", profiles: [{ id: "two" }] }));
+  assert.equal(watchlist.watchlistHas("tt2"), true);
+  assert.equal(watchlist.watchlistHas("tt3"), false);
+});
+
 test("same-name remakes with different years remain separate", () => {
   const result = tab.mergeWatchlist([], [], [trakt(1, "tt1", 1992), trakt(2, "tt2", 2019)]);
   assert.equal(result.length, 2);
@@ -158,7 +207,8 @@ test("all library groupings retain virtualization and local removal wiring", () 
     assert.match(grid, /scrollRef=\{scrollRef\}/);
   }
   const shared = read("src/views/library/shared.tsx");
-  assert.equal((shared.match(/\(\) => onRemoveLocal\(it.localId as string\)/g) ?? []).length, 2);
+  assert.equal((shared.match(/localId=\{it.localId\}/g) ?? []).length, 2);
+  assert.match(shared, /else if \(onRemoveLocal && localId\) onRemoveLocal\(localId\)/);
 });
 
 test("anime search fallback retains animation, full-name and exact-year guards", () => {

@@ -10,6 +10,7 @@ import {
   Star,
 } from "lucide-react";
 import { UiIcon } from "@/components/ui-icon";
+import { Profiled } from "@/components/profiled";
 import { useEffect, useMemo, useRef, useState } from "react";
 import traktLogo from "@/assets/trakt.svg";
 import anilistLogo from "@/assets/anilist.png";
@@ -172,9 +173,21 @@ export function LibraryView({ active }: { active: boolean }) {
             pmdbConnected={pmdbConnected}
             lbConnected={lb.isActive}
           />
-          {tab === "library" && <WatchlistTab mode="library" scrollRef={scrollRef} />}
-          {tab === "watchlist" && <WatchlistTab mode="watchlist" scrollRef={scrollRef} />}
-          {tab === "history" && <HistoryTab />}
+          {tab === "library" && (
+            <Profiled id="library.collection">
+              <WatchlistTab mode="library" scrollRef={scrollRef} />
+            </Profiled>
+          )}
+          {tab === "watchlist" && (
+            <Profiled id="library.watchlist">
+              <WatchlistTab mode="watchlist" scrollRef={scrollRef} />
+            </Profiled>
+          )}
+          {tab === "history" && (
+            <Profiled id="library.history">
+              <HistoryTab />
+            </Profiled>
+          )}
           {tab === "local" && <LocalTab scrollRef={scrollRef} />}
           {tab === "media-servers" && <MediaServersTab scrollRef={scrollRef} />}
           {tab === "torbox" && <TorboxTab />}

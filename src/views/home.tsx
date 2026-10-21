@@ -10,6 +10,8 @@ import {
 } from "react";
 import { BackToTop } from "@/components/back-to-top";
 import { HeroCarousel, type Slide } from "@/components/hero-carousel";
+import { Profiled } from "@/components/profiled";
+import { isProfilerRunning, recordRender } from "@/lib/memory-profiler";
 import { CollectionsRow } from "@/components/collections-row";
 import { TmdbNudge } from "@/components/nudge";
 import { Row, ScrollRootContext } from "@/components/row";
@@ -139,6 +141,7 @@ export function Home({
   seasonalInvitation?: ReactNode;
   seasonalInvitationPlacement?: "small" | "below-hero";
 }) {
+  const selfStarted = isProfilerRunning() ? performance.now() : null;
   const { authKey, user } = useAuth();
   const { activeProfile, profiles } = useProfiles();
   const { settings, update } = useSettings();
@@ -272,8 +275,12 @@ export function Home({
       if (cancelled) return;
       let degraded = (built.failed ?? 0) > 0;
       const commitRows = (next: HomeRow[]) =>
-        setRows((prev) =>
-          degraded && next.length === 0 && prev.length > 0 ? prev : mergeLoadedHomeRows(prev, next),
+        startTransition(() =>
+          setRows((prev) =>
+            degraded && next.length === 0 && prev.length > 0
+              ? prev
+              : mergeLoadedHomeRows(prev, next),
+          ),
         );
       commitRows(mergeRows(built.rows, []));
       if (!degraded || built.hero.length > 0) {
@@ -1332,12 +1339,14 @@ export function Home({
           />
         )}
         {!cwHidden && (
-          <CWSection
-            signedIn={!!authKey}
-            items={cwItems}
-            watchedSet={traktWatched}
-            onDismiss={onDismissCw}
-          />
+          <Profiled id="home.continue-watching">
+            <CWSection
+              signedIn={!!authKey}
+              items={cwItems}
+              watchedSet={traktWatched}
+              onDismiss={onDismissCw}
+            />
+          </Profiled>
         )}
         {settings.homeNewEpisodes && !newEpisodesHidden && (
           <NewEpisodesSection
@@ -1349,6 +1358,8 @@ export function Home({
       </div>
     );
 
+  if (selfStarted !== null)
+    recordRender("home.self-calculation-attempt", performance.now() - selfStarted);
   return (
     <main
       ref={scrollCb}
@@ -1395,15 +1406,17 @@ export function Home({
                     onToggleHidden={() => handleToggleHidden("hero")}
                   />
                 )}
-                <HeroCarousel
-                  slides={shownHeroSlides}
-                  full={heroFull}
-                  fullQuality={settings.heroFullQuality}
-                  playTrailers={settings.heroTrailers}
-                  bottomAlign
-                  playSquare={!!homeRowsCustom.playButtonSquare}
-                  moreInfo={!!homeRowsCustom.secondaryMoreInfo}
-                />
+                <Profiled id="home.hero">
+                  <HeroCarousel
+                    slides={shownHeroSlides}
+                    full={heroFull}
+                    fullQuality={settings.heroFullQuality}
+                    playTrailers={settings.heroTrailers}
+                    bottomAlign
+                    playSquare={!!homeRowsCustom.playButtonSquare}
+                    moreInfo={!!homeRowsCustom.secondaryMoreInfo}
+                  />
+                </Profiled>
                 {!editMode && (
                   <div className="pointer-events-none absolute -bottom-3 end-5 z-20 flex justify-end [&>*]:pointer-events-auto">
                     <CustomizeBar
@@ -1451,7 +1464,9 @@ export function Home({
           {!cwTop && cwBlock}
           {settings.homeMode !== "classic" && (
             <div data-scroll-anchor="streaming">
-              <StreamingRail services={enabledServices} />
+              <Profiled id="home.services">
+                <StreamingRail services={enabledServices} />
+              </Profiled>
             </div>
           )}
           {settings.homeMode !== "classic" &&
@@ -1501,7 +1516,9 @@ export function Home({
                     onToggleHidden={() => handleToggleHidden("collections")}
                   />
                 )}
-                <CollectionsRow />
+                <Profiled id="home.collections">
+                  <CollectionsRow />
+                </Profiled>
               </div>
             )}
           {editMode &&
@@ -1522,25 +1539,27 @@ export function Home({
           russianRows.length === 0 ? (
             Array.from({ length: 4 }).map((_, i) => <RowSkeleton key={`skel-${i}`} />)
           ) : (
-            <CustomizableRows
-              rows={editMode ? editRows : visibleRows}
-              editMode={editMode}
-              customization={homeRowsCustom}
-              orderKeys={orderKeys}
-              onMove={handleMove}
-              onToggleHidden={handleToggleHidden}
-              onRename={handleRename}
-              onToggleNumerals={handleToggleNumerals}
-              onToggleHero={handleToggleHero}
-              onLoadMore={loadMore}
-              onDeleteCustomSource={handleDeleteCustomSource}
-              onEditFolderImages={handleEditFolderImages}
-              hideWatched={settings.hideWatchedInCatalogs}
-              watchedSet={traktWatched}
-              localWatched={localWatched}
-              stremioWatched={stremioWatchedIds}
-              homeLanguages={settings.homeLanguages}
-            />
+            <Profiled id="home.catalog-rows">
+              <CustomizableRows
+                rows={editMode ? editRows : visibleRows}
+                editMode={editMode}
+                customization={homeRowsCustom}
+                orderKeys={orderKeys}
+                onMove={handleMove}
+                onToggleHidden={handleToggleHidden}
+                onRename={handleRename}
+                onToggleNumerals={handleToggleNumerals}
+                onToggleHero={handleToggleHero}
+                onLoadMore={loadMore}
+                onDeleteCustomSource={handleDeleteCustomSource}
+                onEditFolderImages={handleEditFolderImages}
+                hideWatched={settings.hideWatchedInCatalogs}
+                watchedSet={traktWatched}
+                localWatched={localWatched}
+                stremioWatched={stremioWatchedIds}
+                homeLanguages={settings.homeLanguages}
+              />
+            </Profiled>
           )}
         </div>
       </ScrollRootContext.Provider>
