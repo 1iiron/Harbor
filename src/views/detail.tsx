@@ -154,6 +154,7 @@ import { TitlePlate } from "./detail/title-plate";
 import { PlayModeHint } from "./detail/play-mode-hint";
 import { usePlayOnTrigger } from "@/components/play-on-trigger";
 import { UpcomingCta } from "./detail/upcoming-cta";
+import { MovieReleaseCountdowns } from "./detail/movie-release-countdowns";
 import { Synopsis } from "./detail/synopsis";
 import { CastCard } from "./detail/cast-card";
 import { UiIcon } from "@/components/ui-icon";
@@ -2023,6 +2024,7 @@ export function DetailView({
                   )}
                 </div>
               )}
+              <MovieReleaseCountdowns detail={detail} />
               <div
                 ref={actionRowRef}
                 className={`mt-9 flex ${awardsInDescription ? "" : "w-fit max-w-full "}items-center gap-3 [&>*]:shrink-0`}

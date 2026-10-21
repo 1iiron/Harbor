@@ -1,4 +1,5 @@
 import { Check, Eye } from "lucide-react";
+import { EpisodeReleaseCountdown } from "@/components/episode-release-countdown";
 import { Play } from "@/components/icons/play-filled";
 import { HoverTooltip } from "@/components/hover-tooltip";
 import { useEffect, useMemo, useState } from "react";
@@ -65,7 +66,9 @@ export function EpisodeRow({
   const still = candidates[imgIdx];
   const watchedAgo = progress.startedAt > 0 ? formatRelativeWatched(progress.startedAt) : "";
   const resolvedImdbId = useMemo(() => {
-    const v = cinemetaVideos?.find((x) => x.season === ep.seasonNumber && x.episode === ep.episodeNumber);
+    const v = cinemetaVideos?.find(
+      (x) => x.season === ep.seasonNumber && x.episode === ep.episodeNumber,
+    );
     return v?.id ?? undefined;
   }, [cinemetaVideos, ep.seasonNumber, ep.episodeNumber]);
   const playEpisode = {
@@ -92,7 +95,10 @@ export function EpisodeRow({
           playEpisodeLocalAware({
             meta,
             episode: playEpisode,
-            opts: { autoPlay: settings.instantPlay || settings.seasonSourceLock, resume: !progress.watched && progress.ratio > 0.01 },
+            opts: {
+              autoPlay: settings.instantPlay || settings.seasonSourceLock,
+              resume: !progress.watched && progress.ratio > 0.01,
+            },
             imdbId: seriesImdbId,
             videos: cinemetaVideos,
           })
@@ -163,6 +169,7 @@ export function EpisodeRow({
               </span>
             )}
           </p>
+          <EpisodeReleaseCountdown date={ep.airDate} />
           {ep.overview && (
             <p
               className={`line-clamp-2 text-[13.5px] leading-relaxed text-ink-muted ${

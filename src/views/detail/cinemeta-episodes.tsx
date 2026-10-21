@@ -1,5 +1,6 @@
 import { getViewedSeason, setViewedSeason } from "@/lib/season-view-pref";
 import type { Season } from "@/lib/providers/tmdb";
+import { EpisodeReleaseCountdown } from "@/components/episode-release-countdown";
 import { Check, ChevronDown } from "lucide-react";
 import { Play } from "@/components/icons/play-filled";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -446,6 +447,7 @@ export function CinemetaEpisodeRow({
               .filter(Boolean)
               .join("  ·  ")}
           </p>
+          <EpisodeReleaseCountdown date={aired} />
           {(ep.overview ?? ep.description) && (
             <p className="line-clamp-2 text-[13.5px] leading-relaxed text-ink-muted">
               {ep.overview ?? ep.description}

@@ -1,4 +1,5 @@
 import type { Meta } from "../../cinemeta";
+import { movieReleaseDates, type MovieRelease } from "./movie-release-dates";
 import { get, IMG, effectiveTmdbLanguage } from "./tmdb-client";
 import { tmdbBackdropUrl, tmdbPosterUrl } from "./tmdb-image-rungs";
 import { loadStoredSettings } from "@/lib/settings/load";
@@ -127,6 +128,7 @@ export type TmdbDetail = {
   firstAirDate?: string;
   lastAirDate?: string;
   releaseDate?: string;
+  movieReleases?: MovieRelease[];
   lastEpisodeAir?: { seasonNumber: number; airDate: string | null };
   budget?: number;
   revenue?: number;
@@ -251,8 +253,7 @@ export async function tmdbDetails(
   const settings = loadStoredSettings();
   const metaLang = lang ?? (effectiveTmdbLanguage() || "en");
   const raw = await get<any>(key, `${kind}/${id}`, {
-    append_to_response:
-      "credits,aggregate_credits,recommendations,similar,videos,external_ids,images,keywords,translations",
+    append_to_response: `credits,aggregate_credits,recommendations,similar,videos,external_ids,images,keywords,translations${kind === "movie" ? ",release_dates" : ""}`,
     language: metaLang,
     include_image_language: imageLangParam(),
   });
@@ -550,6 +551,10 @@ export async function tmdbDetails(
     firstAirDate: raw.first_air_date,
     lastAirDate: raw.last_air_date,
     releaseDate: raw.release_date,
+    movieReleases:
+      kind === "movie"
+        ? movieReleaseDates(raw.release_dates?.results ?? [], settings.region)
+        : undefined,
     lastEpisodeAir: raw.last_episode_to_air
       ? {
           seasonNumber: raw.last_episode_to_air.season_number,

@@ -1,4 +1,5 @@
 import { CalendarClock, CalendarDays, Check, Info, RotateCcw } from "lucide-react";
+import { EpisodeReleaseCountdown } from "@/components/episode-release-countdown";
 import { Play } from "@/components/icons/play-filled";
 import { HoverTooltip } from "@/components/hover-tooltip";
 import { EpisodeDownloadButton } from "./episode-download-button";
@@ -51,7 +52,8 @@ export function EpisodeGridCard({
   const still = g.stills[imgIdx];
   const watched = progress.watched;
   const partial = !watched && progress.ratio > 0.01;
-  const minsLeft = partial && g.runtime ? Math.max(1, Math.round(g.runtime * (1 - progress.ratio))) : 0;
+  const minsLeft =
+    partial && g.runtime ? Math.max(1, Math.round(g.runtime * (1 - progress.ratio))) : 0;
   const spoilered = !!spoiler && (spoiler.thumb || spoiler.title || spoiler.desc);
 
   const enter = () => {
@@ -75,7 +77,11 @@ export function EpisodeGridCard({
         : "";
 
   return (
-    <div onMouseEnter={enter} onMouseLeave={leave} className={`group relative ${preview ? "z-30" : ""}`}>
+    <div
+      onMouseEnter={enter}
+      onMouseLeave={leave}
+      className={`group relative ${preview ? "z-30" : ""}`}
+    >
       <button
         data-ep={g.number}
         data-no-card-ring
@@ -86,7 +92,13 @@ export function EpisodeGridCard({
       >
         <div className="relative aspect-video overflow-hidden rounded-xl">
           <div className={thumbDim}>
-            <Poster src={still} seed={g.key} ratio="landscape" lazy onError={() => setImgIdx((i) => i + 1)} />
+            <Poster
+              src={still}
+              seed={g.key}
+              ratio="landscape"
+              lazy
+              onError={() => setImgIdx((i) => i + 1)}
+            />
           </div>
           <span className="absolute start-2 top-2 rounded-md bg-canvas/95 px-1.5 py-0.5 text-[11px] font-semibold text-ink">
             {g.number}
@@ -104,13 +116,18 @@ export function EpisodeGridCard({
           )}
           {partial && (
             <div className="absolute inset-x-0 bottom-0 h-[3px] bg-black/55">
-              <div className="h-full bg-accent" style={{ width: `${Math.max(2, progress.ratio * 100)}%` }} />
+              <div
+                className="h-full bg-accent"
+                style={{ width: `${Math.max(2, progress.ratio * 100)}%` }}
+              />
             </div>
           )}
         </div>
         <div className="flex flex-col gap-0.5 px-0.5">
           <span className="flex items-center gap-1.5">
-            <span className={`line-clamp-2 text-[13.5px] font-semibold text-ink ${spoiler?.title ? SPOILER_TEXT_CLASS : ""}`}>
+            <span
+              className={`line-clamp-2 text-[13.5px] font-semibold text-ink ${spoiler?.title ? SPOILER_TEXT_CLASS : ""}`}
+            >
               {g.title}
             </span>
             {g.filler && <FillerBadge />}
@@ -126,6 +143,7 @@ export function EpisodeGridCard({
               {g.overview}
             </p>
           )}
+          <EpisodeReleaseCountdown date={g.airDate} className="text-[11.5px]" />
         </div>
       </button>
       {preview && !spoilered && (
@@ -199,7 +217,11 @@ function EpisodePreview({
   const { openEpisodeDetail } = useView();
   return (
     <div className="animate-popover-in absolute -inset-x-2 -top-2 z-30 overflow-hidden rounded-2xl border border-edge bg-elevated shadow-[0_24px_60px_-18px_rgba(0,0,0,0.8)]">
-      <button onClick={() => g.play({ resume: !watched && ratio > 0.01 })} onContextMenu={onContext} className="block w-full text-start">
+      <button
+        onClick={() => g.play({ resume: !watched && ratio > 0.01 })}
+        onContextMenu={onContext}
+        className="block w-full text-start"
+      >
         <div className="relative aspect-video overflow-hidden">
           <Poster src={still} seed={g.key} ratio="landscape" />
           {watched && <div className="absolute inset-0 bg-canvas/45" />}
@@ -212,7 +234,10 @@ function EpisodePreview({
                 {t("{n}m left", { n: minsLeft })}
               </span>
               <div className="absolute inset-x-0 bottom-0 h-[3px] bg-black/55">
-                <div className="h-full bg-accent" style={{ width: `${Math.max(2, ratio * 100)}%` }} />
+                <div
+                  className="h-full bg-accent"
+                  style={{ width: `${Math.max(2, ratio * 100)}%` }}
+                />
               </div>
             </>
           )}
@@ -235,6 +260,7 @@ function EpisodePreview({
             </>
           )}
         </span>
+        <EpisodeReleaseCountdown date={g.airDate} className="text-[11.5px]" />
         {g.overview && (
           <div className="max-h-28 overflow-y-auto pe-1 text-[12.5px] leading-relaxed text-ink-muted [scrollbar-width:thin]">
             {g.overview}
@@ -245,7 +271,9 @@ function EpisodePreview({
             onClick={() => g.play({ resume: !watched && ratio > 0.01 })}
             title={
               g.upcoming
-                ? t("Not officially released yet. Click to search anyway in case of an early release.")
+                ? t(
+                    "Not officially released yet. Click to search anyway in case of an early release.",
+                  )
                 : undefined
             }
             className={`flex h-9 flex-1 items-center justify-center gap-2 rounded-lg text-[12.5px] font-semibold transition-[opacity,color] hover:opacity-90 ${
