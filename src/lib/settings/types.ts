@@ -784,6 +784,7 @@ export type Settings = {
   arabicWelcomeSeen: boolean;
   cropMode: string;
   customLists: CustomList[];
+  libraryGroups: import("@/lib/library-groups").LibraryGroup[];
   pauseListStatusOnPause: boolean;
   translateTitles: boolean;
   translateDescriptions: boolean;

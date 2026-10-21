@@ -1184,8 +1184,25 @@ export function Home({
   );
   const shownFilterableRows = useHideAnimeRows(filterableRows);
   const allCustomizableRows = useMemo(
-    () => [...sourceRows, ...shownFilterableRows],
-    [sourceRows, shownFilterableRows],
+    () => [
+      ...(settings.libraryGroups.some((group) => group.pinnedToHome)
+        ? [
+            {
+              key: "library-groups",
+              type: "movie" as const,
+              name: "My Groups",
+              metas: [],
+              page: 1,
+              hasMore: false,
+              libraryGroups: true,
+              noDedup: true,
+            },
+          ]
+        : []),
+      ...sourceRows,
+      ...shownFilterableRows,
+    ],
+    [sourceRows, shownFilterableRows, settings.libraryGroups],
   );
   const visibleRows = useMemo(
     () => applyHomeRowCustomization(allCustomizableRows, homeRowsCustom, false),

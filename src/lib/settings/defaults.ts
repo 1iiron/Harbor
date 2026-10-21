@@ -624,6 +624,7 @@ export const DEFAULT: Settings = {
   arabicWelcomeSeen: false,
   cropMode: "fit",
   customLists: [],
+  libraryGroups: [],
   pauseListStatusOnPause: false,
   translateTitles: true,
   translateDescriptions: true,

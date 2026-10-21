@@ -14,6 +14,7 @@ import {
   sanitizeFullscreenClockStyle,
 } from "@/lib/local-time";
 import { normalizePosterCardSettings } from "@/lib/poster-backdrop-expansion";
+import { normalizeLibraryGroups } from "@/lib/library-groups";
 import {
   sanitizeSubtitleOffsetPosition,
   sanitizeSubtitleOffsetSize,
@@ -413,6 +414,7 @@ function parseStoredSettings(raw: string | null): { settings: Settings; cacheabl
     const settings: Settings = {
       ...DEFAULT,
       ...parsed,
+      libraryGroups: normalizeLibraryGroups(parsed.libraryGroups),
       spooktoberBanner: ["disabled", "small", "below-hero"].includes(parsed.spooktoberBanner ?? "")
         ? parsed.spooktoberBanner
         : undefined,

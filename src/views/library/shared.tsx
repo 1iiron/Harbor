@@ -17,6 +17,7 @@ export type Tab =
   | "media-servers"
   | "torbox"
   | "lists"
+  | "groups"
   | "favorites"
   | "trakt"
   | "anilist"

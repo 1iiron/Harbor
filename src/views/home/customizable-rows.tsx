@@ -1,4 +1,5 @@
 import { ChevronRight } from "lucide-react";
+import { HomeGroups } from "@/components/home-groups";
 import { memo, useMemo } from "react";
 import { LazyMount } from "@/components/lazy-mount";
 import { releaseYear } from "@/lib/release-info";
@@ -20,6 +21,7 @@ import { useSettings } from "@/lib/settings";
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
 const BUILT_IN_HOME_ROW_TITLES: Readonly<Record<string, string>> = {
+  "library-groups": "My Groups",
   "tmdb-trending-movies": "Trending This Week",
   "tmdb-now-playing": "In Theaters Now",
   "tmdb-popular-movies": "Popular Movies",
@@ -217,7 +219,8 @@ export const CustomizableRows = memo(function CustomizableRows({
         if (
           (hideWatched || hideUnreleased || (homeLanguages && homeLanguages.length > 0)) &&
           metas.length === 0 &&
-          !row.sourceRow
+          !row.sourceRow &&
+          !row.libraryGroups
         )
           return null;
         const idx = orderKeys.indexOf(row.key);
@@ -228,7 +231,9 @@ export const CustomizableRows = memo(function CustomizableRows({
           : undefined;
         const ranked = (customization.numerals ?? []).includes(row.key) && metas.length >= 10;
         let rowEl;
-        if (row.sourceRow) {
+        if (row.libraryGroups) {
+          rowEl = <HomeGroups title={title} />;
+        } else if (row.sourceRow) {
           rowEl = (
             <CustomSourcesRow
               sourceRow={row.sourceRow}
