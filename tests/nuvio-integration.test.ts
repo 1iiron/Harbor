@@ -44,6 +44,7 @@ import {
   pullWatchProgressFromNuvio,
 } from "../src/lib/nuvio/nuvio-sync";
 import {
+  fetchNuvioPlaybackItems,
   readCachedNuvioPlaybackItems,
   writeCachedNuvioPlaybackItems,
   clearCachedPlaybackItems,
@@ -983,6 +984,80 @@ test("Review 5 Issue 1: In-flight watch progress and library pulls discard respo
 
     const signoutProgress = await pullWatchProgressFromNuvio(1);
     assert.deepEqual(signoutProgress, [], "Pull after sign-out must return empty array");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Discarded watch progress pull does not clear the next account's playback cache", async () => {
+  mockStorage.clear();
+  const account = (id: string) => ({
+    session: {
+      access_token: `tok-${id}`,
+      refresh_token: `ref-${id}`,
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      token_type: "bearer",
+      user: { id },
+    },
+    profiles: [{ id: `p-${id}`, name: id, profile_index: 1, user_id: id }],
+    activeProfileIndex: 1,
+    lastSyncedAt: null,
+  });
+  saveNuvioState(account("user-a"));
+
+  const originalFetch = globalThis.fetch;
+  let releaseResponse!: (response: Response) => void;
+  let notifyStarted!: () => void;
+  const response = new Promise<Response>((resolve) => {
+    releaseResponse = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    notifyStarted = resolve;
+  });
+
+  try {
+    globalThis.fetch = async (url: any) => {
+      if (String(url).includes("sync_pull_watch_progress")) {
+        notifyStarted();
+        return response;
+      }
+      return { ok: true, status: 200, json: async () => [] } as unknown as Response;
+    };
+
+    const pending = fetchNuvioPlaybackItems(1);
+    await started;
+    saveNuvioState(account("user-b"));
+    writeCachedWatchProgress(
+      1,
+      [
+        {
+          content_id: "tt-b-only",
+          progress_key: "tt-b-only",
+          profile_id: 1,
+          progress_seconds: 90,
+        } as any,
+      ],
+      "user-b",
+    );
+    writeCachedNuvioPlaybackItems(1, [{ _id: "tt-b-only", name: "B only" } as any], "user-b");
+
+    releaseResponse({
+      ok: true,
+      status: 200,
+      json: async () => [
+        { content_id: "tt-a-only", progress_key: "tt-a-only", progress_seconds: 90 },
+      ],
+    } as unknown as Response);
+
+    assert.deepEqual(await pending, []);
+    assert.deepEqual(
+      readCachedWatchProgress(1, "user-b").map((item) => item.content_id),
+      ["tt-b-only"],
+    );
+    assert.deepEqual(
+      readCachedNuvioPlaybackItems(1, "user-b").map((item) => item._id),
+      ["tt-b-only"],
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

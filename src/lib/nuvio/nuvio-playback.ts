@@ -380,6 +380,7 @@ export function buildNuvioPlaybackItems(
 export async function fetchNuvioPlaybackItems(targetSlot?: number): Promise<LibraryItem[]> {
   if (!isNuvioSignedIn()) return [];
 
+  const accountId = getNuvioAccountId();
   const profileIndex = targetSlot ?? resolveNuvioProfileIndex();
   let records: NuvioWatchProgress[] | null = null;
   try {
@@ -387,6 +388,7 @@ export async function fetchNuvioPlaybackItems(targetSlot?: number): Promise<Libr
   } catch {
     records = null;
   }
+  if (!isNuvioSignedIn() || getNuvioAccountId() !== accountId) return [];
   // Only fall back to local disk cache if network threw an error (records === null)
   if (records === null) {
     records = readCachedWatchProgress(profileIndex);
