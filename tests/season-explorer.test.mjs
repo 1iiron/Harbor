@@ -6,10 +6,23 @@ import ts from "typescript";
 import * as episodeTextLanguage from "../src/lib/episode-text-language.ts";
 import * as tmdbTitleFallback from "../src/lib/providers/tmdb/tmdb-title-fallback.ts";
 import * as React from "react";
+import { JSDOM } from "jsdom";
 import * as jsxRuntime from "react/jsx-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
 
 function load(file, dependencies, globals = {}) {
+  const frames = new Map();
+  let frameId = 0;
+  const requestFrame = (callback) => {
+    const id = ++frameId;
+    frames.set(id, callback);
+    queueMicrotask(() => {
+      if (!frames.has(id)) return;
+      frames.delete(id);
+      callback(0);
+    });
+    return id;
+  };
   const source = readFileSync(new URL("../" + file, import.meta.url), "utf8");
   const code = ts.transpileModule(source, {
     compilerOptions: {
@@ -26,6 +39,9 @@ function load(file, dependencies, globals = {}) {
     clearTimeout,
     queueMicrotask,
     AbortController,
+    requestAnimationFrame: requestFrame,
+    cancelAnimationFrame: (id) => frames.delete(id),
+    MutationObserver: class { observe() {} disconnect() {} },
     ...globals,
     require: (name) => {
       assert.ok(name in dependencies, "unmocked dependency " + name);
@@ -236,7 +252,7 @@ function tmdbArtworkFixture(get = async () => null) {
   return { ...provider, calls };
 }
 
-function hookFixture({ catalog, detail, artwork, tmdbGet } = {}) {
+function hookFixture({ catalog, detail, artwork, tmdbGet, react: suppliedReact } = {}) {
   const state = [],
     effects = [],
     cleanups = [],
@@ -246,7 +262,7 @@ function hookFixture({ catalog, detail, artwork, tmdbGet } = {}) {
   const tmdbArtwork = tmdbArtworkFixture(tmdbGet);
   let stateIndex = 0,
     effectIndex = 0;
-  const react = {
+  const react = suppliedReact ?? {
     useMemo: (callback) => callback(),
     useCallback: (callback) => callback,
     useRef: (initial) => react.useState({ current: initial })[0],
@@ -311,11 +327,13 @@ function hookFixture({ catalog, detail, artwork, tmdbGet } = {}) {
     calls,
     artworkCalls,
     tmdbCalls: tmdbArtwork.calls,
+    hook,
     englishSeasonItems: hook.englishSeasonItems,
     render: (props) => {
       stateIndex = 0;
       effectIndex = 0;
-      const result = hook.useSeasonExplorer(props);
+      const metadata = hook.useSeasonExplorer(props);
+      const result = { ...metadata, ...hook.useSeasonExplorerArtwork(metadata) };
       effects.splice(0).forEach((effect) => effect());
       return result;
     },
@@ -486,9 +504,23 @@ test("hidden explorer views do not request season metadata", async () => {
   f.unmount();
 });
 
-function seasonExplorerComponent({ react = React, visibility = { observeWithin: () => () => {} }, globals = {} } = {}) {
+function seasonExplorerComponent({
+  react = React, visibility = { observeWithin: () => () => {} }, globals = {},
+  artworkHook, horizontalScroll, translate, reducedMotion = false,
+} = {}) {
+  const noop = () => {};
+  const fallbackArtwork = new Map();
+  const fallbackVisible = [];
   const { SeasonExplorer } = load("src/views/detail/season-explorer.tsx", {
-    react,
+    react: { memo: React.memo, ...react },
+    "./use-season-explorer": {
+      useSeasonExplorerArtwork: artworkHook ?? ((data) => ({
+        artwork: data.artwork ?? fallbackArtwork,
+        visibleSeasons: fallbackVisible,
+        setVisibleSeasons: data.setVisibleSeasons ?? noop,
+        onPosterError: data.onPosterError ?? noop,
+      })),
+    },
     "react/jsx-runtime": jsxRuntime,
     "lucide-react": {
       Film: () => null,
@@ -496,11 +528,11 @@ function seasonExplorerComponent({ react = React, visibility = { observeWithin: 
       ChevronLeft: () => null,
       ChevronRight: () => null,
     },
-    "@/lib/visibility": visibility,
+    "@/lib/visibility": { observeResize: () => () => {}, ...visibility },
     "@/lib/horizontal-scroll": {
-      horizontalScrollState: () => ({ rtl: false, max: 0, position: 0 }),
+      horizontalScrollState: horizontalScroll ?? (() => ({ rtl: false, max: 0, position: 0 })),
     },
-    "@/lib/use-reduced-motion": { useReducedMotion: () => false },
+    "@/lib/use-reduced-motion": { useReducedMotion: () => reducedMotion },
     "@/lib/use-drag-scroll": {
       useDragScroll: (options = {}) => ({
         ref: options.elementRef ?? { current: null },
@@ -512,7 +544,7 @@ function seasonExplorerComponent({ react = React, visibility = { observeWithin: 
       "src/components/player/subtitle-menu/marquee-motion.ts",
       {},
     ),
-    "@/lib/i18n": { useT: () => (key, vars) => key.replace("{n}", String(vars?.n ?? "")) },
+    "@/lib/i18n": { useT: () => translate ?? ((key, vars) => key.replace("{n}", String(vars?.n ?? ""))) },
     "@/lib/season-name": { isGenericSeasonName: (name, n) => name === `Season ${n}` },
     "./synopsis": { Synopsis: ({ text }) => React.createElement("p", null, text) },
   }, globals);
@@ -820,6 +852,7 @@ test("poster image errors are shared and a replacement scope can reuse a previou
   });
   function findPoster(node) {
     if (node?.type?.name === "SeasonPoster") return node;
+    if (node?.type?.type) return findPoster(node.type.type(node.props));
     for (const child of [node?.props?.children].flat()) {
       const found = child && findPoster(child);
       if (found) return found;
@@ -1065,7 +1098,7 @@ function hookRuntime(initialRef = null) {
     useId: () => "id-" + index++,
     useRef: (initial) => {
       const position = index++;
-      return slots[position] ??= { current: initialRef ?? initial };
+      return slots[position] ??= { current: initial == null ? (initialRef ?? initial) : initial };
     },
     useState: (initial) => {
       const position = index++;
@@ -1493,4 +1526,264 @@ test("leaving during an IMDb lookup prevents a stale follow-up season images req
   pending.resolve({ tv_results: [{ id: 42 }] });
   await flush();
   assert.equal(f.tmdbCalls.length, 1);
+});
+
+async function scrollFixture({ reducedMotion = false } = {}) {
+  const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://fixture.invalid" });
+  const previous = new Map();
+  const frames = new Map(), intersections = [], resizes = [], pending = new Map();
+  let frameId = 0, width = 500, parentRenders = 0, episodeRenders = 0;
+  const counts = new Map(), scrollCalls = [];
+  const stats = { styles: 0, widths: 0, extents: 0 };
+  const requestFrame = (callback) => { const id = ++frameId; frames.set(id, callback); return id; };
+  const globals = {
+    window: dom.window, document: dom.window.document,
+    HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true,
+    MutationObserver: dom.window.MutationObserver,
+    requestAnimationFrame: requestFrame,
+    cancelAnimationFrame: (id) => frames.delete(id),
+    getComputedStyle: (element) => {
+      if (element.classList.contains("season-explorer-rail")) {
+        stats.styles++;
+        return { direction: document.documentElement.dir || "ltr" };
+      }
+      return dom.window.getComputedStyle(element);
+    },
+    IntersectionObserver: class {
+      targets = new Set();
+      constructor(callback) { this.callback = callback; intersections.push(this); }
+      observe(element) { this.targets.add(element); }
+      unobserve(element) { this.targets.delete(element); }
+      disconnect() { this.targets.clear(); }
+    },
+    ResizeObserver: class {
+      targets = new Set();
+      constructor(callback) { this.callback = callback; resizes.push(this); }
+      observe(element) { this.targets.add(element); }
+      unobserve(element) { this.targets.delete(element); }
+      disconnect() { this.targets.clear(); }
+    },
+  };
+  for (const [key, value] of Object.entries(globals)) {
+    previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  }
+  Object.defineProperties(dom.window.HTMLElement.prototype, {
+    clientWidth: { configurable: true, get() {
+      if (this.classList.contains("season-explorer-rail")) { stats.widths++; return width; }
+      return 140;
+    } },
+    scrollWidth: { configurable: true, get() {
+      if (this.classList.contains("season-explorer-rail")) { stats.extents++; return 40 * 180; }
+      return 220;
+    } },
+  });
+  dom.window.HTMLElement.prototype.scrollBy = function(options) {
+    scrollCalls.push(options);
+    this.scrollLeft += options.left;
+    this.dispatchEvent(new dom.window.Event("scroll"));
+  };
+  const provider = hookFixture({
+    react: React,
+    catalog: async (_key, id) => new Map(Array.from({ length: 40 }, (_, n) =>
+      [n, { id: id * 100 + n, number: n, name: "Season " + n }],
+    )),
+    artwork: (id) => {
+      const job = deferred();
+      pending.set(id, job);
+      return job.promise;
+    },
+  });
+  const visibility = load("src/lib/visibility.ts", { react: React }, globals);
+  const coordinates = load("src/lib/horizontal-scroll.ts", {}, globals);
+  const SeasonExplorer = seasonExplorerComponent({
+    artworkHook: provider.hook.useSeasonExplorerArtwork,
+    visibility, globals, horizontalScroll: coordinates.horizontalScrollState, reducedMotion,
+    translate: (key, vars) => {
+      if (key === "{n} episode" || key === "{n} episodes")
+        counts.set(vars.n, (counts.get(vars.n) ?? 0) + 1);
+      return key.replace("{n}", String(vars?.n ?? ""));
+    },
+  });
+  const items = Array.from({ length: 40 }, (_, n) => ({
+    key: String(n), seasonNumber: n, name: n === 0 ? "Specials" : "Season " + n,
+    nameLanguage: "en", count: n + 1,
+  }));
+  let latest;
+  const Episodes = () => { episodeRenders++; return React.createElement("p", null, "Episode list"); };
+  function Host({ metaId = "tvdb:42", seasonType = "official" }) {
+    parentRenders++;
+    const [activeKey, select] = React.useState("1");
+    const data = provider.hook.useSeasonExplorerView({
+      metaId, seasonType, tvdbKey: "test-key", lang: "eng", items, activeKey,
+    });
+    latest = data;
+    return React.createElement(React.Fragment, null,
+      React.createElement(SeasonExplorer, { key: metaId + ":" + seasonType, data, activeKey, onSelect: select }),
+      React.createElement(Episodes),
+    );
+  }
+  const { createRoot } = await import("react-dom/client");
+  const root = createRoot(document.getElementById("root"));
+  const tick = async () => {
+    const callbacks = [...frames.values()];
+    frames.clear();
+    await React.act(async () => { callbacks.forEach((callback) => callback(0)); await flush(); });
+  };
+  const settle = async () => {
+    await React.act(async () => { await flush(); });
+    for (let i = 0; frames.size && i < 8; i++) await tick();
+    assert.equal(frames.size, 0, "scroll work must settle");
+  };
+  const render = async (props = {}) => {
+    await React.act(async () => { root.render(React.createElement(Host, props)); await flush(); });
+    await settle();
+  };
+  const card = (number) => document.querySelector('[data-season-number="' + number + '"]');
+  const visible = (number, isIntersecting = true) => {
+    const element = card(number);
+    for (const observer of intersections)
+      if (observer.targets.has(element)) observer.callback([{ target: element, isIntersecting }]);
+  };
+  await render();
+  return {
+    dom, root, frames, counts, stats, resizes, intersections, pending, scrollCalls,
+    artworkCalls: provider.artworkCalls, card, visible, tick, settle, render,
+    get rail() { return document.querySelector(".season-explorer-rail"); },
+    get parentRenders() { return parentRenders; },
+    get episodeRenders() { return episodeRenders; },
+    get data() { return latest; },
+    resize: (nextWidth) => {
+      width = nextWidth;
+      const rail = document.querySelector(".season-explorer-rail");
+      for (const observer of resizes)
+        if (observer.targets.has(rail)) observer.callback([{ target: rail, contentRect: {} }]);
+    },
+    close: async () => {
+      await React.act(async () => root.unmount());
+      assert.equal(frames.size, 0, "unmount must cancel queued frames");
+      assert.equal(intersections.reduce((n, observer) => n + observer.targets.size, 0), 0);
+      assert.equal(resizes.reduce((n, observer) => n + observer.targets.size, 0), 0);
+      dom.window.close();
+      for (const [key, descriptor] of previous) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+        else delete globalThis[key];
+      }
+    },
+  };
+}
+
+test("rail visibility and delayed artwork never render the parent episode page or unchanged cards", async () => {
+  const f = await scrollFixture();
+  try {
+    f.pending.get(4201).resolve({ image: "/first.jpg", artwork: [] });
+    await f.settle();
+    const parent = f.parentRenders, episodes = f.episodeRenders;
+    const panel = document.querySelector(".season-explorer-transition");
+    f.visible(1);
+    f.visible(2);
+    f.visible(2);
+    assert.deepEqual(f.artworkCalls, [4201], "visibility waits for the next frame");
+    await f.settle();
+    assert.deepEqual(f.artworkCalls, [4201, 4202]);
+    assert.equal(f.resizes.length, 1, "titles share the rail's resize observer");
+    const before = new Map(f.counts);
+    f.pending.get(4202).resolve({ image: "/second.jpg", artwork: [] });
+    await f.settle();
+    assert.equal(f.parentRenders, parent);
+    assert.equal(f.episodeRenders, episodes);
+    for (let n = 1; n <= 40; n++)
+      assert.equal(f.counts.get(n), before.get(n) + (n === 3 ? 1 : 0), "only the changed artwork card renders");
+    assert.equal(document.querySelector(".season-explorer-transition"), panel, "scrolling keeps the selection animation mounted");
+    assert.equal(f.card(1).getAttribute("aria-pressed"), "true");
+    assert.match(f.card(2).querySelector("img").src, /second.jpg$/);
+    assert.equal(f.rail.querySelectorAll("[data-season-number]").length, 40);
+    const offscreenTitle = f.card(39).querySelector(".season-explorer-title");
+    assert.equal(f.resizes[0].targets.has(offscreenTitle), false);
+    await React.act(async () => f.card(39).focus());
+    await f.settle();
+    assert.equal(f.resizes[0].targets.has(offscreenTitle), true, "keyboard focus enables offscreen title measurement");
+    assert.equal(f.parentRenders, parent, "focus does not activate a season");
+    await React.act(async () => f.card(2).click());
+    await f.settle();
+    assert.equal(f.card(2).getAttribute("aria-pressed"), "true");
+    assert.ok(f.parentRenders > parent, "explicit selection still updates the episode page");
+  } finally { await f.close(); }
+});
+
+test("scroll events share a frame and cached geometry refreshes for resizing and RTL", async () => {
+  const f = await scrollFixture();
+  try {
+    const counts = new Map(f.counts);
+    const resetStats = () => { f.stats.styles = f.stats.widths = f.stats.extents = 0; };
+    resetStats();
+    for (let n = 1; n <= 10; n++) {
+      f.rail.scrollLeft = n * 10;
+      f.rail.dispatchEvent(new f.dom.window.Event("scroll"));
+    }
+    assert.equal(f.frames.size, 1, "one edge update per frame");
+    await f.settle();
+    assert.deepEqual(f.stats, { styles: 0, widths: 0, extents: 0 }, "ordinary scroll reads no layout or computed style");
+    assert.deepEqual(f.counts, counts, "edge controls do not rerender cards or the panel");
+    assert.ok(document.querySelector(".season-explorer-edge-left"));
+    assert.ok(document.querySelector(".season-explorer-edge-right"));
+    f.resize(8000);
+    await f.settle();
+    assert.equal(document.querySelectorAll(".season-explorer-edge").length, 0);
+    f.resize(500);
+    f.rail.scrollLeft = 0;
+    await React.act(async () => { document.documentElement.dir = "rtl"; await flush(); });
+    await f.settle();
+    assert.ok(document.querySelector(".season-explorer-edge-left"));
+    assert.equal(document.querySelector(".season-explorer-edge-right"), null);
+    resetStats();
+    f.rail.scrollLeft = -(7200 - 500);
+    f.rail.dispatchEvent(new f.dom.window.Event("scroll"));
+    await f.settle();
+    assert.equal(document.querySelector(".season-explorer-edge-left"), null);
+    assert.ok(document.querySelector(".season-explorer-edge-right"));
+    assert.deepEqual(f.stats, { styles: 0, widths: 0, extents: 0 });
+    // Leave edge, visibility, and title work pending to exercise unmount cleanup.
+    f.rail.dispatchEvent(new f.dom.window.Event("scroll"));
+    f.visible(2);
+    await React.act(async () => f.card(39).focus());
+  } finally { await f.close(); }
+});
+
+test("title and order replacements cancel queued visibility and discard late artwork", async () => {
+  const f = await scrollFixture();
+  try {
+    const old = f.pending.get(4201);
+    f.visible(2);
+    await f.render({ metaId: "tvdb:42", seasonType: "dvd" });
+    const oldOrder = f.pending.get(4201);
+    f.visible(3);
+    await f.render({ metaId: "tvdb:43" });
+    assert.equal(f.artworkCalls.includes(4202), false, "old visibility cannot start a request after replacement");
+    assert.equal(f.artworkCalls.includes(4203), false);
+    old.resolve({ image: "/old-title.jpg", artwork: [] });
+    oldOrder.resolve({ image: "/old-order.jpg", artwork: [] });
+    f.pending.get(4301).resolve({ image: "/new-title.jpg", artwork: [] });
+    await f.settle();
+    assert.match(f.card(1).querySelector("img").src, /new-title.jpg$/);
+    assert.equal(document.querySelector('img[src*="old-"]'), null);
+    assert.equal(f.intersections.reduce((n, observer) => n + observer.targets.size, 0), 40);
+  } finally { await f.close(); }
+});
+
+test("season arrows use the cached viewport width and respect reduced motion", async () => {
+  for (const reducedMotion of [false, true]) {
+    const f = await scrollFixture({ reducedMotion });
+    try {
+      const parent = f.parentRenders;
+      const before = new Map(f.counts);
+      await React.act(async () => document.querySelector(".season-explorer-edge-right button").click());
+      await f.settle();
+      assert.equal(f.scrollCalls.length, 1);
+      assert.equal(f.scrollCalls[0].left, 400);
+      assert.equal(f.scrollCalls[0].behavior, reducedMotion ? "auto" : "smooth");
+      assert.equal(f.parentRenders, parent);
+      assert.deepEqual(f.counts, before, "paging the rail keeps cards and selected details memoized");
+    } finally { await f.close(); }
+  }
 });

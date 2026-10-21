@@ -22,6 +22,30 @@ const EMPTY_SEASONS = new Map<number, TvdbSeasonInfo>();
 const EMPTY_NAMES = new Map<number, string>();
 const EMPTY_DETAILS = new Map<number, TvdbSeasonDetails>();
 const EMPTY_ARTWORK = new Map<number, TvdbSeasonArtwork>();
+const EMPTY_VISIBLE: number[] = [];
+
+export type SeasonExplorerOptions = {
+  metaId: string;
+  imdbId?: string | null;
+  tvdbKey: string;
+  tmdbKey?: string;
+  tmdbTvId?: number | null;
+  seasonPosters?: Record<number, string>;
+  titlePoster?: string;
+  seasonType: string;
+  lang: string;
+  activeSeason?: number;
+  enabled?: boolean;
+  /** Harbor's proxy is only allowed for anime. Regular titles need their own key. */
+  allowProxy?: boolean;
+};
+
+export type SeasonExplorerArtworkConfig = SeasonExplorerOptions & {
+  scope: string;
+  seasons: Map<number, TvdbSeasonInfo>;
+  catalogReady: boolean;
+  catalogAllowed: boolean;
+};
 
 export function useSeasonExplorer({
   metaId,
@@ -36,39 +60,12 @@ export function useSeasonExplorer({
   activeSeason,
   enabled = true,
   allowProxy = false,
-}: {
-  metaId: string;
-  imdbId?: string | null;
-  tvdbKey: string;
-  tmdbKey?: string;
-  tmdbTvId?: number | null;
-  seasonPosters?: Record<number, string>;
-  titlePoster?: string;
-  seasonType: string;
-  lang: string;
-  activeSeason?: number;
-  enabled?: boolean;
-  /** Harbor's proxy is only allowed for anime. Regular titles need their own key. */
-  allowProxy?: boolean;
-}) {
+}: SeasonExplorerOptions) {
   const scope = JSON.stringify([metaId, imdbId, tvdbKey, seasonType, lang, enabled, allowProxy]);
   // TVDB catalogs and season text may use the proxy only where allowed. TMDB
   // artwork is independent: a personal TMDB key can fill posters even when no
   // TVDB key is configured.
   const catalogAllowed = enabled && (!!tvdbKey.trim() || allowProxy);
-  const artworkAllowed = enabled && (catalogAllowed || !!tmdbKey.trim());
-  // Without a catalog source there is nothing to wait for; TMDB numbers are
-  // the only mapping available.
-  const artworkWithoutCatalog = artworkAllowed && !catalogAllowed;
-  const posterKey = JSON.stringify(seasonPosters ?? {});
-  const artworkScope = JSON.stringify([
-    scope,
-    tmdbKey,
-    tmdbTvId,
-    posterKey,
-    titlePoster,
-    artworkAllowed,
-  ]);
   const [catalog, setCatalog] = useState<{
     scope: string;
     seasons: Map<number, TvdbSeasonInfo>;
@@ -79,36 +76,6 @@ export function useSeasonExplorer({
     details: Map<number, TvdbSeasonDetails>;
   }>();
   const [pending, setPending] = useState<{ scope: string; season: number } | null>(null);
-  const [artworkState, setArtworkState] = useState<{
-    scope: string;
-    artwork: Map<number, TvdbSeasonArtwork>;
-  }>();
-  const [visible, setVisible] = useState<{ scope: string; seasons: number[] }>();
-  const artworkLoader = useRef<{
-    scope: string;
-    loader: ReturnType<typeof createSeasonArtworkLoader>;
-  } | null>(null);
-  const artwork = artworkState?.scope === artworkScope ? artworkState.artwork : EMPTY_ARTWORK;
-  const onPosterError = useCallback(
-    (number: number, url: string) => {
-      const current = artworkLoader.current;
-      if (current?.scope === artworkScope) current.loader.reject(number, url);
-    },
-    [artworkScope],
-  );
-  const setVisibleSeasons = useCallback(
-    (numbers: number[]) => {
-      const next = [...new Set(numbers.filter((n) => n >= 0))].sort((a, b) => a - b);
-      setVisible((previous) =>
-        previous?.scope === scope &&
-        previous.seasons.length === next.length &&
-        previous.seasons.every((n, i) => n === next[i])
-          ? previous
-          : { scope, seasons: next },
-      );
-    },
-    [scope],
-  );
   const seasons = catalog?.scope === scope ? catalog.seasons : EMPTY_SEASONS;
   const names = catalog?.scope === scope ? catalog.names : EMPTY_NAMES;
   const details = enriched?.scope === scope ? enriched.details : EMPTY_DETAILS;
@@ -147,6 +114,97 @@ export function useSeasonExplorer({
     };
   }, [scope, metaId, imdbId, tvdbKey, seasonType, catalogAllowed]);
 
+  useEffect(() => {
+    const season = activeSeason == null ? undefined : seasons.get(activeSeason);
+    if (!catalogAllowed || !season || details.has(season.number)) return;
+    let cancelled = false;
+    setPending({ scope, season: season.number });
+    void fetchTvdbSeasonDetails(tvdbKey, season, lang)
+      .catch(() => null)
+      .then((detail) => {
+        if (cancelled) return;
+        if (detail) {
+          setEnriched((previous) => {
+            const next = new Map(previous?.scope === scope ? previous.details : EMPTY_DETAILS);
+            next.set(season.number, detail);
+            return { scope, details: next };
+          });
+        }
+        setPending(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scope, seasons, activeSeason, tvdbKey, lang, catalogAllowed, details]);
+
+  const artworkConfig = useMemo<SeasonExplorerArtworkConfig>(() => ({
+    scope, seasons, catalogReady, catalogAllowed, metaId, imdbId, tvdbKey,
+    tmdbKey, tmdbTvId, seasonPosters, titlePoster, seasonType, lang, activeSeason, enabled,
+  }), [
+    scope, seasons, catalogReady, catalogAllowed, metaId, imdbId, tvdbKey,
+    tmdbKey, tmdbTvId, seasonPosters, titlePoster, seasonType, lang, activeSeason, enabled,
+  ]);
+  return {
+    seasons,
+    names,
+    details,
+    artworkConfig,
+    loading: pending?.scope === scope && pending.season === activeSeason,
+  };
+}
+
+/** Artwork and rail visibility belong to the explorer, never the episode page. */
+export function useSeasonExplorerArtwork({ artworkConfig }: {
+  artworkConfig: SeasonExplorerArtworkConfig;
+}) {
+  const {
+    scope, seasons, catalogReady, catalogAllowed, metaId, imdbId, tvdbKey,
+    tmdbKey = "", tmdbTvId, seasonPosters, titlePoster, seasonType, lang,
+    activeSeason, enabled = true,
+  } = artworkConfig;
+  const artworkAllowed = enabled && (catalogAllowed || !!tmdbKey.trim());
+  // Without a catalog source there is nothing to wait for; TMDB numbers are
+  // the only mapping available.
+  const artworkWithoutCatalog = artworkAllowed && !catalogAllowed;
+  const posterKey = JSON.stringify(seasonPosters ?? {});
+  const artworkScope = JSON.stringify([
+    scope,
+    tmdbKey,
+    tmdbTvId,
+    posterKey,
+    titlePoster,
+    artworkAllowed,
+  ]);
+  const [artworkState, setArtworkState] = useState<{
+    scope: string;
+    artwork: Map<number, TvdbSeasonArtwork>;
+  }>();
+  const [visible, setVisible] = useState<{ scope: string; seasons: number[] }>();
+  const artworkLoader = useRef<{
+    scope: string;
+    loader: ReturnType<typeof createSeasonArtworkLoader>;
+  } | null>(null);
+  const artwork = artworkState?.scope === artworkScope ? artworkState.artwork : EMPTY_ARTWORK;
+  const onPosterError = useCallback(
+    (number: number, url: string) => {
+      const current = artworkLoader.current;
+      if (current?.scope === artworkScope) current.loader.reject(number, url);
+    },
+    [artworkScope],
+  );
+  const setVisibleSeasons = useCallback(
+    (numbers: number[]) => {
+      const next = [...new Set(numbers.filter((n) => n >= 0))].sort((a, b) => a - b);
+      setVisible((previous) =>
+        previous?.scope === scope &&
+        previous.seasons.length === next.length &&
+        previous.seasons.every((n, i) => n === next[i])
+          ? previous
+          : { scope, seasons: next },
+      );
+    },
+    [scope],
+  );
   useEffect(() => {
     if (!artworkAllowed) return;
     const posters = JSON.parse(posterKey) as Record<number, string>;
@@ -201,37 +259,11 @@ export function useSeasonExplorer({
     activeSeason,
   ]);
 
-  useEffect(() => {
-    const season = activeSeason == null ? undefined : seasons.get(activeSeason);
-    if (!catalogAllowed || !season || details.has(season.number)) return;
-    let cancelled = false;
-    setPending({ scope, season: season.number });
-    void fetchTvdbSeasonDetails(tvdbKey, season, lang)
-      .catch(() => null)
-      .then((detail) => {
-        if (cancelled) return;
-        if (detail) {
-          setEnriched((previous) => {
-            const next = new Map(previous?.scope === scope ? previous.details : EMPTY_DETAILS);
-            next.set(season.number, detail);
-            return { scope, details: next };
-          });
-        }
-        setPending(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [scope, seasons, activeSeason, tvdbKey, lang, catalogAllowed, details]);
-
   return {
-    seasons,
-    names,
-    details,
     artwork,
     setVisibleSeasons,
     onPosterError,
-    loading: pending?.scope === scope && pending.season === activeSeason,
+    visibleSeasons: visible?.scope === scope ? visible.seasons : EMPTY_VISIBLE,
   };
 }
 

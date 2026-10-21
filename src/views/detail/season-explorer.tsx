@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Film } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { isGenericSeasonName } from "@/lib/season-name";
 import type { PickerItem } from "./series-episodes/season-arc-picker";
-import type { useSeasonExplorerView } from "./use-season-explorer";
+import { useSeasonExplorerArtwork, type useSeasonExplorerView } from "./use-season-explorer";
+import type { TvdbSeasonArtwork, TvdbSeasonDetails } from "@/lib/providers/tvdb-season-details";
 import { Synopsis } from "./synopsis";
 import { horizontalScrollState } from "@/lib/horizontal-scroll";
-import { observeWithin } from "@/lib/visibility";
+import { observeResize, observeWithin } from "@/lib/visibility";
 import { useDragScroll } from "@/lib/use-drag-scroll";
 import { useReducedMotion } from "@/lib/use-reduced-motion";
 import { marqueeDurationMs } from "@/components/player/subtitle-menu/marquee-motion";
@@ -15,7 +16,14 @@ import "./season-explorer.css";
 const SEASON_LABEL_CLASS =
   "shrink-0 rounded bg-ink/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-muted";
 
-function SeasonCardTitle({ text }: { text: string }) {
+type MeasureTitle = (element: Element, read: () => () => void) => () => void;
+type PosterError = (number: number, url: string) => void;
+
+const SeasonCardTitle = memo(function SeasonCardTitle({ text, enabled, measureTitle }: {
+  text: string;
+  enabled: boolean;
+  measureTitle: MeasureTitle;
+}) {
   const viewportRef = useRef<HTMLParagraphElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const [distance, setDistance] = useState(0);
@@ -23,18 +31,24 @@ function SeasonCardTitle({ text }: { text: string }) {
   useEffect(() => {
     const viewport = viewportRef.current;
     const line = textRef.current;
-    if (!viewport || !line) return;
-    const measure = () => {
-      const overflow = Math.max(0, line.scrollWidth - viewport.clientWidth);
-      const rtl = getComputedStyle(line).direction === "rtl";
-      setDistance(overflow > 1 ? (rtl ? overflow : -overflow) : 0);
+    if (!enabled || !viewport || !line) return;
+    let cancelMeasure: (() => void) | undefined;
+    const schedule = () => {
+      cancelMeasure?.();
+      cancelMeasure = measureTitle(viewport, () => {
+        const overflow = Math.max(0, line.scrollWidth - viewport.clientWidth);
+        const rtl = getComputedStyle(line).direction === "rtl";
+        const next = overflow > 1 ? (rtl ? overflow : -overflow) : 0;
+        return () => setDistance(next);
+      });
     };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(viewport);
-    observer.observe(line);
-    return () => observer.disconnect();
-  }, [text]);
+    schedule();
+    const release = observeResize(viewport, schedule);
+    return () => {
+      cancelMeasure?.();
+      release();
+    };
+  }, [text, enabled, measureTitle]);
 
   return (
     <p
@@ -58,7 +72,7 @@ function SeasonCardTitle({ text }: { text: string }) {
       </span>
     </p>
   );
-}
+});
 
 function SeasonPoster({ src, name, onError }: {
   src?: string;
@@ -107,12 +121,166 @@ function SeasonBackdrop({ sources }: { sources: (string | undefined)[] }) {
   ) : null;
 }
 
-export function SeasonExplorer({
-  data,
-  activeKey,
-  onSelect,
-  background,
+function titleFor(item: PickerItem) {
+  return item.seasonNumber != null &&
+    (item.seasonNumber === 0
+      ? item.name === "Specials"
+      : isGenericSeasonName(item.name, item.seasonNumber))
+    ? undefined
+    : item.name;
+}
+
+function labelFor(item: PickerItem) {
+  return item.seasonNumber == null
+    ? undefined
+    : item.seasonNumber === 0
+      ? "Specials"
+      : `Season ${item.seasonNumber}`;
+}
+
+function episodeCount(item: PickerItem, t: ReturnType<typeof useT>) {
+  return item.count === 1 ? t("{n} episode", { n: item.count }) : t("{n} episodes", { n: item.count });
+}
+
+function formatDate(value?: string) {
+  if (!value) return undefined;
+  const date = new Date(value.length <= 10 ? `${value}T00:00:00` : value);
+  return Number.isNaN(date.getTime())
+    ? undefined
+    : date.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+}
+
+const SeasonCard = memo(function SeasonCard({
+  item, poster, selected, nearby, panelId, onSelect, onPosterError, measureTitle,
 }: {
+  item: PickerItem;
+  poster?: string;
+  selected: boolean;
+  nearby: boolean;
+  panelId: string;
+  onSelect: (key: string) => void;
+  onPosterError: PosterError;
+  measureTitle: MeasureTitle;
+}) {
+  const t = useT();
+  const [focused, setFocused] = useState(false);
+  const title = titleFor(item);
+  const label = labelFor(item);
+  const count = episodeCount(item, t);
+  const accessibleName = [label, title, count].filter(Boolean).join(" · ");
+  const rejectPoster = useCallback((url: string) => {
+    if (item.seasonNumber != null) onPosterError(item.seasonNumber, url);
+  }, [item.seasonNumber, onPosterError]);
+  return (
+    <button
+      data-season-number={item.seasonNumber}
+      type="button"
+      aria-pressed={selected}
+      aria-controls={panelId}
+      aria-label={accessibleName}
+      title={accessibleName}
+      onClick={() => onSelect(item.key)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      className={`season-explorer-card flex w-[136px] shrink-0 snap-start flex-col items-stretch rounded-xl p-1 text-start transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:w-[164px] ${selected ? "bg-accent/10 text-ink ring-1 ring-accent" : "text-ink-muted hover:bg-ink/5 hover:text-ink"}`}
+    >
+      <div className="aspect-[2/3] w-full shrink-0 overflow-hidden rounded-lg">
+        <SeasonPoster src={poster} name={item.name} onError={rejectPoster} />
+      </div>
+      <SeasonCardTitle text={title || label || item.name} enabled={nearby || focused} measureTitle={measureTitle} />
+      {title && label && (
+        <div className="mt-1 flex h-4 items-center justify-center">
+          <span className={SEASON_LABEL_CLASS}>{label}</span>
+        </div>
+      )}
+      <p className="mt-1.5 truncate text-center text-[11.5px] leading-4 text-ink-subtle">{count}</p>
+    </button>
+  );
+});
+
+const SelectedSeasonPanel = memo(function SelectedSeasonPanel({
+  active, detail, artwork, poster, loading, background, panelId, direction, onPosterError,
+}: {
+  active: PickerItem;
+  detail?: TvdbSeasonDetails;
+  artwork?: TvdbSeasonArtwork;
+  poster?: string;
+  loading: boolean;
+  background?: string;
+  panelId: string;
+  direction: number;
+  onPosterError: PosterError;
+}) {
+  const t = useT();
+  const activeKey = active.key;
+  const overview = detail?.overview || active.overview;
+  const from = formatDate(active.from);
+  const to = formatDate(active.to);
+  const dates = from && to ? (from === to ? from : `${from} – ${to}`) : from || to || active.year;
+  const count = episodeCount(active, t);
+  const rejectPoster = useCallback((url: string) => {
+    if (active.seasonNumber != null) onPosterError(active.seasonNumber, url);
+  }, [active.seasonNumber, onPosterError]);
+  return (
+    <div
+      id={panelId}
+      aria-live="polite"
+      aria-busy={loading}
+      className="relative min-w-0 overflow-hidden rounded-2xl border border-edge bg-canvas shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]"
+    >
+      <div
+        key={activeKey}
+        className="season-explorer-transition"
+        data-direction={direction}
+      >
+        <SeasonBackdrop sources={[artwork?.background, background]} />
+        <div className="relative flex min-h-[260px] items-start gap-4 p-5 sm:min-h-[316px] sm:gap-5 sm:p-6">
+          <div className="aspect-[2/3] w-[104px] shrink-0 overflow-hidden rounded-xl shadow-lg sm:w-[164px]">
+            <SeasonPoster src={poster} name={active.name} onError={rejectPoster} />
+          </div>
+          <div className="min-w-0 flex-1 py-1">
+            <div className="flex items-center gap-2.5">
+              <h4 className="min-w-0 text-[20px] font-semibold leading-tight tracking-tight text-ink sm:text-[24px]">
+                {titleFor(active) || labelFor(active)}
+              </h4>
+              {titleFor(active) && labelFor(active) && (
+                <span className={SEASON_LABEL_CLASS}>{labelFor(active)}</span>
+              )}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-ink-muted">
+              <span className="inline-flex items-center gap-1.5">
+                <Film size={14} aria-hidden />
+                {count}
+              </span>
+              {dates && (
+                <span className="inline-flex items-center gap-1.5">
+                  <CalendarDays size={14} aria-hidden />
+                  {dates}
+                </span>
+              )}
+            </div>
+            {overview ? (
+              <div className="mt-4 [&_p]:whitespace-pre-line [&_p]:text-[14px]">
+                <Synopsis key={activeKey} text={overview} />
+              </div>
+            ) : loading ? (
+              <div aria-hidden className="mt-4 flex animate-pulse flex-col gap-2">
+                <div className="h-2.5 w-full rounded bg-ink/10" />
+                <div className="h-2.5 w-3/4 rounded bg-ink/10" />
+              </div>
+            ) : (
+              <p className="mt-3 text-[13px] leading-relaxed text-ink-subtle">
+                {t("No season synopsis available.")}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+export function SeasonExplorer({ data, activeKey, onSelect, background }: {
   data: ReturnType<typeof useSeasonExplorerView>;
   activeKey: string;
   onSelect: (key: string) => void;
@@ -125,146 +293,146 @@ export function SeasonExplorer({
   const dragScroll = useDragScroll<HTMLDivElement>({ elementRef: railRef });
   const reducedMotion = useReducedMotion();
   const [edges, setEdges] = useState({ left: false, right: false });
-  const { items: pickerItems, artwork, details, loading, setVisibleSeasons, onPosterError } = data;
+  const { artwork, visibleSeasons, setVisibleSeasons, onPosterError } = useSeasonExplorerArtwork(data);
+  const { items: pickerItems, details, loading } = data;
   const items = useMemo(
     () => pickerItems.filter((item) => item.seasonNumber != null && item.seasonNumber >= 0),
     [pickerItems],
   );
-  const cardMembership = JSON.stringify(items.map((item) => [item.key, item.seasonNumber]));
-  const activeIndex = items.findIndex((item) => item.key === activeKey);
-  const [transition, setTransition] = useState({
-    key: activeKey,
-    index: activeIndex,
-    direction: 1,
-  });
+  const cardMembership = useMemo(
+    () => JSON.stringify(items.map((item) => [item.key, item.seasonNumber])),
+    [items],
+  );
+  const visible = useMemo(() => new Set(visibleSeasons), [visibleSeasons]);
+  const activeIndex = useMemo(() => items.findIndex((item) => item.key === activeKey), [items, activeKey]);
+  const active = items[activeIndex];
+  const [transition, setTransition] = useState({ key: activeKey, index: activeIndex, direction: 1 });
   if (transition.key !== activeKey) {
-    setTransition({
-      key: activeKey,
-      index: activeIndex,
-      direction: activeIndex < transition.index ? -1 : 1,
-    });
+    setTransition({ key: activeKey, index: activeIndex, direction: activeIndex < transition.index ? -1 : 1 });
   }
+
+  const geometry = useRef({ rtl: false, max: 0, width: 0 });
+  const edgeFrame = useRef(0);
   const syncEdges = useCallback(() => {
+    if (edgeFrame.current) return;
+    edgeFrame.current = requestAnimationFrame(() => {
+      edgeFrame.current = 0;
+      const rail = railRef.current;
+      if (!rail) return;
+      const { rtl, max } = geometry.current;
+      const position = Math.max(0, Math.min(max, rtl ? -rail.scrollLeft : rail.scrollLeft));
+      const start = position > 4;
+      const end = position < max - 4;
+      const left = rtl ? end : start;
+      const right = rtl ? start : end;
+      setEdges((previous) => previous.left === left && previous.right === right ? previous : { left, right });
+    });
+  }, []);
+  const refreshGeometry = useCallback(() => {
     const rail = railRef.current;
     if (!rail) return;
-    const { rtl, max, position } = horizontalScrollState(rail);
-    const start = position > 4;
-    const end = position < max - 4;
-    const left = rtl ? end : start;
-    const right = rtl ? start : end;
-    setEdges((previous) =>
-      previous.left === left && previous.right === right ? previous : { left, right },
-    );
-  }, []);
+    const { rtl, max } = horizontalScrollState(rail);
+    geometry.current = { rtl, max, width: rail.clientWidth };
+    syncEdges();
+  }, [syncEdges]);
   const pageSeasons = (direction: -1 | 1) => {
-    const rail = railRef.current;
-    if (rail)
-      rail.scrollBy({
-        left: direction * rail.clientWidth * 0.8,
-        behavior: reducedMotion ? "auto" : "smooth",
+    railRef.current?.scrollBy({
+      left: direction * geometry.current.width * 0.8,
+      behavior: reducedMotion ? "auto" : "smooth",
+    });
+  };
+
+  const measurements = useRef(new Map<Element, () => () => void>());
+  const titleFrame = useRef(0);
+  const measureTitle = useCallback<MeasureTitle>((element, read) => {
+    measurements.current.set(element, read);
+    if (!titleFrame.current) {
+      titleFrame.current = requestAnimationFrame(() => {
+        titleFrame.current = 0;
+        const pending = [...measurements.current.values()];
+        measurements.current.clear();
+        // Read every title before updating any of their styles.
+        const writes = pending.map((measure) => measure());
+        writes.forEach((write) => write());
       });
-  };
-  const active = items.find((item) => item.key === activeKey);
-  const detail = active?.seasonNumber == null ? undefined : details.get(active.seasonNumber);
-  const activeArtwork = active?.seasonNumber == null ? undefined : artwork.get(active.seasonNumber);
-  const overview = detail?.overview || active?.overview;
-  const posterFor = (item: PickerItem) =>
-    item.seasonNumber == null
-      ? undefined
-      : artwork.get(item.seasonNumber)?.poster || item.poster;
-  const rejectPoster = (item: PickerItem, url: string) => {
-    if (item.seasonNumber != null) onPosterError(item.seasonNumber, url);
-  };
-  const titleFor = (item: PickerItem) =>
-    item.seasonNumber != null &&
-    (item.seasonNumber === 0
-      ? item.name === "Specials"
-      : isGenericSeasonName(item.name, item.seasonNumber))
-      ? undefined
-      : item.name;
-  const labelFor = (item: PickerItem) =>
-    item.seasonNumber == null
-      ? undefined
-      : item.seasonNumber === 0
-        ? "Specials"
-        : `Season ${item.seasonNumber}`;
-  const countFor = (item: PickerItem) =>
-    item.count === 1 ? t("{n} episode", { n: item.count }) : t("{n} episodes", { n: item.count });
-  const accessibleName = (item: PickerItem) =>
-    [labelFor(item), titleFor(item), countFor(item)].filter(Boolean).join(" · ");
-  const formatDate = (value?: string) => {
-    if (!value) return undefined;
-    const date = new Date(value.length <= 10 ? `${value}T00:00:00` : value);
-    return Number.isNaN(date.getTime())
-      ? undefined
-      : date.toLocaleDateString(undefined, { month: "short", year: "numeric" });
-  };
-  const from = formatDate(active?.from);
-  const to = formatDate(active?.to);
-  const dates = from && to ? (from === to ? from : `${from} – ${to}`) : from || to || active?.year;
+    }
+    return () => { measurements.current.delete(element); };
+  }, []);
 
   useEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
-    const visible = new Set<number>();
-    let cancelled = false;
-    let scheduled = false;
-    const publish = () => {
-      if (scheduled) return;
-      scheduled = true;
-      queueMicrotask(() => {
-        scheduled = false;
-        if (!cancelled) setVisibleSeasons([...visible]);
-      });
-    };
+    const nearby = new Set<number>();
+    let frame = 0;
     const releases = [...rail.querySelectorAll<HTMLElement>("[data-season-number]")].map((card) =>
-      observeWithin(
-        card,
-        "0px 180px",
-        (entry) => {
-          const number = Number(card.dataset.seasonNumber);
-          if (entry.isIntersecting) visible.add(number);
-          else visible.delete(number);
-          publish();
-        },
-        rail,
-      ),
+      observeWithin(card, "0px 180px", (entry) => {
+        const number = Number(card.dataset.seasonNumber);
+        if (nearby.has(number) === entry.isIntersecting) return;
+        if (entry.isIntersecting) nearby.add(number);
+        else nearby.delete(number);
+        if (!frame) frame = requestAnimationFrame(() => {
+          frame = 0;
+          setVisibleSeasons([...nearby]);
+        });
+      }, rail),
     );
     return () => {
-      cancelled = true;
+      cancelAnimationFrame(frame);
       releases.forEach((release) => release());
     };
   }, [cardMembership, setVisibleSeasons]);
 
   useEffect(() => {
-    // Keep selection visible without scrolling the overview itself.
     const rail = railRef.current;
-    const button = rail?.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
     if (!rail) return;
     const revealSelected = (animate: boolean) => {
+      const button = rail.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
       if (!button) return;
       const bounds = rail.getBoundingClientRect();
       const card = button.getBoundingClientRect();
-      const left =
-        card.left < bounds.left
-          ? card.left - bounds.left - 4
-          : card.right > bounds.right
-            ? card.right - bounds.right + 4
-            : 0;
+      const left = card.left < bounds.left
+        ? card.left - bounds.left - 4
+        : card.right > bounds.right ? card.right - bounds.right + 4 : 0;
       if (left) rail.scrollBy({ left, behavior: animate && !reducedMotion ? "smooth" : "auto" });
     };
     revealSelected(true);
-    syncEdges();
-    const observer = new ResizeObserver(() => {
-      revealSelected(false);
-      syncEdges();
-    });
-    observer.observe(rail);
-    return () => observer.disconnect();
-  }, [activeKey, cardMembership, reducedMotion, syncEdges]);
+    refreshGeometry();
+    let frame = 0;
+    let resized = false;
+    const schedule = (resize: boolean) => {
+      resized ||= resize;
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (resized) revealSelected(false);
+        resized = false;
+        refreshGeometry();
+      });
+    };
+    const release = observeResize(rail, () => schedule(true));
+    const observer = new MutationObserver(() => schedule(false));
+    // Direction may be inherited from any ancestor, including the app's locale root.
+    for (let node: HTMLElement | null = rail; node; node = node.parentElement) {
+      observer.observe(node, { attributes: true, attributeFilter: ["dir", "class", "style"] });
+    }
+    return () => {
+      release();
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      cancelAnimationFrame(edgeFrame.current);
+      edgeFrame.current = 0;
+    };
+  }, [activeKey, cardMembership, reducedMotion, refreshGeometry]);
+
+  useEffect(() => () => {
+    cancelAnimationFrame(titleFrame.current);
+    titleFrame.current = 0;
+    measurements.current.clear();
+  }, [setVisibleSeasons]);
 
   if (items.length === 0) return null;
-
+  const posterFor = (item: PickerItem) => item.seasonNumber == null
+    ? undefined : artwork.get(item.seasonNumber)?.poster || item.poster;
   return (
     <section aria-labelledby={titleId} className="flex min-w-0 flex-col gap-3">
       <h3 id={titleId} className="text-[22px] font-medium tracking-tight text-ink">
@@ -284,30 +452,17 @@ export function SeasonExplorer({
             aria-labelledby={titleId}
           >
             {items.map((item) => (
-              <button
+              <SeasonCard
                 key={item.key}
-                data-season-number={item.seasonNumber}
-                type="button"
-                aria-pressed={item.key === activeKey}
-                aria-controls={panelId}
-                aria-label={accessibleName(item)}
-                title={accessibleName(item)}
-                onClick={() => onSelect(item.key)}
-                className={`season-explorer-card flex w-[136px] shrink-0 snap-start flex-col items-stretch rounded-xl p-1 text-start transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:w-[164px] ${item.key === activeKey ? "bg-accent/10 text-ink ring-1 ring-accent" : "text-ink-muted hover:bg-ink/5 hover:text-ink"}`}
-              >
-                <div className="aspect-[2/3] w-full shrink-0 overflow-hidden rounded-lg">
-                  <SeasonPoster src={posterFor(item)} name={item.name} onError={(url) => rejectPoster(item, url)} />
-                </div>
-                <SeasonCardTitle text={titleFor(item) || labelFor(item) || item.name} />
-                {titleFor(item) && labelFor(item) && (
-                  <div className="mt-1 flex h-4 items-center justify-center">
-                    <span className={SEASON_LABEL_CLASS}>{labelFor(item)}</span>
-                  </div>
-                )}
-                <p className="mt-1.5 truncate text-center text-[11.5px] leading-4 text-ink-subtle">
-                  {countFor(item)}
-                </p>
-              </button>
+                item={item}
+                poster={posterFor(item)}
+                selected={item.key === activeKey}
+                nearby={visible.has(item.seasonNumber!)}
+                panelId={panelId}
+                onSelect={onSelect}
+                onPosterError={onPosterError}
+                measureTitle={measureTitle}
+              />
             ))}
           </div>
           {edges.left && (
@@ -338,61 +493,17 @@ export function SeasonExplorer({
           )}
         </div>
         {active && (
-          <div
-            id={panelId}
-            aria-live="polite"
-            aria-busy={loading}
-            className="relative min-w-0 overflow-hidden rounded-2xl border border-edge bg-canvas shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]"
-          >
-            <div
-              key={activeKey}
-              className="season-explorer-transition"
-              data-direction={transition.direction}
-            >
-              <SeasonBackdrop sources={[activeArtwork?.background, background]} />
-              <div className="relative flex min-h-[260px] items-start gap-4 p-5 sm:min-h-[316px] sm:gap-5 sm:p-6">
-                <div className="aspect-[2/3] w-[104px] shrink-0 overflow-hidden rounded-xl shadow-lg sm:w-[164px]">
-                  <SeasonPoster src={posterFor(active)} name={active.name} onError={(url) => rejectPoster(active, url)} />
-                </div>
-                <div className="min-w-0 flex-1 py-1">
-                  <div className="flex items-center gap-2.5">
-                    <h4 className="min-w-0 text-[20px] font-semibold leading-tight tracking-tight text-ink sm:text-[24px]">
-                      {titleFor(active) || labelFor(active)}
-                    </h4>
-                    {titleFor(active) && labelFor(active) && (
-                      <span className={SEASON_LABEL_CLASS}>{labelFor(active)}</span>
-                    )}
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-ink-muted">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Film size={14} aria-hidden />
-                      {countFor(active)}
-                    </span>
-                    {dates && (
-                      <span className="inline-flex items-center gap-1.5">
-                        <CalendarDays size={14} aria-hidden />
-                        {dates}
-                      </span>
-                    )}
-                  </div>
-                  {overview ? (
-                    <div className="mt-4 [&_p]:whitespace-pre-line [&_p]:text-[14px]">
-                      <Synopsis key={activeKey} text={overview} />
-                    </div>
-                  ) : loading ? (
-                    <div aria-hidden className="mt-4 flex animate-pulse flex-col gap-2">
-                      <div className="h-2.5 w-full rounded bg-ink/10" />
-                      <div className="h-2.5 w-3/4 rounded bg-ink/10" />
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-[13px] leading-relaxed text-ink-subtle">
-                      {t("No season synopsis available.")}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+          <SelectedSeasonPanel
+            active={active}
+            detail={active.seasonNumber == null ? undefined : details.get(active.seasonNumber)}
+            artwork={active.seasonNumber == null ? undefined : artwork.get(active.seasonNumber)}
+            poster={posterFor(active)}
+            loading={loading}
+            background={background}
+            panelId={panelId}
+            direction={transition.direction}
+            onPosterError={onPosterError}
+          />
         )}
       </div>
     </section>
