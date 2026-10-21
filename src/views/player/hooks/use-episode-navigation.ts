@@ -112,6 +112,7 @@ export function useEpisodeNavigation(params: {
       kitsuStreamId: src.episode.kitsuStreamId,
       imdbSeason: src.episode.imdbSeason,
       imdbEpisode: src.episode.imdbEpisode,
+      episodeEndOffset: Math.max(0, (src.episodeEnd ?? src.episode.episode) - src.episode.episode),
       skip: settings.episodeHiding ? (s, e) => isEpisodeHidden(src.meta.id, s, e) : undefined,
     }).then((r) => {
       if (cancelled) return;
@@ -121,6 +122,7 @@ export function useEpisodeNavigation(params: {
         const localPrev = i > 0 ? eps[i - 1] : null;
         const localNext = i >= 0 && i < eps.length - 1 ? eps[i + 1] : null;
         setAdjacent({
+          ...r,
           prev:
             r.prev ??
             (localPrev
@@ -145,6 +147,7 @@ export function useEpisodeNavigation(params: {
     src.meta.type,
     src.meta.videos,
     src.episode,
+    src.episodeEnd,
     src.url,
     settings.tmdbKey,
     settings.episodeHiding,
@@ -154,13 +157,6 @@ export function useEpisodeNavigation(params: {
     (ep: PlayEpisode | null) => {
       if (!ep) return;
       if (inRoom && !isHost) return;
-      if (localShowKey) {
-        const local = findLocalEpisode(localShowKey, ep.season, ep.episode);
-        if (local) {
-          replacePlayerSrc(localPlayerSrc(local, undefined, ep));
-          return;
-        }
-      }
       const carried =
         src.meta.id.startsWith("tt") && src.episode?.sourceMetaId && !ep.sourceMetaId
           ? { ...ep, sourceMetaId: src.episode.sourceMetaId }
@@ -171,14 +167,24 @@ export function useEpisodeNavigation(params: {
           : ep.sourceMetaId && adjacentRef.current.prevMeta?.id === ep.sourceMetaId
             ? adjacentRef.current.prevMeta
             : src.meta;
-      const withoutDownload = () => {
-        if (localShowKey) {
-          const local = findLocalEpisode(localShowKey, ep.season, ep.episode);
-          if (local) {
-            replacePlayerSrc(localPlayerSrc(local));
-            return;
-          }
+      const changesEntry = targetMeta.id !== src.meta.id;
+      // Split cours may share an IMDb ID while restarting their local numbering.
+      const targetLocalKey = localShowKey
+        ? changesEntry
+          ? { title: targetMeta.name }
+          : localShowKey
+        : null;
+      if (targetLocalKey) {
+        const local = findLocalEpisode(targetLocalKey, ep.season, ep.episode);
+        if (local) {
+          const localSrc = localPlayerSrc(local, src.isAnime, ep);
+          replacePlayerSrc(
+            changesEntry ? { ...localSrc, meta: targetMeta, episode: carried } : localSrc,
+          );
+          return;
         }
+      }
+      const withoutDownload = () => {
         openPicker(targetMeta, carried, { autoPlay: true });
       };
       if (inRoom || settings.localPlaybackMode === "stream") {
@@ -191,7 +197,10 @@ export function useEpisodeNavigation(params: {
           return;
         }
         replacePlayerSrc(
-          downloadPlayerSrc(targetMeta, ep, item, { imdbId: src.imdbId, isAnime: src.isAnime }),
+          downloadPlayerSrc(targetMeta, ep, item, {
+            imdbId: changesEntry ? ep.imdbId : src.imdbId,
+            isAnime: src.isAnime,
+          }),
         );
       }, withoutDownload);
     },

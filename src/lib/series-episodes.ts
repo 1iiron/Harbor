@@ -223,6 +223,7 @@ export async function fetchAdjacentEpisodes(
     kitsuStreamId?: string;
     imdbSeason?: number;
     imdbEpisode?: number;
+    episodeEndOffset?: number;
     skip?: (season: number, episode: number) => boolean;
   },
 ): Promise<Adjacent> {
@@ -302,10 +303,7 @@ async function overlayPreferredEpisodes(id: string, eps: PlayEpisode[]): Promise
     const v = byKey.get(`${ep.season}:${ep.episode}`);
     if (!v) continue;
     const name = pickLocalizedText(
-      [
-        { text: preferredVideoName(v), score: PREFERRED_TEXT_SCORE },
-        { text: ep.name ?? "" },
-      ],
+      [{ text: preferredVideoName(v), score: PREFERRED_TEXT_SCORE }, { text: ep.name ?? "" }],
       { forName: true, lang },
     );
     if (name) ep.name = name;
@@ -519,9 +517,7 @@ function animeCurrentIndex(
     );
     if (mapped >= 0) return mapped;
   }
-  return eps.findIndex(
-    (ep) => ep.season === current.season && ep.episode === current.episode,
-  );
+  return eps.findIndex((ep) => ep.season === current.season && ep.episode === current.episode);
 }
 
 function animeMetaForEntry(id: string, meta: AnimeKitsuMeta | null): Meta | undefined {
@@ -544,12 +540,27 @@ async function animeAdjacent(
     kitsuStreamId?: string;
     imdbSeason?: number;
     imdbEpisode?: number;
+    episodeEndOffset?: number;
     skip?: (season: number, episode: number) => boolean;
   },
 ): Promise<Adjacent> {
-  const idx = animeCurrentIndex(eps, current, opts);
+  const offset = opts.episodeEndOffset ?? 0;
+  const idx = animeCurrentIndex(
+    eps,
+    {
+      season: current.season,
+      episode: current.episode - offset,
+    },
+    opts,
+  );
   if (idx < 0) return { prev: null, next: null };
-  const at = eps[idx];
+  const start = eps[idx];
+  // Identity hints name the file's first episode; spans end relative to that entry.
+  const at =
+    offset > 0
+      ? eps.find((ep) => ep.season === start.season && ep.episode === start.episode + offset)
+      : start;
+  if (!at) return { prev: null, next: null };
   const result = computeAdjacent(eps, { season: at.season, episode: at.episode }, opts.skip);
   if (result.next) return result;
   const sequel = await nextAnimeEntry(entryId);

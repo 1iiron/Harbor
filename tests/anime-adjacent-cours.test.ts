@@ -6,10 +6,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import { nextAnimeEntry } from "../src/lib/providers/anime-entry.ts";
-import type {
-  AnimeKitsuMeta,
-  AnimeKitsuVideo,
-} from "../src/lib/providers/anime-kitsu-addon.ts";
+import type { AnimeKitsuMeta, AnimeKitsuVideo } from "../src/lib/providers/anime-kitsu-addon.ts";
 
 function video(
   kitsuId: number,
@@ -74,7 +71,6 @@ function seriesModule() {
   const compiled = ts.transpileModule(read("src/lib/series-episodes.ts"), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText;
-  const empty = () => undefined;
   const mocks: Record<string, unknown> = {
     "@/lib/cache": {
       lruSet: (map: Map<unknown, unknown>, key: unknown, value: unknown) => map.set(key, value),
@@ -112,7 +108,7 @@ function seriesModule() {
       nextAnimeEntry: async (id: string) => {
         const meta = METAS[id];
         const sequel = meta?.links?.find(
-          (link) => link.category === "Franchise" && /^Sequel:/.test(link.name),
+          (link) => link.category === "Franchise" && link.name.startsWith("Sequel:"),
         );
         const match = sequel ? /\/detail\/series\/([^/?#]+)/.exec(sequel.url) : null;
         if (!match) return null;
@@ -128,8 +124,7 @@ function seriesModule() {
     "./providers/anizip": {
       aniZipByAnilist: async () => null,
       aniZipByKitsu: async () => null,
-      pickEpisodeTitle: (episode: { title?: { en?: string } } | undefined) =>
-        episode?.title?.en,
+      pickEpisodeTitle: (episode: { title?: { en?: string } } | undefined) => episode?.title?.en,
     },
     "./providers/tvdb-proxy": {
       fetchTvdbProxyImages: async () => ({}),
@@ -152,12 +147,16 @@ function seriesModule() {
         kitsuStreamId?: string;
         imdbSeason?: number;
         imdbEpisode?: number;
+        episodeEndOffset?: number;
       },
     ) => Promise<{
       prev: { episode: number } | null;
-      next:
-        | { season: number; episode: number; kitsuStreamId?: string; sourceMetaId?: string }
-        | null;
+      next: {
+        season: number;
+        episode: number;
+        kitsuStreamId?: string;
+        sourceMetaId?: string;
+      } | null;
       nextMeta?: { id: string; name: string };
     }>;
   };
@@ -233,6 +232,43 @@ test("ordinary mid-cour navigation is unchanged", async () => {
   );
   assert.equal(result.next?.episode, 2);
   assert.equal(result.nextMeta, undefined);
+});
+
+test("a combined finale advances beyond its last episode into the sequel", async () => {
+  const { fetchAdjacentEpisodes } = seriesModule();
+  const result = await fetchAdjacentEpisodes(
+    meta("kitsu:45398"),
+    { season: 1, episode: 12 },
+    {
+      tmdbKey: "",
+      kitsuStreamId: "kitsu:45398:11",
+      imdbSeason: 1,
+      imdbEpisode: 11,
+      episodeEndOffset: 1,
+    },
+  );
+  assert.equal(result.next?.kitsuStreamId, "kitsu:45619:1");
+  assert.equal(result.nextMeta?.id, "kitsu:45619");
+});
+
+test("a combined split-cour file applies its span after resolving provider coordinates", async () => {
+  const { fetchAdjacentEpisodes } = seriesModule();
+  const result = await fetchAdjacentEpisodes(
+    meta("kitsu:45619"),
+    { season: 1, episode: 14 },
+    { tmdbKey: "", imdbSeason: 1, imdbEpisode: 13, episodeEndOffset: 1 },
+  );
+  assert.equal(result.next?.kitsuStreamId, "kitsu:45619:3");
+});
+
+test("a combined file without identity hints does not apply the end offset twice", async () => {
+  const { fetchAdjacentEpisodes } = seriesModule();
+  const result = await fetchAdjacentEpisodes(
+    meta("kitsu:45398"),
+    { season: 1, episode: 12 },
+    { tmdbKey: "", episodeEndOffset: 1 },
+  );
+  assert.equal(result.next?.kitsuStreamId, "kitsu:45619:1");
 });
 
 test("a cour without a Sequel link keeps Next disabled", async () => {
