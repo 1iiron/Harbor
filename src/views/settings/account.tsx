@@ -36,7 +36,7 @@ export function AccountStub() {
   const { profiles, activeProfile, openPicker } = useProfiles();
   const { settings } = useSettings();
   const isNuvio = settings.accountProvider === "nuvio";
-  const [nuvioState, setNuvioState] = useState(() => loadNuvioState());
+  const [, setNuvioState] = useState(() => loadNuvioState());
   const [forceTick, setForceTick] = useState(0);
   void forceTick;
   const [restrictedModal, setRestrictedModal] = useState<{
@@ -61,21 +61,17 @@ export function AccountStub() {
     };
   }, []);
 
-  const isPrimary = isNuvio
-    ? Number(nuvioState.activeProfileIndex) === 1
-    : isStremioActivePrimary(activeProfile, profiles);
-
   const tabs = [
-    { id: "provider" as const, label: t("Account provider") },
     { id: "you" as const, label: t("Your profile") },
     { id: "profiles" as const, label: t("Profiles") },
     { id: "harbor" as const, label: t("Harbor account") },
+    { id: "provider" as const, label: t("Account provider") },
     ...(isNuvio
       ? [{ id: "nuvio" as const, label: t("Nuvio") }]
       : [{ id: "stremio" as const, label: t("Stremio") }]),
   ];
 
-  const [tab, setTab] = useState<Tab>(() => (isPrimary ? "provider" : "you"));
+  const [tab, setTab] = useState<Tab>("you");
 
   const handleTabSelect = (next: Tab) => {
     const liveIsPrimary = isNuvio
@@ -173,9 +169,7 @@ export function AccountStub() {
               >
                 {t("Switch profile")}
               </ModalButton>
-              <ModalButton onClick={() => setRestrictedModal(null)}>
-                {t("OK")}
-              </ModalButton>
+              <ModalButton onClick={() => setRestrictedModal(null)}>{t("OK")}</ModalButton>
             </div>
           }
         >
@@ -201,7 +195,9 @@ function NuvioTab() {
     <>
       <Section
         title={t("Nuvio account")}
-        subtitle={t("Connect your Nuvio account to sync watch progress, profile slots, and addons.")}
+        subtitle={t(
+          "Connect your Nuvio account to sync watch progress, profile slots, and addons.",
+        )}
       >
         <NuvioCard />
       </Section>
@@ -239,13 +235,19 @@ function ProfilesTab() {
   return (
     <Section
       title={t("Profiles")}
-      subtitle={t("Create profiles for the people who use Harbor. Each can have its own appearance, settings, and PIN.")}
+      subtitle={t(
+        "Create profiles for the people who use Harbor. Each can have its own appearance, settings, and PIN.",
+      )}
     >
       <SettingGroup label={t("Everyone on this Harbor")}>
         <p className={`max-w-[70ch] ${ROW_DESC}`}>
           {isPrimary
-            ? t("Choose a profile to switch. Use the pencil to edit its details and access settings.")
-            : t("Choose a profile to switch. You can edit your own profile's details and settings.")}
+            ? t(
+                "Choose a profile to switch. Use the pencil to edit its details and access settings.",
+              )
+            : t(
+                "Choose a profile to switch. You can edit your own profile's details and settings.",
+              )}
         </p>
         <ProfilesStrip />
       </SettingGroup>
@@ -277,7 +279,9 @@ function StremioTab() {
       </Section>
       <Section
         title={t("Synced addons")}
-        subtitle={t("Harbor pulls your addon collection from Stremio. Manage individual addons in Streaming sources.")}
+        subtitle={t(
+          "Harbor pulls your addon collection from Stremio. Manage individual addons in Streaming sources.",
+        )}
       >
         <SyncedAddonsCard />
       </Section>

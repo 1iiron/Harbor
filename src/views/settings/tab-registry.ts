@@ -12,10 +12,10 @@ export type TabEntry = { id: string; label: string; icon: string; img?: string }
 
 export const SECTION_TABS: Partial<Record<SectionId, TabEntry[]>> = {
   account: [
-    { id: "provider", label: "Account provider", icon: "RefreshCw" },
     { id: "you", label: "Your profile", icon: "UserRound" },
     { id: "profiles", label: "Profiles", icon: "Users" },
     { id: "harbor", label: "Harbor account", icon: "Harbor" },
+    { id: "provider", label: "Account provider", icon: "RefreshCw" },
     { id: "stremio", label: "Stremio", icon: "Play", img: stremioLogo },
     { id: "nuvio", label: "Nuvio", icon: "Play", img: nuvioLogo },
   ],
