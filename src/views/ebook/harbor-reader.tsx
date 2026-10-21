@@ -28,6 +28,8 @@ import {
   X,
 } from "lucide-react";
 import { useT } from "@/lib/i18n";
+import { useSettings } from "@/lib/settings";
+import { useWindowFullscreen } from "@/lib/use-window-fullscreen";
 import { copyText } from "@/lib/clipboard-text";
 import type { EBookChapter, EBookChapterContent } from "@/lib/ebook/providers";
 import { ebookTextIdentity } from "@/lib/ebook/chapter-locations";
@@ -522,6 +524,11 @@ export function HarborReader({
   onClose,
 }: Props) {
   const t = useT();
+  const { settings } = useSettings();
+  const fullscreen = useWindowFullscreen();
+  const customTitleBar =
+    "__TAURI_INTERNALS__" in window && !settings.useNativeTitleBar && !fullscreen;
+  const titleBarInset = customTitleBar ? (settings.hybridTitleBar ? 36 : 80) : 0;
   const formatEtaLabel = (milliseconds: number) => {
     const eta = etaParts(milliseconds);
     return eta.unit === "seconds"
@@ -1727,6 +1734,7 @@ export function HarborReader({
     <div
       className="fixed inset-0 z-[90] overflow-hidden transition-colors duration-300"
       style={{
+        top: titleBarInset,
         background: colors.desk,
         color: colors.ink,
         filter: `brightness(${prefs.brightness}%)`,
