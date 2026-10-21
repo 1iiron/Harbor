@@ -559,6 +559,7 @@ export const DEFAULT: Settings = {
   seekBarColor: "",
   seekBarImage: "",
   seekBarFill: true,
+  seekBarChapters: true,
   seekBarFillOpacity: 0.35,
   seekDotShape: "circle",
   seekDotHover: true,

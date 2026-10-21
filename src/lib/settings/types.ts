@@ -687,6 +687,7 @@ export type Settings = {
   seekBarColor: string;
   seekBarImage: string;
   seekBarFill: boolean;
+  seekBarChapters: boolean;
   seekBarFillOpacity: number;
   seekDotShape: "circle" | "square" | "image" | "hidden";
   seekDotHover: boolean;
