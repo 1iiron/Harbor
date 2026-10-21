@@ -6,6 +6,7 @@ import { usePlaybackPosition } from "@/lib/player/playback-clock";
 import { cinemetaDetails } from "@/lib/providers/cinemeta-details";
 import { tmdbDetails, type TmdbDetail } from "@/lib/providers/tmdb/tmdb-details";
 import type { PlayerSrc } from "@/lib/view";
+import { effectiveTmdbLanguage } from "@/lib/providers/tmdb/tmdb-client";
 
 export type EndScreenMode = "full" | "shrink";
 
@@ -39,12 +40,14 @@ function hiRes(url?: string): string | undefined {
 function useFocusedDetail(meta: Meta | null, tmdbKey: string | null): TmdbDetail | null {
   const [detail, setDetail] = useState<TmdbDetail | null>(null);
   const id = meta?.id ?? null;
+  const language = effectiveTmdbLanguage() || "en";
   useEffect(() => {
     if (!meta || !id) {
       setDetail(null);
       return;
     }
-    const cached = detailCache.get(id);
+    const cacheKey = `${language}:${id}`;
+    const cached = detailCache.get(cacheKey);
     if (cached !== undefined) {
       setDetail(cached);
       return;
@@ -56,13 +59,17 @@ function useFocusedDetail(meta: Meta | null, tmdbKey: string | null): TmdbDetail
           ? ((await tmdbDetails(tmdbKey, meta).catch(() => null)) ??
             (await cinemetaDetails(meta).catch(() => null)))
           : await cinemetaDetails(meta).catch(() => null);
-        if (found && !found.overview) {
+        if (found && !found.overview.trim() && tmdbKey && language.split("-")[0] !== "en") {
+          const english = await tmdbDetails(tmdbKey, meta, "en-US").catch(() => null);
+          if (english?.overview.trim()) found = { ...found, overview: english.overview };
+        }
+        if (found && !found.overview.trim()) {
           const full = await fetchCinemetaMeta(narrowMediaType(meta.type), meta.id).catch(
             () => null,
           );
           if (full?.description) found = { ...found, overview: full.description };
         }
-        detailCache.set(id, found);
+        detailCache.set(cacheKey, found);
         if (alive) setDetail(found);
       })();
     }, 160);
@@ -71,7 +78,7 @@ function useFocusedDetail(meta: Meta | null, tmdbKey: string | null): TmdbDetail
       window.clearTimeout(timer);
     };
     // `meta` is read for its id only; a new object with the same id must not refetch.
-  }, [id, tmdbKey]);
+  }, [id, tmdbKey, language]);
   return detail;
 }
 
@@ -489,7 +496,7 @@ export function EndScreen({
   const ratingSource = detail?.ratingSource === "tmdb" ? "TMDB" : "IMDb";
   const playingRating = playingDetail?.rating ?? src.meta.imdbRating;
   const playingSource = playingDetail?.ratingSource === "tmdb" ? "TMDB" : "IMDb";
-  const overview = detail?.overview ?? current?.description;
+  const overview = detail?.overview?.trim() || current?.description?.trim();
   const ring = countdown != null && countdownTotal > 0 ? countdown / countdownTotal : 0;
 
   const expandW = Math.min(Math.round(620 * scale), cardW * 2);
