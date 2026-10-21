@@ -256,7 +256,7 @@ export function PlayPicker({
   const [strictMode, setStrictMode] = useState(settings.streamFilterLevel === "strict");
   const [forceShowAll, setForceShowAll] = useState(false);
   const filterDisabled = settings.streamFilterLevel === "off" || forceShowAll || isDownload;
-  const animeTitles = useAnimeAltTitles(meta);
+  const animeTitles = useAnimeAltTitles(meta, episode?.sourceMetaId);
   const {
     result,
     loading,

@@ -61,6 +61,7 @@ function mocks(overrides: Record<string, unknown> = {}) {
   return {
     "@/lib/anime-cw-ids": { getAnimeCwId: () => "kitsu:7158" },
     "@/lib/anime-detect": { isDetectedAnime: () => true },
+    "@/lib/anime-tracker-entry": { resolveTrackerAnimeEntry: async () => null },
     "@/lib/streams/anime-identity": {
       resolveAnimeIdentity: async () => ({ streamId: "kitsu:49847:2", kitsuId: 49847, number: 2 }),
     },
@@ -205,6 +206,45 @@ test("an unresolvable row falls through to legacy resolution", async () => {
     mocks({ "@/lib/streams/anime-identity": { resolveAnimeIdentity: async () => null } }),
   );
   assert.equal(await resolveCwAnimePlayEpisode({ metaId: "tt100", season: 1, episode: 2 }), null);
+});
+
+test("a saved Bleach TYBW stream is not reinterpreted as the base show's season 1", async () => {
+  const { resolveCwAnimePlayEpisode } = load(mocks({
+    "@/lib/streams/anime-identity": {
+      resolveAnimeIdentity: async () => { throw new Error("must preserve saved cour"); },
+    },
+    "@/lib/providers/anizip": {
+      aniZipByKitsu: async (id: number) => {
+        assert.equal(id, 43078);
+        return { mappings: { imdb_id: "tt009270" }, episodes: {
+          "3": { seasonNumber: 17, episodeNumber: 3 },
+        } };
+      },
+      pickEpisodeTitle,
+    },
+  }));
+  const out = await resolveCwAnimePlayEpisode({
+    metaId: "tt009270", season: 1, episode: 3, videoId: "kitsu:43078:3",
+  });
+  assert.equal(out.kitsuStreamId, "kitsu:43078:3");
+  assert.equal(out.imdbSeason, 17);
+  assert.deepEqual(animeTrackerTarget("tt009270", out, 3), { id: "kitsu:43078", episode: 3 });
+});
+
+test("a sequel without provider mappings uses the tracker franchise resolution", async () => {
+  const { resolveCwAnimePlayEpisode } = load(mocks({
+    "@/lib/streams/anime-identity": { resolveAnimeIdentity: async () => null },
+    "@/lib/anime-tracker-entry": {
+      resolveTrackerAnimeEntry: async () => ({ id: "kitsu:99999", episode: 4, baseId: "kitsu:1" }),
+    },
+    "@/lib/providers/anizip": { aniZipByKitsu: async () => null, pickEpisodeTitle },
+  }));
+  const out = await resolveCwAnimePlayEpisode({ metaId: "tt100", season: 2, episode: 4 });
+  assert.equal(out.kitsuStreamId, "kitsu:99999:4");
+  assert.deepEqual(animeTrackerTarget("tt100", out, 4), { id: "kitsu:99999", episode: 4 });
+  const body = buildBody("tt100", out, 100, { imdb: "tt100" }) as any;
+  assert.deepEqual(body.anime.ids, { kitsu: 99999 });
+  assert.deepEqual(body.episode, { season: 1, number: 4 });
 });
 
 test("an ordinary series never pays for an identity lookup", async () => {

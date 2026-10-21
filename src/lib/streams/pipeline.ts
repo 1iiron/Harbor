@@ -87,7 +87,7 @@ function applyAnimeEpisodeFilter(
   for (const a of input.animeEpisodeAliases ?? []) {
     if (Number.isFinite(a) && a >= 1) validNums.add(a);
   }
-  const { keep, drop } = partitionByExactAnimeEpisode(parsed, validNums);
+  const { keep, drop } = partitionByExactAnimeEpisode(parsed, validNums, input.animeEpisodeCoordinates, input.animeSplitPart, input.trust?.expectedTitles);
   return {
     kept: keep,
     extraRejected: drop.map((stream) => ({
@@ -107,6 +107,8 @@ export type PipelineInput = {
   isAnime?: boolean;
   animeAbsoluteEpisode?: number | null;
   animeEpisodeAliases?: Set<number> | null;
+  animeEpisodeCoordinates?: Array<[number, number]>;
+  animeSplitPart?: number;
   presetStreams?: Stream[];
   addonTimeoutMs?: number;
   addonRanks?: AddonRankFn | null;

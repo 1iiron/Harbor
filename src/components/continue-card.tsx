@@ -463,6 +463,7 @@ export const ContinueCard = memo(function ContinueCard({
       video?.id ?? (/^kitsu:\d+:\d+$/.test(stateStreamId ?? "") ? stateStreamId : undefined);
     const animePlay = await resolveCwAnimePlayEpisode({
       metaId: item._id,
+      videoId: item.state?.video_id,
       season: ep?.season,
       episode: ep?.episode,
       imdbSeason: video?.imdbSeason ?? undefined,
