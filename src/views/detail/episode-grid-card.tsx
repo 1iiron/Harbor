@@ -10,6 +10,7 @@ import type { Meta } from "@/lib/cinemeta";
 import { prefetchSegments } from "@/lib/skip-intro";
 import { formatAirDate } from "@/lib/dates";
 import { useT } from "@/lib/i18n";
+import { bidiIsolate } from "@/lib/bidi";
 import { useView } from "@/lib/view";
 import { useSettings } from "@/lib/settings";
 import { SPOILER_TEXT_CLASS, SPOILER_THUMB_CLASS, type SpoilerMask } from "@/lib/spoilers";
@@ -133,12 +134,13 @@ export function EpisodeGridCard({
             {g.filler && <FillerBadge />}
           </span>
           <span className="text-[11.5px] text-ink-subtle">
-            {g.seasonLabel ? `${g.seasonLabel} · E${g.number}` : `E${g.number}`}
-            {g.runtime ? ` · ${t("{n} min", { n: g.runtime })}` : ""}
-            {formatAirDate(g.airDate) ? ` · ${formatAirDate(g.airDate)}` : ""}
+            {bidiIsolate(g.seasonLabel ? `${g.seasonLabel} · E${g.number}` : `E${g.number}`)}
+            {g.runtime ? ` · ${bidiIsolate(t("{n} min", { n: g.runtime }))}` : ""}
+            {formatAirDate(g.airDate) ? ` · ${bidiIsolate(formatAirDate(g.airDate))}` : ""}
           </span>
           {settings.showEpisodeDescription && g.overview && (
             <p
+              dir="auto"
               className={`mt-0.5 line-clamp-2 text-[12px] leading-relaxed text-ink-muted ${spoiler?.desc ? SPOILER_TEXT_CLASS : ""}`}
             >
               {g.overview}
@@ -252,19 +254,22 @@ export function EpisodePreview({
         <h4 className="line-clamp-1 text-[14px] font-semibold leading-snug text-ink">{g.title}</h4>
         <span className="flex items-center gap-1.5 text-[11.5px] text-ink-subtle">
           <span className="font-semibold text-ink-muted">
-            {g.seasonLabel ? `${g.seasonLabel} · E${g.number}` : `E${g.number}`}
+            {bidiIsolate(g.seasonLabel ? `${g.seasonLabel} · E${g.number}` : `E${g.number}`)}
           </span>
           {g.airDate && (
             <>
               <span>·</span>
               <CalendarDays size={11} />
-              <span>{formatAirDate(g.airDate)}</span>
+              <bdi>{formatAirDate(g.airDate)}</bdi>
             </>
           )}
         </span>
         <EpisodeReleaseCountdown date={g.airDate} className="text-[11.5px]" />
         {settings.showEpisodeDescription && g.overview && (
-          <div className="max-h-28 overflow-y-auto pe-1 text-[12.5px] leading-relaxed text-ink-muted [scrollbar-width:thin]">
+          <div
+            dir="auto"
+            className="max-h-28 overflow-y-auto pe-1 text-[12.5px] leading-relaxed text-ink-muted [scrollbar-width:thin]"
+          >
             {g.overview}
           </div>
         )}

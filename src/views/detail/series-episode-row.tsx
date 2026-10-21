@@ -14,6 +14,7 @@ import { SPOILER_TEXT_CLASS, SPOILER_THUMB_CLASS, type SpoilerMask } from "@/lib
 import { useView } from "@/lib/view";
 import { useLocalAwareSeriesPlay } from "@/lib/local-library/use-series-play";
 import { useT } from "@/lib/i18n";
+import { bidiIsolate } from "@/lib/bidi";
 import { prefetchSegments } from "@/lib/skip-intro";
 import { NewBadge, UpcomingBadge } from "./badges";
 import { EpisodeDownloadButton } from "./episode-download-button";
@@ -157,7 +158,8 @@ export function EpisodeRow({
                 ep.runtime ? t("{n} min", { n: ep.runtime }) : null,
                 formatAirDate(ep.airDate) || null,
               ]
-                .filter(Boolean)
+                .filter((part): part is string => Boolean(part))
+                .map(bidiIsolate)
                 .join("  ·  ")}
             </span>
             {progress.watched && watchedAgo && (
@@ -172,6 +174,7 @@ export function EpisodeRow({
           <EpisodeReleaseCountdown date={ep.airDate} />
           {settings.showEpisodeDescription && ep.overview && (
             <p
+              dir="auto"
               className={`line-clamp-2 text-[13.5px] leading-relaxed text-ink-muted ${
                 spoiler?.desc ? SPOILER_TEXT_CLASS : ""
               }`}
