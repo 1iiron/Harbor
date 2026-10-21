@@ -86,6 +86,11 @@ import {
 import { useTogether } from "@/lib/together/provider";
 import { useTrakt } from "@/lib/trakt/provider";
 import { noteLocalImdbId, toggleWatchlist, useInWatchlist } from "@/lib/watchlist";
+import {
+  pullWatchProgressFromNuvio,
+  reconcileNuvioWatched,
+  isNuvioProviderActive,
+} from "@/lib/nuvio/nuvio-sync";
 import { PopIcon } from "@/components/pop-icon";
 import { useInLocalLibrary } from "@/lib/local-library";
 import { LocalLibraryBrand } from "@/components/local-library-brand";
@@ -113,7 +118,6 @@ import type { ListItemInput } from "@/lib/custom-lists";
 import { AddToAnilistButton } from "./detail/add-to-anilist-button";
 import { AddToMalButton } from "@/components/mal/add-to-mal-button";
 import { AddToSimklButton } from "./detail/add-to-simkl-button";
-import { AddToPmdbButton } from "./detail/add-to-publicmetadb-button";
 import { getLocalCache, saveLocalCache } from "@/lib/simkl/activities";
 import { simklRequest } from "@/lib/simkl/client";
 import { CollectionRow } from "./detail/collection-row";
@@ -316,6 +320,11 @@ export function DetailView({
     meta.videos && meta.videos.length > 0 ? meta : null,
   );
   const [libraryItem, setLibraryItem] = useState<LibraryItem | null>(null);
+  const [nuvioEpisodeProgress, setNuvioEpisodeProgress] = useState<{
+    season: number;
+    episode: number;
+    t: number;
+  } | null>(null);
   const { authKey } = useAuth();
   const [loading, setLoading] = useState(true);
   const [trailerOpen, setTrailerOpen] = useState(false);
@@ -789,6 +798,74 @@ export function DetailView({
   useEffect(() => {
     setLibraryItem(null);
     noteLocalImdbId(meta.id, detail?.imdbId);
+    if (settings.accountProvider === "nuvio") {
+      let cancelled = false;
+      pullWatchProgressFromNuvio()
+        .then((progressItems) => {
+          if (cancelled) return;
+          const matches = progressItems.filter(
+            (p) =>
+              p.content_id === meta.id ||
+              (detail?.imdbId && p.content_id === detail.imdbId),
+          );
+          if (matches.length > 0) {
+            matches.sort((a, b) => {
+              const ta = a.updated_at ? Date.parse(a.updated_at) : 0;
+              const tb = b.updated_at ? Date.parse(b.updated_at) : 0;
+              return tb - ta;
+            });
+            const watchedKeys = new Set<string>();
+            for (const m of matches) {
+              if (m.season != null && m.episode != null) {
+                const dur = m.duration_seconds || 1;
+                if (m.progress_seconds > dur * 0.9) {
+                  watchedKeys.add(`${m.season}:${m.episode}`);
+                }
+              }
+            }
+            if (watchedKeys.size > 0) {
+              setStremioWatched(watchedKeys);
+            }
+            let latest = matches[0];
+            if (latest.season != null && latest.episode != null) {
+              const dur = latest.duration_seconds || 1;
+              const isFinished = latest.progress_seconds > dur * 0.9;
+              if (isFinished) {
+                const subsequent = matches.find((m) => {
+                  if (m.season == null || m.episode == null || latest.season == null || latest.episode == null) return false;
+                  return m.season > latest.season || (m.season === latest.season && m.episode > latest.episode);
+                });
+                if (subsequent) {
+                  latest = subsequent;
+                } else {
+                  latest = {
+                    ...latest,
+                    episode: latest.episode + 1,
+                    progress_seconds: 0,
+                  };
+                }
+              }
+            }
+            if (latest) {
+              const offsetMs = Math.max(0, (latest.progress_seconds || 0) * 1000);
+              if (latest.season != null && latest.episode != null) {
+                saveResumeMs(meta.id, offsetMs, latest.season, latest.episode);
+                setNuvioEpisodeProgress({
+                  season: latest.season,
+                  episode: latest.episode,
+                  t: latest.updated_at ? Date.parse(latest.updated_at) : Date.now(),
+                });
+              } else {
+                saveResumeMs(meta.id, offsetMs);
+              }
+            }
+          }
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }
     if (!authKey || meta.id.startsWith("simkl:")) return;
     const candidates: string[] = [];
     if (meta.id.startsWith("tt")) candidates.push(meta.id);
@@ -811,7 +888,7 @@ export function DetailView({
     return () => {
       cancelled = true;
     };
-  }, [authKey, meta.id, detail?.imdbId]);
+  }, [authKey, meta.id, detail?.imdbId, settings.accountProvider]);
 
   const [stremioWatched, setStremioWatched] = useState<Set<string>>(new Set());
   useEffect(() => {
@@ -1294,8 +1371,10 @@ export function DetailView({
   }, [isAnime, animeCanonicalId, meta.id, meta.type, meta.name, title, settings.tmdbKey]);
 
   useSyncExternalStore(subscribeMovieWatched, movieWatchedVersion, movieWatchedVersion);
+  const isNuvio = settings.accountProvider === "nuvio" || isNuvioProviderActive();
   const watchedMark =
-    meta.type === "movie" && (isMovieWatchedLocal(meta.id) || stremioMovieWatched(libraryItem));
+    meta.type === "movie" &&
+    (isMovieWatchedLocal(meta.id) || (!isNuvio && stremioMovieWatched(libraryItem)));
   const markThisMovieWatched = () => {
     const tmdb = meta.id.startsWith("tmdb:") ? meta.id.split(":")[2] : null;
     if (watchedMark) {
@@ -1318,7 +1397,24 @@ export function DetailView({
     null,
   );
   useEffect(() => {
+    if (!isNuvio) return;
+    void reconcileNuvioWatched();
+    const onFocus = () => {
+      if (document.visibilityState === "visible") {
+        void reconcileNuvioWatched();
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [isNuvio]);
+
+  useEffect(() => {
     if (seriesWatchedVer === prevSeriesWatchedVerRef.current) return;
+    if (isNuvio) return;
     if (!authKey || !isSeries || idAnime || meta.type === "anime") return;
     const imdb = meta.id.startsWith("tt")
       ? meta.id
@@ -1358,7 +1454,7 @@ export function DetailView({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seriesWatchedVer, authKey, isSeries, isAnime, cinemetaFull?.videos, detail?.imdbId, meta.id]);
+  }, [seriesWatchedVer, authKey, isSeries, isAnime, cinemetaFull?.videos, detail?.imdbId, meta.id, settings.accountProvider]);
 
   const upcoming = !loading && isTitleUpcoming(detail, meta);
   const currentFranchiseId = animeCanonicalId ?? meta.id;
@@ -1407,6 +1503,15 @@ export function DetailView({
         candidates.push({ season, episode, t: Number.isFinite(mt) ? mt : 0 });
       }
     }
+    if (
+      nuvioEpisodeProgress &&
+      typeof nuvioEpisodeProgress.season === "number" &&
+      typeof nuvioEpisodeProgress.episode === "number" &&
+      nuvioEpisodeProgress.season >= 1 &&
+      nuvioEpisodeProgress.episode >= 1
+    ) {
+      candidates.push(nuvioEpisodeProgress);
+    }
     const eligible = candidates.filter(
       (c) => manualWatchedState(meta.id, c.season, c.episode) !== false,
     );
@@ -1422,6 +1527,7 @@ export function DetailView({
     detail?.imdbId,
     detail?.id,
     libraryItem,
+    nuvioEpisodeProgress,
     isAnime,
     episodeHint,
     seriesWatchedVer,
@@ -1560,6 +1666,47 @@ export function DetailView({
           name: episodeName(lastPlay.season, lastPlay.episode),
         });
         return;
+      }
+      if (settings.accountProvider === "nuvio") {
+        const progressItems = await pullWatchProgressFromNuvio().catch(() => []);
+        const matches = progressItems.filter(
+          (p) => p.content_id === meta.id || (detail?.imdbId && p.content_id === detail.imdbId),
+        );
+        matches.sort((a, b) => {
+          const ta = a.updated_at ? Date.parse(a.updated_at) : 0;
+          const tb = b.updated_at ? Date.parse(b.updated_at) : 0;
+          return tb - ta;
+        });
+        let matched = matches[0];
+        if (
+          matched &&
+          typeof matched.season === "number" &&
+          typeof matched.episode === "number" &&
+          matched.season >= 1 &&
+          matched.episode >= 1
+        ) {
+          const dur = matched.duration_seconds || 1;
+          const isFinished = matched.progress_seconds > dur * 0.9;
+          if (isFinished) {
+            const subsequent = matches.find((m) => {
+              if (m.season == null || m.episode == null || matched.season == null || matched.episode == null) return false;
+              return m.season > matched.season || (m.season === matched.season && m.episode > matched.episode);
+            });
+            if (subsequent && typeof subsequent.season === "number" && typeof subsequent.episode === "number") {
+              matched = subsequent;
+            } else {
+              matched = { ...matched, episode: matched.episode + 1 };
+            }
+          }
+          const launchSeason = matched.season ?? 1;
+          const launchEpisode = matched.episode ?? 1;
+          await launch({
+            season: launchSeason,
+            episode: launchEpisode,
+            name: episodeName(launchSeason, launchEpisode),
+          });
+          return;
+        }
       }
       if (authKey) {
         const candidates: string[] = [];
@@ -1881,9 +2028,11 @@ export function DetailView({
                 {actionStage < 2 && (
                   <HoverTooltip
                     label={
-                      traktConnected
-                        ? t("Synced to Trakt")
-                        : t("Saved locally. Connect Trakt in Settings to sync.")
+                      isNuvio
+                        ? t("Synced to Nuvio Cloud")
+                        : traktConnected
+                          ? t("Synced to Trakt")
+                          : t("Saved locally. Connect Trakt in Settings to sync.")
                     }
                     align="center"
                     className="shrink-0"
@@ -1897,6 +2046,13 @@ export function DetailView({
                           name: title || meta.name,
                           poster: meta.poster ?? detail?.poster,
                           imdbId: detail?.imdbId,
+                          background: meta.background,
+                          logo: ownLogo || meta.logo,
+                          description: meta.description,
+                          releaseInfo: meta.releaseInfo,
+                          imdbRating: meta.imdbRating,
+                          genres: meta.genres,
+                          posterShape: ((meta as unknown as Record<string, unknown>).posterShape as "POSTER" | "SQUARE" | "LANDSCAPE") || "POSTER",
                         })
                       }
                       className={`flex h-12 items-center gap-2.5 whitespace-nowrap rounded-full px-6 text-[15px] font-medium transition-[transform,background-color] duration-200 active:scale-[0.98] ${
@@ -1928,13 +2084,6 @@ export function DetailView({
                 )}
                 {actionStage < 2 && (
                   <AddToSimklButton
-                    harborId={isAnime ? (animeCanonicalId ?? meta.id) : meta.id}
-                    title={title || meta.name}
-                    type={meta.type === "movie" ? "movie" : "series"}
-                  />
-                )}
-                {actionStage < 2 && (
-                  <AddToPmdbButton
                     harborId={isAnime ? (animeCanonicalId ?? meta.id) : meta.id}
                     title={title || meta.name}
                     type={meta.type === "movie" ? "movie" : "series"}
@@ -1980,6 +2129,13 @@ export function DetailView({
                         name: title || meta.name,
                         poster: meta.poster ?? detail?.poster,
                         imdbId: detail?.imdbId,
+                        background: meta.background,
+                        logo: ownLogo || meta.logo,
+                        description: meta.description,
+                        releaseInfo: meta.releaseInfo,
+                        imdbRating: meta.imdbRating,
+                        genres: meta.genres,
+                        posterShape: ((meta as unknown as Record<string, unknown>).posterShape as "POSTER" | "SQUARE" | "LANDSCAPE") || "POSTER",
                       })
                     }
                     simkl={{
@@ -1987,10 +2143,6 @@ export function DetailView({
                       type: meta.type === "movie" ? "movie" : "series",
                     }}
                     anilist={isAnime ? { harborId: animeCanonicalId ?? meta.id } : null}
-                    pmdb={{
-                      harborId: isAnime ? (animeCanonicalId ?? meta.id) : meta.id,
-                      type: meta.type === "movie" ? "movie" : "series",
-                    }}
                   />
                 ) : (
                   <>

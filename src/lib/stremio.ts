@@ -13,7 +13,7 @@ export type User = {
   avatar?: string;
 };
 
-export type ExternalCwSource = "simkl" | "trakt" | "publicmetadb";
+export type ExternalCwSource = "simkl" | "trakt" | "nuvio" | "publicmetadb";
 
 export type LibraryItem = {
   _id: string;

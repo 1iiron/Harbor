@@ -76,11 +76,37 @@ type ResumeSession = {
   lastSaved: number;
 };
 
+function getNuvioOwnerId(): string | undefined {
+  try {
+    const explicit = typeof localStorage !== "undefined" ? localStorage.getItem("harbor.account-provider") : null;
+    let isNuvio = explicit === "nuvio";
+    if (!isNuvio && explicit !== "stremio" && typeof localStorage !== "undefined") {
+      for (const key of ["harbor.settings.shared", "harbor.settings", "harbor.settings.v1"]) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          try {
+            if (JSON.parse(raw).accountProvider === "nuvio") {
+              isNuvio = true;
+              break;
+            }
+          } catch {}
+        }
+      }
+    }
+    if (isNuvio && typeof localStorage !== "undefined") {
+      const stateRaw = localStorage.getItem("harbor.nuvio.state.v1") || localStorage.getItem("harbor.nuvio.state");
+      const slot = stateRaw ? (JSON.parse(stateRaw).activeProfileIndex ?? 1) : 1;
+      return `nuvio-${slot}`;
+    }
+  } catch {}
+  return undefined;
+}
+
 export function useResumeAutosave(params: ResumeAutosaveParams) {
   const { src, snap, season, episode } = params;
   const { settings } = useSettings();
   const { activeProfile } = useProfiles();
-  const ownerId = activeProfile?.id;
+  const ownerId = getNuvioOwnerId() ?? activeProfile?.id;
   const taughtRef = useRef<Set<string>>(new Set());
   const anilistAutoSyncRef = useRef(settings.anilistAutoSync);
   anilistAutoSyncRef.current = settings.anilistAutoSync;

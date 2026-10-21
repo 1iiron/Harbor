@@ -60,6 +60,18 @@ function fixture() {
       },
     },
     "@/lib/render-cause": { noteNotify: () => {} },
+    "@/lib/nuvio/nuvio-playback": {
+      fetchNuvioPlaybackItems: async () => [],
+      readCachedNuvioPlaybackItems: () => [],
+      writeCachedNuvioPlaybackItems: () => {},
+    },
+    "@/lib/nuvio/nuvio-client": {
+      isNuvioSignedIn: () => false,
+    },
+    "@/lib/nuvio/nuvio-sync": {
+      isNuvioProviderActive: () => false,
+      resolveNuvioProfileIndex: () => 1,
+    },
   };
   const source = readFileSync(new URL("../src/lib/feed/external-cw.ts", import.meta.url), "utf8");
   const output = ts.transpileModule(source, {

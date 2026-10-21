@@ -14,6 +14,7 @@ import { useSimklScrobble } from "@/lib/simkl/scrobble-hook";
 import { useTraktScrobble } from "@/lib/trakt/scrobble-hook";
 import { usePublicMetaDbScrobble } from "@/lib/publicmetadb/scrobble-hook";
 import { useMediaServerProgress } from "@/lib/media-server/progress-sync";
+import { useNuvioScrobble } from "@/lib/nuvio/nuvio-scrobble-hook";
 import {
   claimTorrentPlaybackHandoff,
   confirmTorrentUsage,
@@ -320,6 +321,7 @@ export function usePlayerMedia(params: {
   useSimklScrobble({ src, snap });
   usePublicMetaDbScrobble({ src, snap });
   useMediaServerProgress({ src, snap });
+  useNuvioScrobble({ src, snap, season, episode });
   const download = useVideoDownload({
     url: src.url,
     meta: src.meta,

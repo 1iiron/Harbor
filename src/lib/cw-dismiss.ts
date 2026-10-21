@@ -5,6 +5,13 @@ import { setItemWithRecovery } from "./storage-recovery";
 import { episodeFromVideoId, type LibraryItem } from "./stremio";
 import { cloudLibraryPut } from "./stremio-write-queue";
 import { privateCwProfileId } from "./cw-profile";
+import { isNuvioSignedIn } from "./nuvio/nuvio-client";
+import {
+  deleteWatchProgressFromNuvio,
+  isNuvioProviderActive,
+  resolveNuvioProfileIndex,
+} from "./nuvio/nuvio-sync";
+import { clearLocalCw } from "./local-cw";
 
 const SIMKL_KEY = "harbor.cw.dismissed.simkl";
 const DISMISS_KEY = "harbor.cw.dismissed.v1";
@@ -301,7 +308,9 @@ export function dismissCw(
   } else {
     for (const entryId of ids) positions.delete(entryId);
   }
-  if (item.external) {
+  if (item.external === "nuvio" || (isNuvioSignedIn() && isNuvioProviderActive())) {
+    for (const entryId of ids) times.set(`nuvio|${entryId}`, nowMs);
+  } else if (item.external) {
     for (const entryId of ids) times.set(`${item.external}|${entryId}`, nowMs);
   }
   persistDismissed(times, videos, options.acknowledged, positions);
@@ -312,6 +321,22 @@ export function dismissCw(
   for (const [key, value] of videos) dismissedVid.set(key, value);
   for (const [key, value] of positions) dismissedPos.set(key, value);
   emit();
+  if (item.external === "nuvio" || (isNuvioSignedIn() && isNuvioProviderActive())) {
+    const { season, episode } = resolveEpisode(item);
+    try {
+      clearResume(id, season, episode, options);
+    } catch {
+      throw new Error(
+        "Removed from Continue Watching, but the saved position could not be cleared.",
+      );
+    }
+    try {
+      const slot = resolveNuvioProfileIndex();
+      clearLocalCw(id, `nuvio-${slot}`);
+      void deleteWatchProgressFromNuvio(slot, id, undefined, season, episode);
+    } catch {}
+    return options.acknowledged ? Promise.resolve({ sync: "not-required" }) : undefined;
+  }
   if (item.external) {
     const { season, episode } = resolveEpisode(item);
     try {
@@ -379,4 +404,7 @@ if (typeof window !== "undefined") {
   };
   window.addEventListener("harbor:active-profile-changed", refresh);
   window.addEventListener("harbor:profiles-updated", refresh);
+  window.addEventListener("harbor:nuvio-profile-changed", refresh);
+  window.addEventListener("harbor:nuvio-state-changed", refresh);
+  window.addEventListener("harbor:account-provider-changed", refresh);
 }

@@ -389,9 +389,12 @@ export function SettingsSidebar({
                     (!native && (id === "mpv" || id === "shaders" || id === "plugins")) ||
                     (id === "relay" && !settings.togetherRelayUrl)
                       ? []
-                      : tabsFor(id).filter(
-                          (tab) => native || id !== "theme" || tab.id !== "window",
-                        );
+                      : tabsFor(id).filter((tab) => {
+                          if (id === "account") {
+                            return tab.id !== (settings.accountProvider === "nuvio" ? "stremio" : "nuvio");
+                          }
+                          return native || id !== "theme" || tab.id !== "window";
+                        });
                   return (
                     <div key={id} className="hset-rail-page-group">
                       {tabs.length > 0 ? (
