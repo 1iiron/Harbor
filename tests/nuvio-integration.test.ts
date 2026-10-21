@@ -21,6 +21,8 @@ import {
   readPendingDeletes,
   writePendingDeletes,
   flushNuvioLibraryMutations,
+  pullNuvioLibrarySnapshot,
+  pullNuvioLibraryDelta,
 } from "../src/lib/nuvio/nuvio-library";
 import {
   rememberNuvioPin,
@@ -39,6 +41,7 @@ import {
   writeCachedWatchProgress,
   clearCachedWatchProgress,
   deleteWatchProgressFromNuvio,
+  pullWatchProgressFromNuvio,
 } from "../src/lib/nuvio/nuvio-sync";
 import {
   readCachedNuvioPlaybackItems,
@@ -46,7 +49,7 @@ import {
   clearCachedPlaybackItems,
 } from "../src/lib/nuvio/nuvio-playback";
 import { saveResumeMs, readResumeEntry, clearResume, clearAllNuvioResume } from "../src/lib/resume";
-import { saveLocalCw, listLocalCw, clearAllNuvioLocalCw } from "../src/lib/local-cw";
+import { saveLocalCw, listLocalCw, clearAllNuvioLocalCw, clearAllLocalCw } from "../src/lib/local-cw";
 import { signOutNuvio } from "../src/lib/nuvio/nuvio-auth";
 
 // Mock localStorage in node test environment
@@ -814,6 +817,172 @@ test("Review 4 Issue 2: In-flight library update to the same title preserves the
     assert.equal(remaining.length, 1, "Newer update to same title must be preserved in pending queue");
     assert.equal(remaining[0].name, "New Title");
     assert.equal(remaining[0].added_at, 2000);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Review 5 Issue 1: In-flight watch progress and library pulls discard responses if user switches accounts or signs out", async () => {
+  mockStorage.clear();
+
+  // Part 1: Watch progress pull under Account A; Account switches to Account B while in-flight
+  saveNuvioState({
+    session: {
+      access_token: "tok-a",
+      refresh_token: "ref-a",
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      token_type: "bearer",
+      user: { id: "user-account-a" },
+    },
+    profiles: [{ id: "p-a1", name: "Profile A1", profile_index: 1, user_id: "user-account-a" }],
+    activeProfileIndex: 1,
+    lastSyncedAt: null,
+  });
+
+  const originalFetch = globalThis.fetch;
+  const simulatedAccountB = {
+    session: {
+      access_token: "tok-b",
+      refresh_token: "ref-b",
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      token_type: "bearer",
+      user: { id: "user-account-b" },
+    },
+    profiles: [{ id: "p-b1", name: "Profile B1", profile_index: 1, user_id: "user-account-b" }],
+    activeProfileIndex: 1,
+    lastSyncedAt: null,
+  };
+
+  try {
+    globalThis.fetch = async (url: any) => {
+      const urlStr = String(url || "");
+      // In-flight network request: user switches to Account B!
+      saveNuvioState(simulatedAccountB);
+
+      if (urlStr.includes("sync_pull_watch_progress") || urlStr.includes("watch_progress")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              profile_id: 1,
+              content_id: "tt-user-a-secret",
+              progress_key: "tt-user-a-secret:1:1",
+              season: 1,
+              episode: 1,
+              duration: 3600,
+              time: 1800,
+              watched_percentage: 50,
+              last_watched: 10000,
+            },
+          ],
+        } as unknown as Response;
+      }
+
+      return { ok: true, status: 200, json: async () => [] } as unknown as Response;
+    };
+
+    const progressResult = await pullWatchProgressFromNuvio(1);
+    assert.deepEqual(progressResult, [], "In-flight watch progress pull must return empty array when account changed");
+
+    // Account B caches must NOT contain Account A's watch progress or playback items
+    const accBProgress = readCachedWatchProgress(1, "user-account-b");
+    assert.equal(accBProgress.length, 0, "Account B watch progress cache must remain empty");
+
+    const accBPlayback = readCachedNuvioPlaybackItems(1, "user-account-b");
+    assert.equal(accBPlayback.length, 0, "Account B playback items cache must remain empty");
+
+    const accBCw = listLocalCw(true, "nuvio-1");
+    assert.equal(accBCw.some((c) => c.id === "tt-user-a-secret"), false, "Local CW must not contain Account A title");
+
+    // Part 2: Library snapshot pull under Account A; Account switches to Account B while in-flight
+    // Reset back to Account A
+    saveNuvioState({
+      session: {
+        access_token: "tok-a",
+        refresh_token: "ref-a",
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        token_type: "bearer",
+        user: { id: "user-account-a" },
+      },
+      profiles: [{ id: "p-a1", name: "Profile A1", profile_index: 1, user_id: "user-account-a" }],
+      activeProfileIndex: 1,
+      lastSyncedAt: null,
+    });
+
+    globalThis.fetch = async (url: any) => {
+      const urlStr = String(url || "");
+      // In-flight network request: switch to Account B
+      saveNuvioState(simulatedAccountB);
+
+      if (urlStr.includes("sync_get_library_delta_cursor")) {
+        return { ok: true, status: 200, json: async () => 42 } as unknown as Response;
+      }
+
+      if (urlStr.includes("sync_pull_library") || urlStr.includes("library_items")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: "lib-a-1",
+              profile_id: 1,
+              content_id: "tt-user-a-movie",
+              content_type: "movie",
+              name: "Account A Private Movie",
+              added_at: 1000,
+            },
+          ],
+        } as unknown as Response;
+      }
+
+      return { ok: true, status: 200, json: async () => [] } as unknown as Response;
+    };
+
+    const libraryResult = await pullNuvioLibrarySnapshot(1);
+    assert.deepEqual(libraryResult, [], "In-flight library snapshot pull must discard responses when account changed");
+
+    // Account B caches must NOT contain Account A's library items or cursor
+    const accBLibrary = readCachedNuvioLibrary(1, "user-account-b");
+    assert.equal(accBLibrary.length, 0, "Account B library cache must remain empty");
+
+    const accBCursor = readNuvioCursor(1, "user-account-b");
+    assert.equal(accBCursor, null, "Account B cursor must not be set by Account A in-flight pull");
+
+    // Part 3: In-flight pull when user signs out completely
+    saveNuvioState({
+      session: {
+        access_token: "tok-a",
+        refresh_token: "ref-a",
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        token_type: "bearer",
+        user: { id: "user-account-a" },
+      },
+      profiles: [{ id: "p-a1", name: "Profile A1", profile_index: 1, user_id: "user-account-a" }],
+      activeProfileIndex: 1,
+      lastSyncedAt: null,
+    });
+
+    globalThis.fetch = async () => {
+      // In-flight: user logs out!
+      signOutNuvio();
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [
+          {
+            profile_id: 1,
+            content_id: "tt-late-signout",
+            progress_key: "tt-late-signout:1:1",
+            duration: 3600,
+            time: 1800,
+          },
+        ],
+      } as unknown as Response;
+    };
+
+    const signoutProgress = await pullWatchProgressFromNuvio(1);
+    assert.deepEqual(signoutProgress, [], "Pull after sign-out must return empty array");
   } finally {
     globalThis.fetch = originalFetch;
   }

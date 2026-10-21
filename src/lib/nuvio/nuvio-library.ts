@@ -65,10 +65,10 @@ interface NuvioTombstone {
   deleted_at: number;
 }
 
-export function readTombstones(slot: number): Map<string, number> {
+export function readTombstones(slot: number, accountId?: string): Map<string, number> {
   const map = new Map<string, number>();
   try {
-    const raw = localStorage.getItem(getTombstoneKey(slot));
+    const raw = localStorage.getItem(getTombstoneKey(slot, accountId));
     if (!raw) return map;
     const list = JSON.parse(raw) as NuvioTombstone[];
     const now = Date.now();
@@ -88,34 +88,35 @@ export function recordTombstone(
   slot: number,
   contentId: string,
   contentType: string,
+  accountId?: string,
 ): void {
   if (!contentId || typeof contentId !== "string" || !contentId.trim()) return;
   const cleanId = contentId.trim();
   const cleanType = (contentType || "movie").trim();
   try {
-    const raw = localStorage.getItem(getTombstoneKey(slot));
+    const raw = localStorage.getItem(getTombstoneKey(slot, accountId));
     const list: NuvioTombstone[] = raw ? JSON.parse(raw) : [];
     const now = Date.now();
     const filtered = list.filter(
       (t) => t && t.content_id && now - t.deleted_at < TOMBSTONE_TTL_MS && t.content_id !== cleanId,
     );
     filtered.push({ content_id: cleanId, content_type: cleanType, deleted_at: now });
-    localStorage.setItem(getTombstoneKey(slot), JSON.stringify(filtered));
+    localStorage.setItem(getTombstoneKey(slot, accountId), JSON.stringify(filtered));
   } catch {}
 }
 
-export function clearTombstone(slot: number, contentId: string): void {
+export function clearTombstone(slot: number, contentId: string, accountId?: string): void {
   if (!contentId) return;
   const cleanId = contentId.trim();
   try {
-    const raw = localStorage.getItem(getTombstoneKey(slot));
+    const raw = localStorage.getItem(getTombstoneKey(slot, accountId));
     if (!raw) return;
     const list: NuvioTombstone[] = JSON.parse(raw);
     const filtered = list.filter((t) => t && t.content_id !== cleanId);
     if (filtered.length === 0) {
-      localStorage.removeItem(getTombstoneKey(slot));
+      localStorage.removeItem(getTombstoneKey(slot, accountId));
     } else {
-      localStorage.setItem(getTombstoneKey(slot), JSON.stringify(filtered));
+      localStorage.setItem(getTombstoneKey(slot, accountId), JSON.stringify(filtered));
     }
   } catch {}
 }
@@ -148,15 +149,15 @@ export function subscribeNuvioLibrary(fn: (slot: number) => void): () => void {
  * Loads cached library items for a specific profile slot from localStorage,
  * filtering out any currently tombstoned or pending-delete items.
  */
-export function readCachedNuvioLibrary(slot: number): NuvioLibraryItem[] {
+export function readCachedNuvioLibrary(slot: number, accountId?: string): NuvioLibraryItem[] {
   try {
-    const raw = localStorage.getItem(getLibraryKey(slot));
+    const raw = localStorage.getItem(getLibraryKey(slot, accountId));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
-    const tombstones = readTombstones(slot);
-    const pendingDeletes = readPendingDeletes(slot);
+    const tombstones = readTombstones(slot, accountId);
+    const pendingDeletes = readPendingDeletes(slot, accountId);
     const pendingIds = new Set(pendingDeletes.map((k) => k.content_id).filter(Boolean));
 
     const validItems: NuvioLibraryItem[] = [];
@@ -186,11 +187,12 @@ export function writeCachedNuvioLibrary(
   slot: number,
   items: NuvioLibraryItem[],
   notify = true,
+  accountId?: string,
 ): void {
   try {
     const valid = items.filter((i) => i && i.content_id && String(i.content_id).trim().length > 0);
     const payload = JSON.stringify(valid);
-    setItemWithRecovery(getLibraryKey(slot), payload);
+    setItemWithRecovery(getLibraryKey(slot, accountId), payload);
     if (notify) {
       notifySubscribers(slot);
     }
@@ -206,26 +208,27 @@ export function writeCachedNuvioLibrary(
 export function setCachedNuvioLibraryIfChanged(
   slot: number,
   freshItems: NuvioLibraryItem[],
+  accountId?: string,
 ): boolean {
   try {
-    const current = readCachedNuvioLibrary(slot);
+    const current = readCachedNuvioLibrary(slot, accountId);
     const currentIds = current.map((i) => `${i.content_type}:${i.content_id}`).join("|");
     const freshIds = freshItems.map((i) => `${i.content_type}:${i.content_id}`).join("|");
 
     if (currentIds === freshIds && current.length === freshItems.length) {
       return false;
     }
-    writeCachedNuvioLibrary(slot, freshItems, true);
+    writeCachedNuvioLibrary(slot, freshItems, true, accountId);
     return true;
   } catch {
-    writeCachedNuvioLibrary(slot, freshItems, true);
+    writeCachedNuvioLibrary(slot, freshItems, true, accountId);
     return true;
   }
 }
 
-export function readNuvioCursor(slot: number): number | null {
+export function readNuvioCursor(slot: number, accountId?: string): number | null {
   try {
-    const raw = localStorage.getItem(getCursorKey(slot));
+    const raw = localStorage.getItem(getCursorKey(slot, accountId));
     if (!raw) return null;
     const val = parseInt(raw, 10);
     return isNaN(val) ? null : val;
@@ -234,9 +237,9 @@ export function readNuvioCursor(slot: number): number | null {
   }
 }
 
-export function writeNuvioCursor(slot: number, cursor: number): void {
+export function writeNuvioCursor(slot: number, cursor: number, accountId?: string): void {
   try {
-    localStorage.setItem(getCursorKey(slot), String(cursor));
+    localStorage.setItem(getCursorKey(slot, accountId), String(cursor));
   } catch {}
 }
 
@@ -319,6 +322,10 @@ export async function pullNuvioLibrarySnapshot(
   slot: number,
 ): Promise<NuvioLibraryItem[]> {
   if (!isNuvioSignedIn()) return readCachedNuvioLibrary(slot);
+  const startingAccountId = getNuvioAccountId();
+  if (!startingAccountId) return readCachedNuvioLibrary(slot);
+
+  const isCurrentAccount = () => isNuvioSignedIn() && getNuvioAccountId() === startingAccountId;
 
   const pageSize = 100;
   let offset = 0;
@@ -334,6 +341,7 @@ export async function pullNuvioLibrarySnapshot(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ p_profile_id: slot }),
       });
+      if (!isCurrentAccount()) return [];
       if (cursorRes.ok) {
         const val = await cursorRes.json();
         if (typeof val === "number") cursor = val;
@@ -341,8 +349,11 @@ export async function pullNuvioLibrarySnapshot(
       }
     } catch {}
 
+    if (!isCurrentAccount()) return [];
+
     // 2. Paginate sync_pull_library
     while (true) {
+      if (!isCurrentAccount()) return [];
       const res = await nuvioFetch("/rest/v1/rpc/sync_pull_library", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -353,11 +364,13 @@ export async function pullNuvioLibrarySnapshot(
         }),
       });
 
+      if (!isCurrentAccount()) return [];
       if (!res.ok) {
         break;
       }
 
       const rows = (await res.json()) as unknown;
+      if (!isCurrentAccount()) return [];
       if (!Array.isArray(rows)) break;
       rpcSuccess = true;
 
@@ -370,14 +383,19 @@ export async function pullNuvioLibrarySnapshot(
       offset += pageSize;
     }
 
+    if (!isCurrentAccount()) return [];
+
     // 3. Fallback to direct table query if RPC was not successful
     if (!rpcSuccess) {
+      if (!isCurrentAccount()) return [];
       try {
         const tableRes = await nuvioFetch(
           `/rest/v1/library_items?profile_id=eq.${slot}&order=added_at.desc&limit=500`,
         );
+        if (!isCurrentAccount()) return [];
         if (tableRes.ok) {
           const rows = (await tableRes.json()) as unknown;
+          if (!isCurrentAccount()) return [];
           if (Array.isArray(rows)) {
             collected.length = 0;
             for (const row of rows) {
@@ -392,18 +410,20 @@ export async function pullNuvioLibrarySnapshot(
       }
     }
 
+    if (!isCurrentAccount()) return [];
+
     // If both failed, do NOT wipe local cache
     if (!rpcSuccess && collected.length === 0) {
-      return readCachedNuvioLibrary(slot);
+      return readCachedNuvioLibrary(slot, startingAccountId);
     }
 
     // Prune any items that were deleted locally (tombstones or pendingDeletes)
-    const tombstones = readTombstones(slot);
-    const pendingDeletes = readPendingDeletes(slot);
+    const tombstones = readTombstones(slot, startingAccountId);
+    const pendingDeletes = readPendingDeletes(slot, startingAccountId);
     const pendingIds = new Set(pendingDeletes.map((k) => k.content_id));
 
     // Preserve any pending local upserts that haven't reached the server yet
-    const pendingUpserts = readPendingUpserts(slot);
+    const pendingUpserts = readPendingUpserts(slot, startingAccountId);
     const pendingUpsertMap = new Map<string, NuvioLibraryItem>();
     for (const u of pendingUpserts) {
       if (u && u.content_id) {
@@ -436,14 +456,17 @@ export async function pullNuvioLibrarySnapshot(
       }
     }
 
+    if (!isCurrentAccount()) return [];
+
     // Update local cache & notify subscribers if data changed
-    setCachedNuvioLibraryIfChanged(slot, sanitized);
-    if (cursor > 0) writeNuvioCursor(slot, cursor);
+    setCachedNuvioLibraryIfChanged(slot, sanitized, startingAccountId);
+    if (cursor > 0) writeNuvioCursor(slot, cursor, startingAccountId);
 
     return sanitized;
   } catch (err) {
     console.error("[nuvio-library] snapshot pull error", err);
-    return readCachedNuvioLibrary(slot);
+    if (!isCurrentAccount()) return [];
+    return readCachedNuvioLibrary(slot, startingAccountId);
   }
 }
 
@@ -454,12 +477,15 @@ export async function pullNuvioLibrarySnapshot(
 export async function pullNuvioLibraryDelta(
   slot: number,
 ): Promise<NuvioLibraryItem[]> {
-  const currentCursor = readNuvioCursor(slot);
+  const startingAccountId = getNuvioAccountId();
+  if (!startingAccountId || !isNuvioSignedIn()) return readCachedNuvioLibrary(slot);
+
+  const isCurrentAccount = () => isNuvioSignedIn() && getNuvioAccountId() === startingAccountId;
+
+  const currentCursor = readNuvioCursor(slot, startingAccountId);
   if (currentCursor == null) {
     return pullNuvioLibrarySnapshot(slot);
   }
-
-  if (!isNuvioSignedIn()) return readCachedNuvioLibrary(slot);
 
   try {
     const res = await nuvioFetch("/rest/v1/rpc/sync_pull_library_delta", {
@@ -472,21 +498,24 @@ export async function pullNuvioLibraryDelta(
       }),
     });
 
+    if (!isCurrentAccount()) return [];
+
     if (!res.ok) {
       // If delta RPC not supported or cursor invalid, fallback cleanly to snapshot
       return pullNuvioLibrarySnapshot(slot);
     }
 
     const deltas = (await res.json()) as unknown;
+    if (!isCurrentAccount()) return [];
     if (!Array.isArray(deltas) || deltas.length === 0) {
-      return readCachedNuvioLibrary(slot);
+      return readCachedNuvioLibrary(slot, startingAccountId);
     }
 
-    const tombstones = readTombstones(slot);
-    const pendingDeletes = readPendingDeletes(slot);
+    const tombstones = readTombstones(slot, startingAccountId);
+    const pendingDeletes = readPendingDeletes(slot, startingAccountId);
     const pendingIds = new Set(pendingDeletes.map((k) => k.content_id));
 
-    const cached = readCachedNuvioLibrary(slot);
+    const cached = readCachedNuvioLibrary(slot, startingAccountId);
     const itemMap = new Map<string, NuvioLibraryItem>();
     for (const item of cached) {
       if (
@@ -534,13 +563,16 @@ export async function pullNuvioLibraryDelta(
       }
     }
 
+    if (!isCurrentAccount()) return [];
+
     const updated = Array.from(itemMap.values());
-    setCachedNuvioLibraryIfChanged(slot, updated);
-    writeNuvioCursor(slot, latestEventId);
+    setCachedNuvioLibraryIfChanged(slot, updated, startingAccountId);
+    writeNuvioCursor(slot, latestEventId, startingAccountId);
     return updated;
   } catch (e) {
     console.warn("[nuvio-library] delta sync error, falling back to cache", e);
-    return readCachedNuvioLibrary(slot);
+    if (!isCurrentAccount()) return [];
+    return readCachedNuvioLibrary(slot, startingAccountId);
   }
 }
 
