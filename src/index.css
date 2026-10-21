@@ -4186,10 +4186,16 @@ html[data-theme-layout="minui"] .anime-award-banner-logo {
   }
 }
 
+/* The playback stage receives shortcut focus, not control-selection focus. */
+[data-harbor-player][tabindex="-1"]:focus {
+  outline: none !important;
+}
+
 html:not([data-input-modality="pointer"])
   :is(button, a, select, summary, input, textarea, [tabindex]):focus-visible:not(
     :where(
       [data-profile-picker][role="dialog"][tabindex="-1"],
+      [data-harbor-player][tabindex="-1"],
       .hset-title[tabindex="-1"],
       .music-library-playlist-hero[tabindex="-1"],
       [data-search-overlay] input,
