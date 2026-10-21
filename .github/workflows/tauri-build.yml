@@ -334,6 +334,45 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+  publish-windows:
+    name: Publish the Windows installer
+    needs: build
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download the Windows bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: harbor-Windows
+          path: windows-bundles
+
+      - name: Attach the Windows installer to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          installer="$(find windows-bundles -type f -name 'harbor-shipyard-v*.exe' -print -quit)"
+          if [ -z "$installer" ]; then
+            echo "::error::The Windows leg produced no Shipyard installer, so there is nothing to attach to $TAG."
+            exit 1
+          fi
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::warning::$TAG has no release, so $(basename "$installer") was not attached. Publish the release for $TAG and re-run this job, or attach the installer from this run's harbor-Windows artifact."
+            exit 0
+          fi
+          assets=("$installer")
+          if [ -s "$installer.sig" ]; then
+            assets+=("$installer.sig")
+          fi
+          gh release upload "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
+
   publish-macos:
     name: Publish the Apple silicon installer
     needs: build
