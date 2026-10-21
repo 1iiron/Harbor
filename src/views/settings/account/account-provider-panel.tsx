@@ -199,7 +199,12 @@ export function AccountProviderPanel() {
                   className="h-9 w-9 rounded-xl object-contain shadow-md"
                 />
                 <div>
-                  <h3 className="font-display text-[17px] font-semibold text-ink">Nuvio</h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-display text-[17px] font-semibold text-ink">Nuvio</h3>
+                    <span className="inline-flex shrink-0 items-center rounded-md bg-accent/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-accent ring-1 ring-accent/30">
+                      {t("Experimental")}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-1.5 text-[12px] text-ink-subtle">
                     <span
                       className={`h-2 w-2 rounded-full ${
