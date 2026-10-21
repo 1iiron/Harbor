@@ -20,7 +20,8 @@ import {
 import { applyMalEpisodeTitles, episodesMissingTitle } from "@/lib/providers/episode-placeholder";
 import { malEpisodeTitles } from "@/lib/providers/mal-episodes";
 import { anilistFranchise, type AnilistFranchiseNode } from "@/lib/anilist/relations";
-import { anilistArtById, anilistRecommendations } from "@/lib/anilist/browse";
+import { anilistArtById } from "@/lib/anilist/browse";
+import { animeRecommendations } from "./anime-recommendations";
 import { enrichEpisodes } from "@/lib/providers/anime-episode-enrich";
 import { fanartMovie, fanartTv } from "@/lib/providers/fanart";
 import { fetchTvdbArtwork } from "@/lib/providers/tvdb-proxy";
@@ -31,7 +32,6 @@ import {
   kitsuEpisodes,
   kitsuMainTvSeries,
   kitsuRelated,
-  kitsuSimilarByGenres,
   kitsuStreamingLinks,
   kitsuStudios,
   parseKitsuId,
@@ -403,24 +403,9 @@ export async function animeDetails(
 
   const franchisePromise = buildFranchise(kitsuId, anime).catch(() => [] as FranchiseEntry[]);
 
-  const slugify = (s: string) =>
-    s
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-  const effectiveSlugs =
-    anime.genreSlugs.length > 0 ? anime.genreSlugs : anime.genres.map(slugify).filter(Boolean);
-
   // Start the optional rails alongside the main batch, but do not await them
   // here: the episode grid only needs the values below.
-  const genreSimilarPromise =
-    effectiveSlugs.length > 0
-      ? kitsuSimilarByGenres(effectiveSlugs, kitsuId, 34).catch(() => [] as Meta[])
-      : Promise.resolve([] as Meta[]);
-  const anilistRecsPromise = kitsuToAnilist(kitsuId)
-    .then((aid) => (aid ? anilistRecommendations(aid) : []))
-    .catch(() => [] as Meta[]);
+  const recommendationPoolPromise = animeRecommendations(kitsuId).catch(() => [] as Meta[]);
 
   const [kitsuRawEpisodes, characters, related, studios, streamers, aniZip, tvdbEpsRaw] =
     await Promise.all([
@@ -551,10 +536,8 @@ export async function animeDetails(
 
   // Recommendation rails are optional chrome: they settle in the background so
   // a slow or rate-limited AniList response cannot hold the episode grid.
-  const recommendationsPromise = Promise.all([genreSimilarPromise, anilistRecsPromise])
-    .then(([genreSimilar, anilistRecs]) =>
-      buildSimilarRails(anilistRecs, genreSimilar, franchiseIds),
-    )
+  const recommendationsPromise = recommendationPoolPromise
+    .then((pool) => buildSimilarRails(pool, [], franchiseIds))
     .catch(() => ({ moreLikeThis: [] as Meta[], youMightLike: [] as Meta[] }));
 
   const sortedStudios = [...studios].sort((a, b) => {

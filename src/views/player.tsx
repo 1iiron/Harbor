@@ -416,8 +416,7 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
   const queue = useQueue();
   const sleepAtEndArmed = useSleepAtEnd();
   const queueOwnsCurrent = queueIndexOf(src.meta, src.episode) >= 0;
-  const queueNextSameSeries =
-    queueItemAfter(src.meta, src.episode)?.meta.id === src.meta.id;
+  const queueNextSameSeries = queueItemAfter(src.meta, src.episode)?.meta.id === src.meta.id;
 
   useEffect(() => {
     setQueuePlaying(src.meta, src.episode ?? undefined);
@@ -633,9 +632,6 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     onZero: settings.endScreenOnZero,
     tmdbKey: settings.tmdbKey,
     isLive: isLiveLike,
-    nextEp: airedNext,
-    canChangeEpisode,
-    roomGuest,
     onPlay: playFromEndScreen,
     onClose: () => void closePlayer(),
   });

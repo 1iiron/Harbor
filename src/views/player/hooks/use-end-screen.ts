@@ -4,7 +4,9 @@ import type { PlayerSnapshot } from "@/lib/player/bridge";
 import { getPlaybackPosition, subscribePlaybackClock } from "@/lib/player/playback-clock";
 import { isNaturalEnd } from "@/lib/player/playback-end";
 import { loadMoreLikeThis } from "@/lib/recommendations";
-import type { PlayEpisode, PlayerSrc } from "@/lib/view";
+import type { PlayerSrc } from "@/lib/view";
+import { isFinalSeriesEpisode } from "@/lib/player/series-finale";
+import { animeSeriesFromStreamId } from "@/lib/series-episodes";
 
 /** Short stubs and clips should never get a recommendation screen. */
 const MIN_DURATION_SEC = 90;
@@ -32,27 +34,11 @@ export function useEndScreen(params: {
   onZero: "close" | "play";
   tmdbKey: string | null;
   isLive: boolean;
-  nextEp: PlayEpisode | null;
-  canChangeEpisode: boolean;
-  roomGuest: boolean;
   onPlay: (meta: Meta) => void;
   onClose: () => void;
 }): EndScreenState {
-  const {
-    src,
-    snap,
-    enabled,
-    leadSec,
-    countdownSec,
-    onZero,
-    tmdbKey,
-    isLive,
-    nextEp,
-    canChangeEpisode,
-    roomGuest,
-    onPlay,
-    onClose,
-  } = params;
+  const { src, snap, enabled, leadSec, countdownSec, onZero, tmdbKey, isLive, onPlay, onClose } =
+    params;
 
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<EndScreenMode>("full");
@@ -64,6 +50,29 @@ export function useEndScreen(params: {
   const earlySinceRef = useRef(0);
   const snapRef = useRef(snap);
   snapRef.current = snap;
+  const [seriesEnd, setSeriesEnd] = useState<{ src: PlayerSrc; final: boolean } | null>(null);
+  const episodic = src.meta.type === "series" || src.episode != null;
+  const eligible = !episodic || (seriesEnd?.src === src && seriesEnd.final);
+
+  useEffect(() => {
+    if (!episodic || !src.episode) return;
+    let alive = true;
+    void isFinalSeriesEpisode(
+      src.meta,
+      {
+        ...src.episode,
+        episode: src.episodeEnd ?? src.episode.episode,
+      },
+      { tmdbKey: tmdbKey ?? "", isAnime: src.isAnime },
+    )
+      .catch(() => false)
+      .then((final) => {
+        if (alive) setSeriesEnd({ src, final });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [src, episodic, tmdbKey]);
 
   // Latest callbacks/mode without making the load effect depend on them.
   const latest = useRef({ mode, items, focused, onPlay, onClose });
@@ -86,15 +95,13 @@ export function useEndScreen(params: {
     earlySinceRef.current = 0;
   }, [leadSec]);
 
-  // Open at the chosen moment. Series episodes with a next episode keep the
-  // existing up-next flow; live and resume stubs never show the screen.
+  // Series must reach their final catalog episode across every season first.
   //
   // The clock is watched through a plain subscription: this lives in the player
   // view, and subscribing React to the 100 ms clock would redraw the whole player.
   useEffect(() => {
-    if (!enabled || open || isLive || leadSec === 0) return;
+    if (!enabled || !eligible || open || isLive || leadSec === 0) return;
     if (snap.durationSec < MIN_DURATION_SEC) return;
-    if ((canChangeEpisode || roomGuest) && nextEp) return;
 
     const evaluate = () => {
       const current = snapRef.current;
@@ -137,17 +144,7 @@ export function useEndScreen(params: {
 
     evaluate();
     return subscribePlaybackClock(evaluate);
-  }, [
-    canChangeEpisode,
-    enabled,
-    isLive,
-    leadSec,
-    nextEp,
-    open,
-    roomGuest,
-    snap.durationSec,
-    src.url,
-  ]);
+  }, [eligible, enabled, isLive, leadSec, open, snap.durationSec, src.url]);
 
   // The film can reach its end while the early screen is up; at that point the
   // mini player no longer has anything to show, so the card goes full-screen.
@@ -177,7 +174,9 @@ export function useEndScreen(params: {
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    void loadMoreLikeThis(src.meta, tmdbKey).then((list) => {
+    const animeId = animeSeriesFromStreamId(src.episode?.kitsuStreamId);
+    const recommendationMeta = animeId ? { ...src.meta, id: animeId } : src.meta;
+    void loadMoreLikeThis(recommendationMeta, tmdbKey).then((list) => {
       if (!alive) return;
       if (list.length === 0) {
         const { mode: currentMode, onClose: close } = latest.current;
@@ -191,7 +190,7 @@ export function useEndScreen(params: {
     return () => {
       alive = false;
     };
-  }, [open, src.meta, tmdbKey]);
+  }, [open, src.meta, src.episode?.kitsuStreamId, tmdbKey]);
 
   // Countdown. Any interaction cancels it for the rest of this screen.
   useEffect(() => {
