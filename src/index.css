@@ -4214,6 +4214,7 @@ html:not([data-input-modality="pointer"])
       .hset-title[tabindex="-1"],
       .music-library-playlist-hero[tabindex="-1"],
       [data-search-overlay] input,
+      [data-settings-search-field] input,
       .music-genre-search input,
       [data-plugins-search] input
     )
@@ -5519,6 +5520,11 @@ textarea.hset-field {
 .harbor-settings-shell [class*="focus-within:bg-raised"]:focus-within {
   outline: none;
   box-shadow: inset 0 0 0 1px var(--color-edge);
+}
+
+html:not([data-input-modality="pointer"]) [data-settings-search-field]:has(input:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .hset-ltr {
