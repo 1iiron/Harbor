@@ -211,6 +211,10 @@ const en: Record<string, string> = {
   "profile.switch": "Switch profile",
   "profile.primary": "Primary",
   "profile.signedIn": "Signed in to Stremio",
+  "Signed in to Harbor": "Signed in to Harbor",
+  "Signed out of Harbor": "Signed out of Harbor",
+  "Sign in to Harbor": "Sign in to Harbor",
+  "Sign out of Harbor": "Sign out of Harbor",
   "profile.fallback": "Profile",
 
   "welcome.title": "Welcome to Harbor",

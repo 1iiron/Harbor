@@ -283,6 +283,12 @@ export type Settings = {
   discordMusicPresence: boolean;
   discordHideMusicWhenPaused: boolean;
   playerEngine: "auto" | "html5" | "mpv";
+  /** Play in the user's own external mpv, with IPC to keep progress synced. */
+  playerExternalMpv: boolean;
+  /** Path to the mpv executable. If left empty then it uses mpv from PATH. */
+  playerExternalMpvPath: string;
+  /** Extra command line options for mpv. */
+  playerExternalMpvArgs: string;
   /** resize shrinks the Harbor window; native floats the video in its own window. */
   pipBehavior: "resize" | "native";
   playerShellId: string;
