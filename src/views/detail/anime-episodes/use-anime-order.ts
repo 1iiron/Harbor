@@ -29,7 +29,7 @@ export function useAnimeOrder(
 ): AnimeOrder | null {
   const t = useT();
   const metadataLanguage = tmdbLanguageIso();
-  const ordering = useEpisodeOrder(imdbId, metaId, provider, seasonType, tvdbKey, !solo);
+  const ordering = useEpisodeOrder(imdbId, metaId, provider, seasonType, tvdbKey, !solo, true);
   const partSeason = solo ? splitFranchiseDisplaySeason(parseKitsuId(metaId)) : null;
   const built = useMemo(
     // pickLocalizedText keys its script tests by ISO-1 ("ko"), not TVDB codes ("kor").

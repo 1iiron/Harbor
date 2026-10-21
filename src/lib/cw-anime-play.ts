@@ -15,6 +15,8 @@ export type CwAnimeEpisodeQuery = {
   imdbSeason?: number;
   imdbEpisode?: number;
   absoluteNumber?: number | null;
+  /** Exact addon video id, e.g. kitsu:45619:1. Avoids sibling-entry guessing. */
+  kitsuStreamId?: string;
 };
 
 /**
@@ -41,18 +43,25 @@ export async function resolveCwAnimePlayEpisode(
   query: CwAnimeEpisodeQuery,
 ): Promise<PlayEpisode | null> {
   if (!looksAnime(query.metaId)) return null;
-  const identity = await resolveAnimeIdentity(query.metaId, null, {
-    season: query.season,
-    episode: query.episode,
-    imdbSeason: query.imdbSeason,
-    imdbEpisode: query.imdbEpisode,
-  }).catch(() => null);
+  const direct = /^kitsu:(\d+):(\d+)$/.exec(query.kitsuStreamId ?? "");
+  const directEntry =
+    direct && Number(direct[1]) > 0 && Number(direct[2]) > 0
+      ? { streamId: query.kitsuStreamId!, kitsuId: Number(direct[1]), number: Number(direct[2]) }
+      : null;
+  const identity =
+    directEntry ??
+    (await resolveAnimeIdentity(query.metaId, null, {
+      season: query.season,
+      episode: query.episode,
+      imdbSeason: query.imdbSeason,
+      imdbEpisode: query.imdbEpisode,
+    }).catch(() => null));
   if (!identity) return null;
   const az = await aniZipByKitsu(identity.kitsuId).catch(() => null);
   const azEp = az?.episodes?.[String(identity.number)];
   return {
     season: query.season ?? 1,
-    episode: query.episode ?? identity.number,
+    episode: directEntry ? identity.number : (query.episode ?? identity.number),
     name: pickEpisodeTitle(azEp) ?? query.name ?? undefined,
     still: azEp?.image ?? undefined,
     overview: azEp?.overview || undefined,

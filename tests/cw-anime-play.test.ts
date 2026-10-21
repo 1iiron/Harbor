@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import { pickEpisodeTitle } from "../src/lib/providers/anizip.ts";
+import { animeCoordPairs, findAnimeEntryNumber } from "../src/lib/streams/anime-identity-core.ts";
 import { animeTrackerTarget } from "../src/lib/tracker-progress.ts";
 import { buildBody } from "../src/lib/simkl/scrobble-body.ts";
 
@@ -40,6 +41,22 @@ const STEEL_BALL_RUN = {
   },
 };
 
+// Spy x Family Part 2 is a separate Kitsu entry whose S1E1 is TVDB S1E13.
+const SPY_PART_2 = {
+  mappings: { kitsu_id: 45619, imdb_id: "tt13706018", thetvdb_id: 405920 },
+  episodes: {
+    "1": {
+      seasonNumber: 1,
+      episodeNumber: 13,
+      absoluteEpisodeNumber: 13,
+      tvdbId: 9114344,
+      title: { en: "Project Apple" },
+      image: "project-apple.jpg",
+      runtime: 24,
+    },
+  },
+};
+
 function mocks(overrides: Record<string, unknown> = {}) {
   return {
     "@/lib/anime-cw-ids": { getAnimeCwId: () => "kitsu:7158" },
@@ -64,6 +81,84 @@ test("a split-franchise row takes the cour the picker resolves", async () => {
   assert.equal(out?.imdbSeason, 6);
   assert.equal(out?.imdbEpisode, 2);
   assert.equal(out?.name, "The Sheriff's Request to Mountain Tim");
+});
+
+test("an exact Kitsu video id never falls back to a sibling cour", async () => {
+  let identityCalls = 0;
+  const { resolveCwAnimePlayEpisode } = load(
+    mocks({
+      "@/lib/streams/anime-identity": {
+        resolveAnimeIdentity: async () => {
+          identityCalls += 1;
+          return { streamId: "kitsu:45398:1", kitsuId: 45398, number: 1 };
+        },
+      },
+      "@/lib/providers/anizip": {
+        aniZipByKitsu: async (id: number) => (id === 45619 ? SPY_PART_2 : null),
+        pickEpisodeTitle,
+      },
+    }),
+  );
+  const out = await resolveCwAnimePlayEpisode({
+    metaId: "kitsu:45619",
+    season: 1,
+    episode: 1,
+    kitsuStreamId: "kitsu:45619:1",
+  });
+  assert.equal(out?.kitsuStreamId, "kitsu:45619:1");
+  assert.equal(out?.sourceMetaId, "kitsu:45619");
+  assert.equal(out?.name, "Project Apple");
+  assert.equal(out?.episode, 1);
+  assert.equal(out?.imdbSeason, 1);
+  assert.equal(out?.imdbEpisode, 13);
+  assert.equal(identityCalls, 0, "the exact video must not be re-resolved");
+});
+
+test("provider coordinates keep the split-cour pair ahead of the raw pair", async () => {
+  let seen: unknown;
+  const { resolveCwAnimePlayEpisode } = load(
+    mocks({
+      "@/lib/streams/anime-identity": {
+        resolveAnimeIdentity: async (...args: unknown[]) => {
+          seen = args[2];
+          return { streamId: "kitsu:45619:1", kitsuId: 45619, number: 1 };
+        },
+      },
+      "@/lib/providers/anizip": {
+        aniZipByKitsu: async () => SPY_PART_2,
+        pickEpisodeTitle,
+      },
+    }),
+  );
+  const out = await resolveCwAnimePlayEpisode({
+    metaId: "kitsu:45619",
+    season: 1,
+    episode: 1,
+    imdbSeason: 1,
+    imdbEpisode: 13,
+  });
+  assert.deepEqual(seen, { season: 1, episode: 1, imdbSeason: 1, imdbEpisode: 13 });
+  assert.equal(out?.name, "Project Apple");
+  assert.equal(out?.episode, 1);
+  assert.equal(out?.imdbEpisode, 13);
+});
+
+test("a Part 2 row's provider pair resolves its own entry before the raw pair", () => {
+  assert.equal(
+    findAnimeEntryNumber(
+      SPY_PART_2,
+      animeCoordPairs({ season: 1, episode: 1, imdbSeason: 1, imdbEpisode: 13 }),
+    ),
+    1,
+  );
+  assert.equal(findAnimeEntryNumber(SPY_PART_2, animeCoordPairs({ season: 1, episode: 1 })), null);
+});
+
+test("the Continue Watching card supplies the exact Kitsu video identity", () => {
+  const src = readFileSync("src/components/continue-card.tsx", "utf8");
+  assert.match(src, /kitsuStreamId: directStreamId/);
+  assert.match(src, /imdbSeason: video\?\.imdbSeason/);
+  assert.match(src, /imdbEpisode: video\?\.imdbEpisode/);
 });
 
 test("the resolved cour reaches AniList/MAL, not the row's base entry", async () => {

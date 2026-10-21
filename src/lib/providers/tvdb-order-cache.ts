@@ -30,6 +30,7 @@ type Serialized = {
   t: number;
   textEvidenceVersion?: number;
   seasons: Season[];
+  seasonNamesResolved?: boolean;
   bySeason: [number, OrderedEpisode[]][];
   absByEpId: [number, number][];
   imageByAbs: [number, string][];
@@ -37,8 +38,18 @@ type Serialized = {
 
 export function readOrderCache(seriesId: number, seasonType: string): TvdbOrder | null {
   try {
-    const raw = localStorage.getItem(`${PREFIX}${seriesId}:${seasonType}`);
+    const key = `${PREFIX}${seriesId}:${seasonType}`;
+    const legacyKey = `${PREFIX}${seriesId}:${seasonType.replace(/^(?:direct|proxy):/, "")}`;
+    const raw = localStorage.getItem(key) ?? localStorage.getItem(legacyKey);
     if (!raw) return null;
+    // Keep the new mode-scoped key on the next write so the legacy entry can expire naturally.
+    if (key !== legacyKey && !localStorage.getItem(key)) {
+      try {
+        localStorage.setItem(key, raw);
+      } catch {
+        /* reading the legacy entry is still valid */
+      }
+    }
     const s = JSON.parse(raw) as Serialized;
     if (!s || typeof s.t !== "number" || Date.now() - s.t > TTL) return null;
     if (isStaleTvdbOrder(s.bySeason)) return null;
@@ -54,9 +65,12 @@ export function readOrderCache(seriesId: number, seasonType: string): TvdbOrder 
     }
     return {
       seasons: s.seasons,
+      seasonNamesResolved: s.seasonNamesResolved,
       bySeason: new Map(s.bySeason),
       absByEpId: new Map(s.absByEpId),
-      imageByAbs: new Map(s.imageByAbs),
+      imageByAbs: new Map(
+        s.imageByAbs.filter(([absolute]) => Number.isInteger(absolute) && absolute > 0),
+      ),
     };
   } catch {
     return null;
@@ -69,6 +83,7 @@ export function writeOrderCache(seriesId: number, seasonType: string, order: Tvd
       t: Date.now(),
       textEvidenceVersion: 1,
       seasons: order.seasons,
+      seasonNamesResolved: order.seasonNamesResolved,
       bySeason: [...order.bySeason],
       absByEpId: [...order.absByEpId],
       imageByAbs: [...order.imageByAbs],

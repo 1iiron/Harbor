@@ -257,6 +257,7 @@ export type Settings = {
     | "regional"
     | "tmdb";
   tvdbOrderPanel: boolean;
+  tvdbSeasonExplorer: boolean;
   tvdbPin: string;
   harborAvatar: string | null;
   harborColor: string;

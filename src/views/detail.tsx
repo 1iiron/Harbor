@@ -485,11 +485,19 @@ export function DetailView({
   const addonNative = liveContext || isAddonNativeMeta(meta);
   const capstanMeta = useCapstanDetail(meta);
   const capstanCanonicalId = capstanMeta?.canonicalId ?? null;
-  const trailerCandidates = useMemo(() => Array.from(new Set([
-    ...(detail?.trailerCandidates ?? []),
-    ...(meta.trailerStreams?.map((trailer) => trailer.ytId) ?? []),
-    ...(meta.trailers?.map((trailer) => trailer.source) ?? []),
-  ].filter((id): id is string => !!id))), [detail?.trailerCandidates, meta.trailerStreams, meta.trailers]);
+  const trailerCandidates = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            ...(detail?.trailerCandidates ?? []),
+            ...(meta.trailerStreams?.map((trailer) => trailer.ytId) ?? []),
+            ...(meta.trailers?.map((trailer) => trailer.source) ?? []),
+          ].filter((id): id is string => !!id),
+        ),
+      ),
+    [detail?.trailerCandidates, meta.trailerStreams, meta.trailers],
+  );
   const trailerCandidate = trailerCandidates[0] ?? null;
 
   useScrollUpTrailer(
@@ -589,7 +597,9 @@ export function DetailView({
     void fetchCinemetaMeta(capstanMeta.kind === "series" ? "series" : "movie", id)
       .then((full) => {
         if (cancelled || !full?.videos?.length) return;
-        setCinemetaFull((prev) => (prev && prev.id === meta.id ? { ...prev, videos: full.videos } : full));
+        setCinemetaFull((prev) =>
+          prev && prev.id === meta.id ? { ...prev, videos: full.videos } : full,
+        );
       })
       .catch(() => {});
     return () => {
@@ -659,9 +669,8 @@ export function DetailView({
       if (k != null) k = await resolveDetailAnimeEntry(k, meta, detail);
       if (cancelled) return;
       if (k != null && k !== failedKitsu.current) {
-        const verdict = k === recordedKitsu
-          ? "ok"
-          : await kitsuYearVerdict(k, meta.releaseInfo, detail?.year);
+        const verdict =
+          k === recordedKitsu ? "ok" : await kitsuYearVerdict(k, meta.releaseInfo, detail?.year);
         if (cancelled) return;
         if (verdict === "ok") setDetectedKitsu(k);
         else if (verdict === "reject") {
@@ -1758,13 +1767,20 @@ export function DetailView({
       episodeName,
     ],
   );
+  const animeResumeTarget =
+    isAnime && lastPlay
+      ? animePlayEpisode(animeEpisodes, lastPlay, idAnime, animeCanonicalId)
+      : undefined;
   const smartPlayLabel =
     inSession && !liveContext
       ? t("Play Together")
       : isSeries && lastPlay
         ? t("Resume S{s}:E{e}", {
-            s: (lastPlay as { displaySeason?: number }).displaySeason ?? lastPlay.season,
-            e: lastPlay.episode,
+            s:
+              (lastPlay as { displaySeason?: number }).displaySeason ??
+              animeResumeTarget?.imdbSeason ??
+              lastPlay.season,
+            e: animeResumeTarget?.imdbEpisode ?? lastPlay.episode,
           })
         : t("Play");
 
@@ -1932,6 +1948,11 @@ export function DetailView({
       {heroAccolades}
     </>
   );
+
+  const hasHeroProviders = isAnime ? streamers.length > 0 : watchProviders.length > 0;
+  const hasHeroAside = !!(heroAwardsInline || hasHeroProviders);
+  const heroGridColumns =
+    overview && hasHeroAside ? "xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]" : "";
 
   return (
     <main
@@ -2264,10 +2285,18 @@ export function DetailView({
       </section>
 
       <div {...contentDrag} className="flex flex-col gap-16 px-12 pb-24 pt-14">
-        {(overview || heroAwardsInline) && (
-          <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
+        {(overview || hasHeroAside) && (
+          <div
+            className={`grid min-w-0 grid-cols-1 items-start gap-8 xl:gap-10 ${heroGridColumns}`}
+          >
             {overview && <Synopsis text={overview} />}
-            {heroAwardsInline && <div className="lg:ms-auto lg:shrink-0">{heroAwardsInline}</div>}
+            {hasHeroAside && (
+              <div className="flex min-w-0 flex-col gap-6">
+                {isAnime && streamers.length > 0 && <StreamingLinks streamers={streamers} />}
+                {!isAnime && watchProviders.length > 0 && <WatchOn providers={watchProviders} />}
+                {heroAwardsInline}
+              </div>
+            )}
           </div>
         )}
         {loading &&
@@ -2277,18 +2306,6 @@ export function DetailView({
           ) : (
             <EpisodeGridSkeleton />
           ))}
-
-        {isAnime && streamers.length > 0 && (
-          <FadeInUp>
-            <StreamingLinks streamers={streamers} />
-          </FadeInUp>
-        )}
-
-        {!isAnime && watchProviders.length > 0 && (
-          <FadeInUp>
-            <WatchOn providers={watchProviders} />
-          </FadeInUp>
-        )}
 
         {!liveContext &&
           detail &&
@@ -2311,6 +2328,9 @@ export function DetailView({
                 onSeasonArt={handleSeasonArt}
                 localizedOverview={localizedAnimeOverview}
                 seasonOverviews={detail.seasonOverviews}
+                tmdbTvId={detail.tmdbTvId}
+                tmdbSeasons={detail.seasons}
+                seasonPosters={detail.seasonPosters}
               />
             </FadeInUp>
           )}
@@ -2322,6 +2342,7 @@ export function DetailView({
               tvId={detail.id}
               imdbId={detail.imdbId ?? (meta.id.startsWith("tt") ? meta.id : null)}
               seasons={detail.seasons}
+              seasonPosters={detail.seasonPosters}
               lastEpisodeAir={detail.lastEpisodeAir}
               scrollRef={scrollRef}
               cinemetaVideos={cinemetaFull?.videos}
@@ -2348,6 +2369,9 @@ export function DetailView({
             <FadeInUp>
               <CinemetaEpisodes
                 meta={playMeta}
+                tmdbTvId={detail?.tmdbTvId}
+                seasonPosters={detail?.seasonPosters}
+                seasons={detail?.seasons}
                 imdbId={detail?.imdbId ?? (meta.id.startsWith("tt") ? meta.id : null)}
                 videos={cinemetaFull.videos}
                 stremioWatched={stremioWatched}
