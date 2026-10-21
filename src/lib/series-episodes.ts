@@ -22,9 +22,9 @@ import {
   preferredVideoOverview,
   resolveMeta,
 } from "./meta-resource";
-import { animeKitsuMeta } from "./providers/anime-kitsu-addon";
+import { animeKitsuMeta, type AnimeKitsuMeta } from "./providers/anime-kitsu-addon";
 import { kitsuToAnilist } from "./providers/anime-mapping";
-import { resolveAnimeEntry } from "./providers/anime-entry";
+import { nextAnimeEntry, resolveAnimeEntry } from "./providers/anime-entry";
 import { parseKitsuId } from "./providers/kitsu";
 import { aniZipByAnilist, aniZipByKitsu, pickEpisodeTitle } from "./providers/anizip";
 import { fetchTvdbProxyImages, pickTvdbImage } from "./providers/tvdb-proxy";
@@ -159,7 +159,12 @@ async function getNonStandardEpisodes(meta: Meta): Promise<PlayEpisode[] | null>
   return getAddonEpisodes(meta.id);
 }
 
-type Adjacent = { prev: PlayEpisode | null; next: PlayEpisode | null };
+type Adjacent = {
+  prev: PlayEpisode | null;
+  next: PlayEpisode | null;
+  prevMeta?: Meta;
+  nextMeta?: Meta;
+};
 
 const TT_CACHE_MAX = 800;
 const SEASON_CACHE_MAX = 400;
@@ -216,13 +221,15 @@ export async function fetchAdjacentEpisodes(
   opts: {
     tmdbKey: string;
     kitsuStreamId?: string;
+    imdbSeason?: number;
+    imdbEpisode?: number;
     skip?: (season: number, episode: number) => boolean;
   },
 ): Promise<Adjacent> {
   const animeSeries = animeSeriesFromStreamId(opts.kitsuStreamId);
   if (animeSeries) {
     const eps = await getAnimeEpisodes(animeSeries);
-    if (eps) return computeAdjacent(eps, current, opts.skip);
+    if (eps) return animeAdjacent(animeSeries, eps, current, opts);
   }
 
   if (meta.type !== "series" && !isAnimeId(meta.id)) return { prev: null, next: null };
@@ -245,6 +252,7 @@ export async function fetchAdjacentEpisodes(
 
   const eps = await getNonStandardEpisodes(meta);
   if (!eps) return { prev: null, next: null };
+  if (isAnimeId(meta.id)) return animeAdjacent(meta.id, eps, current, opts);
   return computeAdjacent(eps, current, opts.skip);
 }
 
@@ -494,6 +502,66 @@ function computeAdjacent(
     break;
   }
   return { prev, next };
+}
+
+function animeCurrentIndex(
+  eps: PlayEpisode[],
+  current: { season: number; episode: number },
+  hint: { kitsuStreamId?: string; imdbSeason?: number; imdbEpisode?: number },
+): number {
+  if (hint.kitsuStreamId) {
+    const exact = eps.findIndex((ep) => ep.kitsuStreamId === hint.kitsuStreamId);
+    if (exact >= 0) return exact;
+  }
+  if (hint.imdbSeason != null && hint.imdbEpisode != null) {
+    const mapped = eps.findIndex(
+      (ep) => ep.imdbSeason === hint.imdbSeason && ep.imdbEpisode === hint.imdbEpisode,
+    );
+    if (mapped >= 0) return mapped;
+  }
+  return eps.findIndex(
+    (ep) => ep.season === current.season && ep.episode === current.episode,
+  );
+}
+
+function animeMetaForEntry(id: string, meta: AnimeKitsuMeta | null): Meta | undefined {
+  if (!meta) return undefined;
+  return {
+    id,
+    type: "series",
+    name: meta.name,
+    poster: meta.poster,
+    background: meta.background,
+    logo: meta.logo,
+  };
+}
+
+async function animeAdjacent(
+  entryId: string,
+  eps: PlayEpisode[],
+  current: { season: number; episode: number },
+  opts: {
+    kitsuStreamId?: string;
+    imdbSeason?: number;
+    imdbEpisode?: number;
+    skip?: (season: number, episode: number) => boolean;
+  },
+): Promise<Adjacent> {
+  const idx = animeCurrentIndex(eps, current, opts);
+  if (idx < 0) return { prev: null, next: null };
+  const at = eps[idx];
+  const result = computeAdjacent(eps, { season: at.season, episode: at.episode }, opts.skip);
+  if (result.next) return result;
+  const sequel = await nextAnimeEntry(entryId);
+  if (!sequel || sequel.id === entryId) return result;
+  const nextEps = await getAnimeEpisodes(sequel.id);
+  const first = nextEps?.find((ep) => !opts.skip?.(ep.season, ep.episode));
+  if (!first) return result;
+  return {
+    ...result,
+    next: { ...first, sourceMetaId: sequel.id },
+    nextMeta: animeMetaForEntry(sequel.id, sequel.meta),
+  };
 }
 
 async function tmdbSeason(key: string, tvId: number, season: number): Promise<PlayEpisode[]> {

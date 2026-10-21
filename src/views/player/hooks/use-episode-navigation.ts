@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlayInvite } from "@/lib/together/protocol";
 import type { PlayerSrc, PlayEpisode } from "@/lib/view";
 import { isAddonNativeMeta, type Meta } from "@/lib/cinemeta";
@@ -80,10 +80,17 @@ export function useEpisodeNavigation(params: {
 }) {
   const { src, settings, inRoom, isHost, openPicker, replacePlayerSrc } = params;
 
-  const [adjacent, setAdjacent] = useState<{ prev: PlayEpisode | null; next: PlayEpisode | null }>({
+  const [adjacent, setAdjacent] = useState<{
+    prev: PlayEpisode | null;
+    next: PlayEpisode | null;
+    prevMeta?: Meta;
+    nextMeta?: Meta;
+  }>({
     prev: null,
     next: null,
   });
+  const adjacentRef = useRef(adjacent);
+  adjacentRef.current = adjacent;
 
   const localShowKey = isLocalUrl(src.url)
     ? {
@@ -103,6 +110,8 @@ export function useEpisodeNavigation(params: {
     fetchAdjacentEpisodes(src.meta, cur, {
       tmdbKey: settings.tmdbKey,
       kitsuStreamId: src.episode.kitsuStreamId,
+      imdbSeason: src.episode.imdbSeason,
+      imdbEpisode: src.episode.imdbEpisode,
       skip: settings.episodeHiding ? (s, e) => isEpisodeHidden(src.meta.id, s, e) : undefined,
     }).then((r) => {
       if (cancelled) return;
@@ -156,6 +165,12 @@ export function useEpisodeNavigation(params: {
         src.meta.id.startsWith("tt") && src.episode?.sourceMetaId && !ep.sourceMetaId
           ? { ...ep, sourceMetaId: src.episode.sourceMetaId }
           : ep;
+      const targetMeta =
+        ep.sourceMetaId && adjacentRef.current.nextMeta?.id === ep.sourceMetaId
+          ? adjacentRef.current.nextMeta
+          : ep.sourceMetaId && adjacentRef.current.prevMeta?.id === ep.sourceMetaId
+            ? adjacentRef.current.prevMeta
+            : src.meta;
       const withoutDownload = () => {
         if (localShowKey) {
           const local = findLocalEpisode(localShowKey, ep.season, ep.episode);
@@ -164,19 +179,19 @@ export function useEpisodeNavigation(params: {
             return;
           }
         }
-        openPicker(src.meta, carried, { autoPlay: true });
+        openPicker(targetMeta, carried, { autoPlay: true });
       };
       if (inRoom || settings.localPlaybackMode === "stream") {
         withoutDownload();
         return;
       }
-      void completedDownloadFor(src.meta.id, ep.season, ep.episode).then((item) => {
+      void completedDownloadFor(targetMeta.id, ep.season, ep.episode).then((item) => {
         if (!item) {
           withoutDownload();
           return;
         }
         replacePlayerSrc(
-          downloadPlayerSrc(src.meta, ep, item, { imdbId: src.imdbId, isAnime: src.isAnime }),
+          downloadPlayerSrc(targetMeta, ep, item, { imdbId: src.imdbId, isAnime: src.isAnime }),
         );
       }, withoutDownload);
     },
