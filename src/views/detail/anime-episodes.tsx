@@ -4,6 +4,7 @@ import { scrollToDataEp } from "@/lib/episode-scroll";
 import { type FranchiseEntry } from "@/lib/providers/anime-detail";
 import type { KitsuEpisode } from "@/lib/providers/kitsu";
 import { isUpcomingDate } from "@/lib/dates";
+import { airedOnly } from "@/lib/aired";
 import { useSettings } from "@/lib/settings";
 import { effectiveOrderProvider, tvdbPanelEnabled } from "@/lib/settings/episode-order";
 import { useView } from "@/lib/view";
@@ -35,6 +36,7 @@ import { useAnimeAiSearch } from "./anime-episodes/use-anime-ai-search";
 import { useAnimeProgressMap } from "./anime-episodes/use-anime-progress-map";
 import { useAnimePreferredSeason } from "./anime-episodes/use-anime-preferred-season";
 import { useAnimeTvdbPanel } from "./anime-episodes/use-anime-tvdb-panel";
+import { animeUpToEpisodeSlice } from "./anime-episodes/up-to-episodes";
 
 import { useFranchiseEpisodes } from "./anime-episodes/use-franchise-episodes";
 import { isFranchiseExtra } from "@/lib/providers/anime-detail";
@@ -527,6 +529,11 @@ export function AnimeEpisodes({
     settings,
   });
   const markSeason = (watched: boolean) => routing.markMany(displayEpisodes, watched);
+  // Cours share the season page but not a source entry, so mark the displayed
+  // order through the clicked card and write each entry's own watched keys.
+  const watchedMenuUpTo = watchedMenu
+    ? airedOnly(animeUpToEpisodeSlice(displayEpisodes, meta.id, watchedMenu), (ep) => ep.airdate)
+    : [];
 
   const orderedEpisodes = useMemo(
     () => (settings.episodeSort === "newest" ? displayEpisodes.slice().reverse() : displayEpisodes),
@@ -885,14 +892,10 @@ export function AnimeEpisodes({
                 }
           }
           target={watchedMenu}
-          allEpisodes={entryEpisodes
-            .filter((ep) => (ep.sourceMetaId ?? meta.id) === (watchedMenu.metaId ?? meta.id))
-            .map((ep) => ({
-              season: ep.seasonNumber ?? 1,
-              episode: ep.number,
-              released: ep.airdate ?? null,
-              absoluteNumber: ep.absoluteNumber,
-            }))}
+          upToScope={{
+            count: watchedMenuUpTo.length,
+            markWatched: () => routing.markMany(watchedMenuUpTo, true),
+          }}
           onClose={() => setWatchedMenu(null)}
         />
       )}

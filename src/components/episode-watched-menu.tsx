@@ -32,6 +32,12 @@ export type WatchedMenuTarget = {
   origin?: HTMLElement | null;
 };
 
+/** Caller-supplied scope for lists whose numbering repeats, such as anime cours. */
+export type EpisodeUpToScope = {
+  count: number;
+  markWatched: () => void | Promise<void>;
+};
+
 function airedByNow(released?: string | null): boolean {
   if (!released) return true;
   const date = Date.parse(released);
@@ -44,6 +50,7 @@ export function EpisodeWatchedMenu({
   meta,
   target,
   allEpisodes,
+  upToScope,
   onClose,
 }: {
   metaId: string;
@@ -51,6 +58,7 @@ export function EpisodeWatchedMenu({
   meta: ManualWatchedMeta;
   target: WatchedMenuTarget;
   allEpisodes?: Array<WatchedEpisode & { released?: string | null }>;
+  upToScope?: EpisodeUpToScope;
   onClose: () => void;
 }) {
   const t = useT();
@@ -107,25 +115,28 @@ export function EpisodeWatchedMenu({
   const actions = (): ContextAction[] => {
     const watched = manualWatchedState(metaId, target.season, target.episode) ?? target.watched;
     const started = !watched && readResumeEntry(metaId, target.season, target.episode) != null;
-    const upTo = [
-      ...new Map(
-        (allEpisodes ?? [])
-          .filter(
-            (episode) =>
-              airedByNow(episode.released) &&
-              (episode.season < target.season ||
-                (episode.season === target.season && episode.episode <= target.episode)),
-          )
-          .map((episode) => [
-            episode.season + ":" + episode.episode,
-            {
-              season: episode.season,
-              episode: episode.episode,
-              absoluteNumber: episode.absoluteNumber,
-            },
-          ]),
-      ).values(),
-    ];
+    const upTo = upToScope
+      ? []
+      : [
+          ...new Map(
+            (allEpisodes ?? [])
+              .filter(
+                (episode) =>
+                  airedByNow(episode.released) &&
+                  (episode.season < target.season ||
+                    (episode.season === target.season && episode.episode <= target.episode)),
+              )
+              .map((episode) => [
+                episode.season + ":" + episode.episode,
+                {
+                  season: episode.season,
+                  episode: episode.episode,
+                  absoluteNumber: episode.absoluteNumber,
+                },
+              ]),
+          ).values(),
+        ];
+    const upToCount = upToScope?.count ?? upTo.length;
     const result: ContextAction[] = [];
     if (!watched) {
       result.push({
@@ -138,10 +149,10 @@ export function EpisodeWatchedMenu({
       result.push({
         id: "episode:up-to",
         icon: <Eye size={14} />,
-        label: t("Mark {count} episodes up to here", { count: upTo.length }),
-        disabled: upTo.length === 0,
-        reason: upTo.length ? undefined : t("Episode information is unavailable."),
-        run: () => runWatched(true, upTo),
+        label: t("Mark {count} episodes up to here", { count: upToCount }),
+        disabled: upToCount === 0,
+        reason: upToCount ? undefined : t("Episode information is unavailable."),
+        run: upToScope ? upToScope.markWatched : () => runWatched(true, upTo),
         group: "watched",
       });
     }
