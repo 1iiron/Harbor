@@ -47,6 +47,7 @@ import {
 } from "../src/lib/nuvio/nuvio-playback";
 import { saveResumeMs, readResumeEntry, clearResume, clearAllNuvioResume } from "../src/lib/resume";
 import { saveLocalCw, listLocalCw, clearAllNuvioLocalCw } from "../src/lib/local-cw";
+import { signOutNuvio } from "../src/lib/nuvio/nuvio-auth";
 
 // Mock localStorage in node test environment
 const mockStorage = new Map<string, string>();
@@ -675,6 +676,144 @@ test("Review 3 Issue 3: Playback deletion updates account-scoped cache key", asy
       false,
       "Legacy un-scoped slot key must be purged",
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
+// ============================================================================
+// Review 4 Follow-Up Regression Checks (2 Critical Production Gates)
+// ============================================================================
+
+test("Review 4 Issue 1: Player resume autosave uses effective Nuvio profile, isolates accounts, and survives sign-out cleanup", async () => {
+  mockStorage.clear();
+
+  // Set account provider to Nuvio
+  mockStorage.set("harbor.account-provider", "nuvio");
+
+  // Account A signs in
+  saveNuvioState({
+    session: {
+      access_token: "tok-A",
+      refresh_token: "ref-A",
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      token_type: "bearer",
+      user: { id: "user-A" },
+    },
+    profiles: [
+      { id: "p1", user_id: "user-A", profile_index: 1, name: "Profile 1" },
+    ],
+    activeProfileIndex: 1,
+    lastSyncedAt: Date.now(),
+  });
+
+  // The player saves resume position passing a Harbor profile ID (e.g. "default") or undefined
+  // simulating useResumeAutosave / usePlayerExit:
+  saveResumeMs("tt-movie-a", 150000, undefined, undefined, undefined, 0.5, "nuvio", "default");
+
+  // Verify that shared harbor.resume key was NOT polluted
+  assert.equal(
+    mockStorage.has("harbor.resume"),
+    false,
+    "Nuvio playback must never write to shared harbor.resume key",
+  );
+
+  // Verify that the entry was stored in the account-scoped and profile-scoped key
+  const accAKey = "harbor.resume.private.v1.user-A.nuvio-1";
+  assert.ok(mockStorage.has(accAKey), "Must write to account-scoped Nuvio key");
+  assert.ok(mockStorage.get(accAKey)?.includes("tt-movie-a"));
+
+  // Verify that readResumeEntry reads the position for an ordinary, non-private profile in Nuvio mode
+  const entryA = readResumeEntry("tt-movie-a");
+  assert.ok(entryA !== null, "readResumeEntry must find position in Nuvio mode");
+  assert.equal(entryA?.ms, 150000);
+
+  // Account A signs out
+  await signOutNuvio();
+
+  // Verify that Account A's Nuvio resume cache is wiped
+  assert.equal(mockStorage.has(accAKey), false, "Sign-out must purge Nuvio resume data");
+
+  // Account B signs in
+  mockStorage.set("harbor.account-provider", "nuvio");
+  saveNuvioState({
+    session: {
+      access_token: "tok-B",
+      refresh_token: "ref-B",
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      token_type: "bearer",
+      user: { id: "user-B" },
+    },
+    profiles: [
+      { id: "pb1", user_id: "user-B", profile_index: 1, name: "Profile B1" },
+    ],
+    activeProfileIndex: 1,
+    lastSyncedAt: Date.now(),
+  });
+
+  // Account B must NOT see Account A's resume position
+  const entryB = readResumeEntry("tt-movie-a");
+  assert.equal(entryB, null, "Account B must not see Account A's resume position");
+
+  // Account B saves their own playback
+  saveResumeMs("tt-movie-a", 45000, undefined, undefined, undefined, 0.15, "nuvio", "default");
+  const accBKey = "harbor.resume.private.v1.user-B.nuvio-1";
+  assert.ok(mockStorage.has(accBKey), "Account B writes to their own key");
+  assert.equal(readResumeEntry("tt-movie-a")?.ms, 45000);
+  assert.equal(mockStorage.has("harbor.resume"), false, "Shared key remains unpolluted");
+});
+
+test("Review 4 Issue 2: In-flight library update to the same title preserves the newer version", async () => {
+  mockStorage.clear();
+
+  saveNuvioState({
+    session: {
+      access_token: "tok",
+      refresh_token: "ref",
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      token_type: "bearer",
+      user: { id: "u-same-test" },
+    },
+    profiles: [],
+    activeProfileIndex: 1,
+    lastSyncedAt: null,
+  });
+
+  // Initial pending upsert: version "Old" of title tt-same
+  const oldItem = {
+    content_id: "tt-same",
+    content_type: "movie",
+    name: "Old Title",
+    added_at: 1000,
+  };
+  writePendingUpserts(1, [oldItem], "u-same-test");
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url: any) => {
+    const urlStr = String(url || "");
+    // While the flush request is in flight sending "Old Title", user updates to "New Title"!
+    if (urlStr.includes("sync_push_library")) {
+      const newItem = {
+        content_id: "tt-same",
+        content_type: "movie",
+        name: "New Title",
+        added_at: 2000,
+      };
+      writePendingUpserts(1, [newItem], "u-same-test");
+    }
+    return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+  };
+
+  try {
+    const success = await flushNuvioLibraryMutations(1);
+    assert.equal(success, true, "Flush must succeed");
+
+    // The pending queue must NOT be empty: "New Title" must be preserved!
+    const remaining = readPendingUpserts(1, "u-same-test");
+    assert.equal(remaining.length, 1, "Newer update to same title must be preserved in pending queue");
+    assert.equal(remaining[0].name, "New Title");
+    assert.equal(remaining[0].added_at, 2000);
   } finally {
     globalThis.fetch = originalFetch;
   }

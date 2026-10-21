@@ -547,6 +547,31 @@ export async function pullNuvioLibraryDelta(
 // Debounce timer for pushing mutations
 const debounceTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
+function itemVersionFingerprint(item: NuvioLibraryItem): string {
+  if (!item) return "";
+  const normalized: Record<string, unknown> = {
+    content_id: String(item.content_id || "").trim(),
+    content_type: item.content_type || "movie",
+    name: item.name || "",
+    poster: item.poster || null,
+    poster_shape: item.poster_shape || "POSTER",
+    background: item.background || null,
+    logo: item.logo || null,
+    description: item.description || null,
+    release_info: item.release_info || null,
+    imdb_rating: typeof item.imdb_rating === "number" ? item.imdb_rating : null,
+    genres: Array.isArray(item.genres) ? [...item.genres] : [],
+    addon_base_url: item.addon_base_url || null,
+    added_at: item.added_at || 0,
+  };
+  for (const key of Object.keys(item).sort()) {
+    if (!(key in normalized)) {
+      normalized[key] = (item as any)[key];
+    }
+  }
+  return JSON.stringify(normalized);
+}
+
 /**
  * Immediately pushes any pending deletes and upserts to Nuvio Cloud for the specified slot.
  * Retries with fallback payloads and table endpoints if RPCs fail.
@@ -731,18 +756,11 @@ export async function flushNuvioLibraryMutations(slot: number): Promise<boolean>
 
       if (!isCurrentAccount()) return false;
       if (upOk) {
-        // Remove only changes acknowledged by this flush request; preserve new mutations queued in-flight
-        const acknowledgedUpsertKeys = new Set(
-          validUpserts.map((i) => `${i.content_type || "movie"}:${i.content_id.trim()}`),
-        );
-        for (const i of validUpserts) {
-          acknowledgedUpsertKeys.add(i.content_id.trim());
-        }
+        // Remove only the exact versions acknowledged by this flush request; preserve newer updates to the same title
+        const acknowledgedFingerprints = new Set(validUpserts.map(itemVersionFingerprint));
         const currentPending = readPendingUpserts(slot, startingAccountId);
         const remaining = currentPending.filter(
-          (i) =>
-            !acknowledgedUpsertKeys.has(`${i.content_type || "movie"}:${i.content_id.trim()}`) &&
-            !acknowledgedUpsertKeys.has(i.content_id.trim()),
+          (item) => !acknowledgedFingerprints.has(itemVersionFingerprint(item)),
         );
         writePendingUpserts(slot, remaining, startingAccountId);
       } else {
@@ -782,7 +800,7 @@ export function addNuvioLibraryItem(
 ): void {
   if (!item || !item.content_id || !item.content_id.trim()) return;
   const cleanId = item.content_id.trim();
-  const cleanItem = { ...item, content_id: cleanId };
+  const cleanItem = { ...item, content_id: cleanId, added_at: item.added_at ?? Date.now() };
 
   clearTombstone(slot, cleanId);
 
