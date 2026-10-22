@@ -1,9 +1,13 @@
-import { isNuvioProviderActive, getNuvioActiveSlot } from "./active-profile-id";
+import {
+  isNuvioProviderActive,
+  getNuvioActiveSlot,
+  activeProfileId,
+  primaryProfileId,
+} from "./active-profile-id";
 import type { LibraryItem } from "@/lib/stremio";
 import { noteNotify } from "@/lib/render-cause";
 import { persistCritical } from "@/lib/storage-recovery";
 
-const PROFILES_KEY = "harbor.profiles.v1";
 
 const PREFIXES = {
   watched: "harbor.manualwatched.v1.",
@@ -40,40 +44,7 @@ let dismissedCache: Set<string> | null = null;
 let unwatchedAtCache: Record<string, number> | null = null;
 let remoteCache: Set<string> | null = null;
 
-function activeProfileId(): string {
-  try {
-    const raw = localStorage.getItem(PROFILES_KEY);
-    if (!raw) return "";
-    const s = JSON.parse(raw) as {
-      activeId?: string;
-      profiles?: Array<{ id?: string; isPrimary?: boolean; shareStremioWith?: string | null }>;
-    };
-    const profiles = Array.isArray(s.profiles) ? s.profiles : [];
-    const active = profiles.find((p) => p.id === s.activeId) ?? null;
-    const own = active?.id ?? profiles.find((p) => p?.isPrimary)?.id ?? "";
-    if (!own) return "";
-    if (active && typeof active.shareStremioWith === "string" && active.shareStremioWith) {
-      const shared = profiles.find((p) => p.id === active.shareStremioWith);
-      if (shared?.id) return shared.id;
-    }
-    return own;
-  } catch {
-    return "";
-  }
-}
 
-function primaryProfileId(): string {
-  try {
-    const raw = localStorage.getItem(PROFILES_KEY);
-    const s = raw
-      ? (JSON.parse(raw) as { profiles?: Array<{ id?: string; isPrimary?: boolean }> })
-      : null;
-    const primary = s?.profiles?.find((p) => p?.isPrimary);
-    return (primary && typeof primary.id === "string" && primary.id) || activeProfileId();
-  } catch {
-    return activeProfileId();
-  }
-}
 
 function storeKey(kind: keyof typeof PREFIXES): string {
   if (isNuvioProviderActive()) {

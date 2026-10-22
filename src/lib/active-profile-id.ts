@@ -1,17 +1,63 @@
 const KEY = "harbor.profiles.v1";
 
-type MinimalProfile = { id: string; isPrimary?: boolean };
+type MinimalProfile = { id: string; isPrimary?: boolean; shareStremioWith?: string | null };
 type MinimalState = { profiles?: MinimalProfile[]; activeId?: string | null };
 
-function readState(): MinimalState | null {
+let cachedProfileRaw: string | null = null;
+let cachedActiveProfileId = "default";
+let cachedPrimaryProfileId = "default";
+let cachedState: MinimalState | null = null;
+
+function syncProfiles(): void {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as MinimalState;
+    if (raw === cachedProfileRaw) return;
+    cachedProfileRaw = raw;
+    if (!raw) {
+      cachedState = null;
+      cachedActiveProfileId = "default";
+      cachedPrimaryProfileId = "default";
+      return;
+    }
+    const parsed = JSON.parse(raw) as {
+      activeId?: string | null;
+      profiles?: Array<{ id?: string; isPrimary?: boolean; shareStremioWith?: string | null }>;
+    };
+    const validProfiles: MinimalProfile[] = Array.isArray(parsed.profiles)
+      ? parsed.profiles.filter(
+          (p): p is MinimalProfile => typeof p?.id === "string" && p.id.length > 0,
+        )
+      : [];
+    cachedState = {
+      activeId: parsed.activeId,
+      profiles: validProfiles,
+    };
+    const active = validProfiles.find((p) => p.id === parsed.activeId) ?? null;
+    let own = active?.id ?? validProfiles.find((p) => p.isPrimary)?.id ?? "";
+    if (active && typeof active.shareStremioWith === "string" && active.shareStremioWith) {
+      const shared = validProfiles.find((p) => p.id === active.shareStremioWith);
+      if (shared?.id) own = shared.id;
+    }
+    const primary = validProfiles.find((p) => p.isPrimary);
+    cachedActiveProfileId = own || "default";
+    cachedPrimaryProfileId = primary?.id || own || "default";
   } catch {
-    return null;
+    cachedProfileRaw = null;
+    cachedState = null;
+    cachedActiveProfileId = "default";
+    cachedPrimaryProfileId = "default";
   }
 }
+
+function readState(): MinimalState | null {
+  syncProfiles();
+  return cachedState;
+}
+
+let cachedExplicitProviderRaw: string | null = null;
+let cachedSettingsKey: string | null = null;
+let cachedSettingsRaw: string | null = null;
+let cachedNuvioActive = false;
 
 export function isNuvioProviderActive(): boolean {
   try {
@@ -21,23 +67,42 @@ export function isNuvioProviderActive(): boolean {
     for (const key of ["harbor.settings.shared", "harbor.settings", "harbor.settings.v1"]) {
       const raw = localStorage.getItem(key);
       if (raw) {
+        if (
+          raw === cachedSettingsRaw &&
+          key === cachedSettingsKey &&
+          explicit === cachedExplicitProviderRaw
+        ) {
+          return cachedNuvioActive;
+        }
+        cachedExplicitProviderRaw = explicit;
+        cachedSettingsKey = key;
+        cachedSettingsRaw = raw;
         const parsed = JSON.parse(raw);
-        if (parsed.accountProvider === "nuvio") return true;
-        if (parsed.accountProvider === "stremio") return false;
+        cachedNuvioActive = parsed.accountProvider === "nuvio";
+        return cachedNuvioActive;
       }
     }
   } catch {}
   return false;
 }
 
+let cachedNuvioSlotRaw: string | null = null;
+let cachedNuvioSlot = 1;
+
 export function getNuvioActiveSlot(): number {
   try {
-    const raw = localStorage.getItem("harbor.nuvio.state.v1") || localStorage.getItem("harbor.nuvio.state");
+    const raw =
+      localStorage.getItem("harbor.nuvio.state.v1") || localStorage.getItem("harbor.nuvio.state");
+    if (raw === cachedNuvioSlotRaw) return cachedNuvioSlot;
+    cachedNuvioSlotRaw = raw;
     if (raw) {
       const parsed = JSON.parse(raw);
-      return typeof parsed.activeProfileIndex === "number" ? parsed.activeProfileIndex : 1;
+      cachedNuvioSlot =
+        typeof parsed.activeProfileIndex === "number" ? parsed.activeProfileIndex : 1;
+      return cachedNuvioSlot;
     }
   } catch {}
+  cachedNuvioSlot = 1;
   return 1;
 }
 
@@ -49,8 +114,13 @@ export function activeScopedProfileId(): string {
 }
 
 export function activeProfileId(): string {
-  const s = readState();
-  return s?.activeId || "default";
+  syncProfiles();
+  return cachedActiveProfileId;
+}
+
+export function primaryProfileId(): string {
+  syncProfiles();
+  return cachedPrimaryProfileId;
 }
 
 export function isStremioActivePrimary(

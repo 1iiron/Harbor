@@ -4,16 +4,29 @@ import { privateCwProfileId } from "./cw-profile";
 const KEY = "harbor.resume";
 const PRIVATE_PREFIX = "harbor.resume.private.v1.";
 
+let cachedNuvioAccountRaw: string | null = null;
+let cachedNuvioAccountId = "anon";
+
 function nuvioAccountId(): string {
   try {
     const raw = localStorage.getItem("harbor.nuvio.state.v1") ?? localStorage.getItem("harbor.nuvio.state");
+    if (raw === cachedNuvioAccountRaw) return cachedNuvioAccountId;
+    cachedNuvioAccountRaw = raw;
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed?.session?.user?.id) return String(parsed.session.user.id);
+      if (parsed?.session?.user?.id) {
+        cachedNuvioAccountId = String(parsed.session.user.id);
+        return cachedNuvioAccountId;
+      }
     }
   } catch {}
+  cachedNuvioAccountId = "anon";
   return "anon";
 }
+
+let cachedProviderRaw: string | null = null;
+let cachedSettingsRaw: string | null = null;
+let cachedIsNuvioMode = false;
 
 function isNuvioMode(): boolean {
   try {
@@ -23,22 +36,35 @@ function isNuvioMode(): boolean {
     for (const key of ["harbor.settings.shared", "harbor.settings", "harbor.settings.v1"]) {
       const raw = localStorage.getItem(key);
       if (raw) {
+        if (raw === cachedSettingsRaw && explicit === cachedProviderRaw) {
+          return cachedIsNuvioMode;
+        }
+        cachedSettingsRaw = raw;
+        cachedProviderRaw = explicit;
         const parsed = JSON.parse(raw);
-        if (parsed.accountProvider === "nuvio") return true;
+        cachedIsNuvioMode = parsed.accountProvider === "nuvio";
+        return cachedIsNuvioMode;
       }
     }
   } catch {}
   return false;
 }
 
+let cachedSlotRaw: string | null = null;
+let cachedNuvioSlot = 1;
+
 function nuvioActiveSlot(): number {
   try {
     const raw = localStorage.getItem("harbor.nuvio.state.v1") || localStorage.getItem("harbor.nuvio.state");
+    if (raw === cachedSlotRaw) return cachedNuvioSlot;
+    cachedSlotRaw = raw;
     if (raw) {
       const parsed = JSON.parse(raw);
-      return typeof parsed.activeProfileIndex === "number" ? parsed.activeProfileIndex : 1;
+      cachedNuvioSlot = typeof parsed.activeProfileIndex === "number" ? parsed.activeProfileIndex : 1;
+      return cachedNuvioSlot;
     }
   } catch {}
+  cachedNuvioSlot = 1;
   return 1;
 }
 
