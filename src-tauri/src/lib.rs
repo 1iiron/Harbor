@@ -973,30 +973,33 @@ pub fn run() {
     let dvr_state = dvr::DvrState::new();
     let multiview_state = multiview::MultiviewState::new();
     let modal_overlay_state = modal_overlay::ModalOverlayState::new();
-    let app_builder = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            use tauri::{Emitter, Manager};
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-                #[cfg(windows)]
-                force_show_foreground(&w);
-            } else {
-                eprintln!("[harbor::single-instance] no main window to focus, releasing the lock");
-                app.exit(0);
-                return;
-            }
-            if cfg!(feature = "context-review") {
-                return;
-            }
-            if let Some(url) = args.iter().find(|a| a.starts_with("harbor://")) {
-                let _ = app.emit("harbor:stremio-deeplink", url.clone());
-            }
-            if let Some(path) = media_file_from_args(&args) {
-                let _ = app.emit("harbor:open-file", path);
-            }
-        }))
+    let app_builder = tauri::Builder::default();
+    // Dev builds can run alongside installed Harbor and other dev instances.
+    #[cfg(not(debug_assertions))]
+    let app_builder = app_builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        use tauri::{Emitter, Manager};
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.show();
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+            #[cfg(windows)]
+            force_show_foreground(&w);
+        } else {
+            eprintln!("[harbor::single-instance] no main window to focus, releasing the lock");
+            app.exit(0);
+            return;
+        }
+        if cfg!(feature = "context-review") {
+            return;
+        }
+        if let Some(url) = args.iter().find(|a| a.starts_with("harbor://")) {
+            let _ = app.emit("harbor:stremio-deeplink", url.clone());
+        }
+        if let Some(path) = media_file_from_args(&args) {
+            let _ = app.emit("harbor:open-file", path);
+        }
+    }));
+    let app_builder = app_builder
         // tauri-plugin-opener injects a page script that itself opens target="_blank" anchors, duplicating Harbor's own openUrl.
         .plugin(
             tauri_plugin_opener::Builder::new()
