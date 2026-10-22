@@ -1,7 +1,7 @@
 import {
   isNuvioProviderActive,
   getNuvioActiveSlot,
-  activeProfileId,
+  stremioProfileId as activeProfileId,
   primaryProfileId,
 } from "./active-profile-id";
 import { useSyncExternalStore } from "react";

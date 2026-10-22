@@ -1,13 +1,12 @@
 import {
   isNuvioProviderActive,
   getNuvioActiveSlot,
-  activeProfileId,
+  stremioProfileId as activeProfileId,
   primaryProfileId,
 } from "./active-profile-id";
 import type { LibraryItem } from "@/lib/stremio";
 import { noteNotify } from "@/lib/render-cause";
 import { persistCritical } from "@/lib/storage-recovery";
-
 
 const PREFIXES = {
   watched: "harbor.manualwatched.v1.",
@@ -43,8 +42,6 @@ let metaCache: Record<string, ManualWatchedMeta> | null = null;
 let dismissedCache: Set<string> | null = null;
 let unwatchedAtCache: Record<string, number> | null = null;
 let remoteCache: Set<string> | null = null;
-
-
 
 function storeKey(kind: keyof typeof PREFIXES): string {
   if (isNuvioProviderActive()) {
@@ -163,7 +160,10 @@ export function isManualWatchedDismissed(metaId: string): boolean {
   return dismissedSet().has(metaId);
 }
 
-export function dismissManualWatched(metaId: string, options: { acknowledged?: boolean } = {}): void {
+export function dismissManualWatched(
+  metaId: string,
+  options: { acknowledged?: boolean } = {},
+): void {
   ensureScope();
   const set = dismissedSet();
   if (set.has(metaId)) return;
@@ -265,11 +265,7 @@ export function manualEpisodeKeys(metaId: string): {
   return { watched: collect(watchedSet()), unwatched: collect(unwatchedSet()) };
 }
 
-
-export function reconcileNuvioWatchedEpisodes(
-  slot: number,
-  serverEpisodeKeys: Set<string>,
-): void {
+export function reconcileNuvioWatchedEpisodes(slot: number, serverEpisodeKeys: Set<string>): void {
   const sk = `${PREFIXES.watched}nuvio.${slot}`;
   const unsk = `${PREFIXES.unwatched}nuvio.${slot}`;
 

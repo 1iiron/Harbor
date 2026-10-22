@@ -1,4 +1,4 @@
-import { activeProfileId, primaryProfileId } from "./active-profile-id";
+import { stremioProfileId as activeProfileId, primaryProfileId } from "./active-profile-id";
 import { useSyncExternalStore } from "react";
 import { isMovieWatchedLocal, subscribeMovieWatched } from "./movie-watched";
 import { persistCritical } from "./storage-recovery";

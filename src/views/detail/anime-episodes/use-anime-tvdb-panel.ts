@@ -48,7 +48,6 @@ const normTitle = (s: string) =>
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, "");
 
-
 // A TVDB season binds to the franchise entry whose start date falls nearest to
 // the season's first aired episode; distant starts are no match at all.
 function entryStartingNear(franchise: FranchiseEntry[], from: string): FranchiseEntry | null {
@@ -285,7 +284,9 @@ export function useAnimeTvdbPanel(
         franchise && bucket.length > 0
           ? entryStartingNear(franchise, seasonDateRange(bucket).from ?? "")
           : null;
-      const entryRowsByNumber = seasonEntry ? (poolByEntryId.get(seasonEntry.meta.id) ?? new Map()) : new Map();
+      const entryRowsByNumber = seasonEntry
+        ? (poolByEntryId.get(seasonEntry.meta.id) ?? new Map())
+        : new Map();
       const now = Date.now();
       const rowAir = bucket.map((e) => {
         const poolDate = entryRowsByNumber.get(e.episodeNumber)?.airdate ?? null;

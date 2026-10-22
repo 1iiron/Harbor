@@ -5,7 +5,8 @@ type MinimalState = { profiles?: MinimalProfile[]; activeId?: string | null };
 
 let cachedProfileRaw: string | null = null;
 let cachedActiveProfileId = "default";
-let cachedPrimaryProfileId = "default";
+let cachedStremioProfileId = "";
+let cachedPrimaryProfileId = "";
 let cachedState: MinimalState | null = null;
 
 function syncProfiles(): void {
@@ -16,7 +17,8 @@ function syncProfiles(): void {
     if (!raw) {
       cachedState = null;
       cachedActiveProfileId = "default";
-      cachedPrimaryProfileId = "default";
+      cachedStremioProfileId = "";
+      cachedPrimaryProfileId = "";
       return;
     }
     const parsed = JSON.parse(raw) as {
@@ -39,13 +41,15 @@ function syncProfiles(): void {
       if (shared?.id) own = shared.id;
     }
     const primary = validProfiles.find((p) => p.isPrimary);
-    cachedActiveProfileId = own || "default";
-    cachedPrimaryProfileId = primary?.id || own || "default";
+    cachedActiveProfileId = parsed.activeId || "default";
+    cachedStremioProfileId = own;
+    cachedPrimaryProfileId = primary?.id || own;
   } catch {
     cachedProfileRaw = null;
     cachedState = null;
     cachedActiveProfileId = "default";
-    cachedPrimaryProfileId = "default";
+    cachedStremioProfileId = "";
+    cachedPrimaryProfileId = "";
   }
 }
 
@@ -54,10 +58,7 @@ function readState(): MinimalState | null {
   return cachedState;
 }
 
-let cachedExplicitProviderRaw: string | null = null;
-let cachedSettingsKey: string | null = null;
-let cachedSettingsRaw: string | null = null;
-let cachedNuvioActive = false;
+const cachedSettings = new Map<string, { raw: string; provider: unknown }>();
 
 export function isNuvioProviderActive(): boolean {
   try {
@@ -67,19 +68,13 @@ export function isNuvioProviderActive(): boolean {
     for (const key of ["harbor.settings.shared", "harbor.settings", "harbor.settings.v1"]) {
       const raw = localStorage.getItem(key);
       if (raw) {
-        if (
-          raw === cachedSettingsRaw &&
-          key === cachedSettingsKey &&
-          explicit === cachedExplicitProviderRaw
-        ) {
-          return cachedNuvioActive;
+        let cached = cachedSettings.get(key);
+        if (cached?.raw !== raw) {
+          cached = { raw, provider: JSON.parse(raw).accountProvider };
+          cachedSettings.set(key, cached);
         }
-        cachedExplicitProviderRaw = explicit;
-        cachedSettingsKey = key;
-        cachedSettingsRaw = raw;
-        const parsed = JSON.parse(raw);
-        cachedNuvioActive = parsed.accountProvider === "nuvio";
-        return cachedNuvioActive;
+        if (cached.provider === "nuvio") return true;
+        if (cached.provider === "stremio") return false;
       }
     }
   } catch {}
@@ -121,6 +116,12 @@ export function activeProfileId(): string {
 export function primaryProfileId(): string {
   syncProfiles();
   return cachedPrimaryProfileId;
+}
+
+/** Watched state follows the shared Stremio account, not the selected profile. */
+export function stremioProfileId(): string {
+  syncProfiles();
+  return cachedStremioProfileId;
 }
 
 export function isStremioActivePrimary(
