@@ -38,12 +38,11 @@ const SeasonCardTitle = memo(function SeasonCardTitle({
     if (!enabled || !viewport || !line) return;
     let cancelMeasure: (() => void) | undefined;
     const schedule = () => {
-      cancelMeasure?.();
       cancelMeasure = measureTitle(viewport, () => {
-        const overflow = Math.max(0, line.scrollWidth - viewport.clientWidth);
+        const overflow = Math.round(Math.max(0, line.scrollWidth - viewport.clientWidth));
         const rtl = getComputedStyle(line).direction === "rtl";
         const next = overflow > 1 ? (rtl ? overflow : -overflow) : 0;
-        return () => setDistance(next);
+        return () => setDistance((prev) => (prev === next ? prev : next));
       });
     };
     schedule();

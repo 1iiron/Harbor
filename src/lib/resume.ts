@@ -4,16 +4,28 @@ import { privateCwProfileId } from "./cw-profile";
 const KEY = "harbor.resume";
 const PRIVATE_PREFIX = "harbor.resume.private.v1.";
 
+let cachedNuvioAccountRaw: string | null = null;
+let cachedNuvioAccountId = "anon";
+
 function nuvioAccountId(): string {
   try {
-    const raw = localStorage.getItem("harbor.nuvio.state.v1") ?? localStorage.getItem("harbor.nuvio.state");
+    const raw =
+      localStorage.getItem("harbor.nuvio.state.v1") ?? localStorage.getItem("harbor.nuvio.state");
+    if (raw === cachedNuvioAccountRaw) return cachedNuvioAccountId;
+    cachedNuvioAccountRaw = raw;
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed?.session?.user?.id) return String(parsed.session.user.id);
+      if (parsed?.session?.user?.id) {
+        cachedNuvioAccountId = String(parsed.session.user.id);
+        return cachedNuvioAccountId;
+      }
     }
   } catch {}
+  cachedNuvioAccountId = "anon";
   return "anon";
 }
+
+const cachedSettings = new Map<string, { raw: string; provider: unknown }>();
 
 function isNuvioMode(): boolean {
   try {
@@ -23,22 +35,35 @@ function isNuvioMode(): boolean {
     for (const key of ["harbor.settings.shared", "harbor.settings", "harbor.settings.v1"]) {
       const raw = localStorage.getItem(key);
       if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed.accountProvider === "nuvio") return true;
+        let cached = cachedSettings.get(key);
+        if (cached?.raw !== raw) {
+          cached = { raw, provider: JSON.parse(raw).accountProvider };
+          cachedSettings.set(key, cached);
+        }
+        if (cached.provider === "nuvio") return true;
       }
     }
   } catch {}
   return false;
 }
 
+let cachedSlotRaw: string | null = null;
+let cachedNuvioSlot = 1;
+
 function nuvioActiveSlot(): number {
   try {
-    const raw = localStorage.getItem("harbor.nuvio.state.v1") || localStorage.getItem("harbor.nuvio.state");
+    const raw =
+      localStorage.getItem("harbor.nuvio.state.v1") || localStorage.getItem("harbor.nuvio.state");
+    if (raw === cachedSlotRaw) return cachedNuvioSlot;
+    cachedSlotRaw = raw;
     if (raw) {
       const parsed = JSON.parse(raw);
-      return typeof parsed.activeProfileIndex === "number" ? parsed.activeProfileIndex : 1;
+      cachedNuvioSlot =
+        typeof parsed.activeProfileIndex === "number" ? parsed.activeProfileIndex : 1;
+      return cachedNuvioSlot;
     }
   } catch {}
+  cachedNuvioSlot = 1;
   return 1;
 }
 
@@ -155,10 +180,7 @@ export function saveResumeBatch(
 ): void {
   if (entries.length === 0) return;
   const eff = effectiveOwner(ownerId);
-  const key =
-    eff && eff.startsWith("nuvio-")
-      ? `${PRIVATE_PREFIX}${nuvioAccountId()}.${eff}`
-      : KEY;
+  const key = eff && eff.startsWith("nuvio-") ? `${PRIVATE_PREFIX}${nuvioAccountId()}.${eff}` : KEY;
   const all = readAll(key);
   const now = Date.now();
   for (const e of entries) {
@@ -178,7 +200,12 @@ export function saveResumeBatch(
   writeAll(all, key);
 }
 
-export function readResumeMs(id: string, season?: number, episode?: number, ownerId?: string): number {
+export function readResumeMs(
+  id: string,
+  season?: number,
+  episode?: number,
+  ownerId?: string,
+): number {
   const all = readAll(readKey(ownerId));
   return all[entryKey(id, season, episode)]?.ms ?? 0;
 }
@@ -216,11 +243,7 @@ export function clearAllNuvioResume(): void {
     const toRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (
-        key &&
-        (key.startsWith("harbor.resume.private.v1.nuvio-") ||
-          key.includes(".nuvio-"))
-      ) {
+      if (key && (key.startsWith("harbor.resume.private.v1.nuvio-") || key.includes(".nuvio-"))) {
         toRemove.push(key);
       }
     }
